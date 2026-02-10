@@ -19,40 +19,8 @@ export default function Home() {
       <main className="min-h-screen pt-14">
         <HeroSection />
 
-        {/* Driver View + Pit Engineer View — side by side */}
+        {/* Car Schematic */}
         <section className="relative mx-auto max-w-7xl px-4 pb-8">
-          <div className="mb-6 text-center">
-            <h2 className="text-lg font-bold tracking-tight text-foreground sm:text-xl">
-              Live Telemetry Views
-            </h2>
-            <p className="mt-1 text-sm text-foreground/50">
-              Driver gauge cluster (left) and pit engineer dashboard (right) — same data, different perspectives
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            {/* Driver View */}
-            <div>
-              <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-foreground/40">
-                Driver View — Kenwood Excelon 800x480
-              </div>
-              <DriverDisplay state={state} />
-            </div>
-
-            {/* Pit Engineer View */}
-            <div className="flex flex-col">
-              <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-foreground/40">
-                Pit Engineer — Cloud Monitor
-              </div>
-              <div className="flex-1" style={{ minHeight: 320 }}>
-                <PitEngineerView state={state} />
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Existing Car Schematic */}
-        <section className="relative mx-auto max-w-7xl px-4 pb-16">
           <div
             className={`transition-all duration-300 ${
               selectedNodeId ? "mr-0 lg:mr-96" : ""
@@ -94,6 +62,38 @@ export default function Home() {
             <div className="flex items-center gap-1.5">
               <span className="inline-block h-3 w-3 border-t-2 border-csi" />
               CSI
+            </div>
+          </div>
+        </section>
+
+        {/* Driver View + Pit Engineer View — side by side */}
+        <section className="relative mx-auto max-w-7xl px-4 pb-16">
+          <div className="mb-6 text-center">
+            <h2 className="text-lg font-bold tracking-tight text-foreground sm:text-xl">
+              Live Telemetry Views
+            </h2>
+            <p className="mt-1 text-sm text-foreground/50">
+              Driver gauge cluster (left) and pit engineer dashboard (right) — same data, different perspectives
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {/* Driver View */}
+            <div>
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-foreground/40">
+                Driver View — Kenwood Excelon 800x480
+              </div>
+              <DriverDisplay state={state} />
+            </div>
+
+            {/* Pit Engineer View */}
+            <div className="flex flex-col">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-foreground/40">
+                Pit Engineer — Cloud Monitor
+              </div>
+              <div className="flex-1" style={{ minHeight: 320 }}>
+                <PitEngineerView state={state} />
+              </div>
             </div>
           </div>
         </section>
