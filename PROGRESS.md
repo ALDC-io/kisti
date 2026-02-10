@@ -31,8 +31,9 @@
 - [x] robots.txt
 - [x] OG metadata
 
-## Phase 6: Deployment + DNS — IN PROGRESS
+## Phase 6: Deployment + DNS — COMPLETE
 - [x] Push to GitHub
-- [ ] Connect Vercel
-- [ ] Cloudflare CNAME
-- [ ] Smoke test
+- [x] Connect Vercel (ALDC team, auto-deploy on push)
+- [x] Cloudflare A record → 76.76.21.21
+- [x] SSL provisioned via Let's Encrypt
+- [x] Smoke test: all 4 routes return 200 on kisti.analyticlabs.io
