@@ -8,6 +8,7 @@ import CloudSyncIndicator from "./CloudSyncIndicator";
 
 const TYPE_LABELS: Record<string, string> = {
   sensor: "Sensor Node",
+  camera: "Camera / Vision",
   ecu: "Engine Control Unit",
   "edge-compute": "Edge Compute",
 };
@@ -93,7 +94,7 @@ export default function NodeSidebar({
               })
               .map(([id, s]) => {
                 const n = getNode(id);
-                if (!n || n.type !== "sensor") return null;
+                if (!n || (n.type !== "sensor" && n.type !== "camera")) return null;
                 return <TelemetryCard key={id} node={n} stream={s} />;
               })}
           </div>

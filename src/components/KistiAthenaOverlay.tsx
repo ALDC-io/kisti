@@ -5,6 +5,7 @@ import { NodeDef, EdgeDef, TelemetryStream } from "@/lib/types";
 
 const NODE_COLORS: Record<string, string> = {
   sensor: "#10b981",
+  camera: "#06b6d4",
   ecu: "#f59e0b",
   "edge-compute": "#8b5cf6",
 };
@@ -12,6 +13,7 @@ const NODE_COLORS: Record<string, string> = {
 const EDGE_COLORS: Record<string, string> = {
   can: "#3b82f6",
   usb: "#ec4899",
+  csi: "#f97316",
   wifi: "#06b6d4",
 };
 
@@ -161,6 +163,38 @@ export default function KistiAthenaOverlay({
                     style={{ pointerEvents: "none" }}
                   />
                 </>
+              ) : node.type === "camera" ? (
+                <>
+                  {/* Camera node — rounded rect with lens icon */}
+                  <rect
+                    x={node.x - 3}
+                    y={node.y - 2}
+                    width={6}
+                    height={4}
+                    rx={0.8}
+                    fill={`${color}20`}
+                    stroke={color}
+                    strokeWidth={isSelected ? 0.4 : 0.25}
+                  />
+                  {/* Lens circle */}
+                  <circle
+                    cx={node.x}
+                    cy={node.y}
+                    r={1.2}
+                    fill="none"
+                    stroke={color}
+                    strokeWidth={0.3}
+                    style={{ pointerEvents: "none" }}
+                  />
+                  <circle
+                    cx={node.x}
+                    cy={node.y}
+                    r={0.5}
+                    fill={color}
+                    opacity={0.6}
+                    style={{ pointerEvents: "none" }}
+                  />
+                </>
               ) : (
                 /* Sensor node circle */
                 <circle
@@ -176,9 +210,9 @@ export default function KistiAthenaOverlay({
               {/* Label */}
               <text
                 x={node.x}
-                y={node.y - (node.type === "ecu" || node.type === "edge-compute" ? 4 : radius + 1.5)}
+                y={node.y - (node.type === "ecu" || node.type === "edge-compute" ? 4 : node.type === "camera" ? 3.5 : radius + 1.5)}
                 textAnchor="middle"
-                fontSize="2.2"
+                fontSize={node.type === "camera" ? "1.8" : "2.2"}
                 fill={color}
                 fontWeight={isSelected ? "bold" : "normal"}
                 style={{ pointerEvents: "none" }}
@@ -190,9 +224,9 @@ export default function KistiAthenaOverlay({
               {stream && (
                 <text
                   x={node.x}
-                  y={node.y + (node.type === "ecu" || node.type === "edge-compute" ? 4.5 : 0.8)}
+                  y={node.y + (node.type === "ecu" || node.type === "edge-compute" ? 4.5 : node.type === "camera" ? 3.8 : 0.8)}
                   textAnchor="middle"
-                  fontSize="2"
+                  fontSize={node.type === "camera" ? "1.6" : "2"}
                   fill={STATUS_COLORS[stream.current.status]}
                   fontFamily="monospace"
                   style={{ pointerEvents: "none" }}

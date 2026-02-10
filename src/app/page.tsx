@@ -37,6 +37,10 @@ export default function Home() {
               Sensor
             </div>
             <div className="flex items-center gap-1.5">
+              <span className="inline-block h-2 w-2 rounded-full bg-camera" />
+              Camera
+            </div>
+            <div className="flex items-center gap-1.5">
               <span className="inline-block h-2 w-2 rounded-full bg-ecu" />
               ECU
             </div>
@@ -51,6 +55,10 @@ export default function Home() {
             <div className="flex items-center gap-1.5">
               <span className="inline-block h-3 w-3 border-t-2 border-usb" />
               USB 3.0
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="inline-block h-3 w-3 border-t-2 border-csi" />
+              CSI
             </div>
           </div>
         </section>

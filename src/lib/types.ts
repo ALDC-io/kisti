@@ -1,6 +1,6 @@
-export type NodeType = "sensor" | "ecu" | "edge-compute";
+export type NodeType = "sensor" | "camera" | "ecu" | "edge-compute";
 
-export type ConnectionType = "can" | "usb" | "wifi";
+export type ConnectionType = "can" | "usb" | "csi" | "wifi";
 
 export type SeverityLevel = "info" | "warning" | "critical";
 

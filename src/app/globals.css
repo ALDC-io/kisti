@@ -8,12 +8,14 @@
 
   /* Node colors */
   --color-sensor: #10b981;
+  --color-camera: #06b6d4;
   --color-ecu: #f59e0b;
   --color-edge-compute: #8b5cf6;
 
   /* Connection colors */
   --color-can: #3b82f6;
   --color-usb: #ec4899;
+  --color-csi: #f97316;
   --color-wifi: #06b6d4;
 
   /* Status colors */

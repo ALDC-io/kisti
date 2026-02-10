@@ -1,7 +1,7 @@
 import { NodeDef, EdgeDef } from "./types";
 
 /**
- * 14 nodes positioned on a 2014 Subaru STI schematic.
+ * 19 nodes positioned on a 2014 Subaru STI schematic.
  * Coordinates are percentages (0-100) of the viewport.
  * Layout: car viewed from above, front at top.
  */
@@ -153,17 +153,83 @@ export const NODES: NodeDef[] = [
     description: "Engine oil temperature — lubrication health",
   },
   {
+    id: "oil-pressure",
+    label: "Oil Pres",
+    type: "sensor",
+    x: 40,
+    y: 45,
+    unit: "PSI",
+    min: 0,
+    max: 100,
+    warnThreshold: 15,
+    hotThreshold: 10,
+    description: "Engine oil pressure — lubrication system health, low = critical",
+  },
+  {
     id: "wideband",
     label: "Wideband O₂",
     type: "sensor",
-    x: 50,
-    y: 48,
+    x: 60,
+    y: 45,
     unit: "AFR",
     min: 10,
     max: 18,
     warnThreshold: 14.7,
     hotThreshold: 12,
     description: "Wideband oxygen sensor — air/fuel ratio monitoring",
+  },
+  // Front-mounted cameras — across the front bumper
+  {
+    id: "teledyne-ir",
+    label: "Teledyne IR",
+    type: "camera",
+    x: 30,
+    y: 8,
+    unit: "FPS",
+    min: 0,
+    max: 60,
+    warnThreshold: 20,
+    hotThreshold: 10,
+    description: "Teledyne FLIR thermal camera — infrared heat mapping of track surface and obstacles",
+  },
+  {
+    id: "lidar",
+    label: "LiDAR",
+    type: "camera",
+    x: 44,
+    y: 5,
+    unit: "FPS",
+    min: 0,
+    max: 30,
+    warnThreshold: 10,
+    hotThreshold: 5,
+    description: "3D LiDAR depth sensor — point cloud mapping for distance and object detection",
+  },
+  {
+    id: "rgb-cam",
+    label: "RGB Cam",
+    type: "camera",
+    x: 56,
+    y: 5,
+    unit: "FPS",
+    min: 0,
+    max: 120,
+    warnThreshold: 25,
+    hotThreshold: 15,
+    description: "High-speed RGB camera — visual telemetry, driver monitoring, track recording",
+  },
+  {
+    id: "weather-cam",
+    label: "Weather Cam",
+    type: "camera",
+    x: 70,
+    y: 8,
+    unit: "FPS",
+    min: 0,
+    max: 30,
+    warnThreshold: 10,
+    hotThreshold: 5,
+    description: "Weather and ambient conditions camera — rain, fog, light detection for adaptive driving",
   },
   // Link ECU G4X — center of car
   {
@@ -197,7 +263,7 @@ export const NODES: NodeDef[] = [
 ];
 
 /**
- * 13 edges: 12 sensors → ECU (CAN bus), ECU → Jetson (USB)
+ * 18 edges: 13 sensors → ECU (CAN), 4 cameras → Jetson (USB/CSI), ECU → Jetson (USB)
  */
 export const EDGES: EdgeDef[] = [
   {
@@ -272,6 +338,13 @@ export const EDGES: EdgeDef[] = [
     label: "CAN",
   },
   {
+    id: "oil-pressure-ecu",
+    source: "oil-pressure",
+    target: "ecu",
+    type: "can",
+    label: "CAN",
+  },
+  {
     id: "wideband-ecu",
     source: "wideband",
     target: "ecu",
@@ -284,6 +357,35 @@ export const EDGES: EdgeDef[] = [
     target: "jetson",
     type: "usb",
     label: "USB 3.0",
+  },
+  // Cameras → Jetson directly
+  {
+    id: "teledyne-jetson",
+    source: "teledyne-ir",
+    target: "jetson",
+    type: "usb",
+    label: "USB 3.0",
+  },
+  {
+    id: "lidar-jetson",
+    source: "lidar",
+    target: "jetson",
+    type: "usb",
+    label: "USB 3.0",
+  },
+  {
+    id: "rgb-jetson",
+    source: "rgb-cam",
+    target: "jetson",
+    type: "csi",
+    label: "CSI",
+  },
+  {
+    id: "weather-jetson",
+    source: "weather-cam",
+    target: "jetson",
+    type: "csi",
+    label: "CSI",
   },
 ];
 

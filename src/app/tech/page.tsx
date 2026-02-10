@@ -4,23 +4,29 @@ const PIPELINE_STAGES = [
   {
     title: "1. Sensor Layer",
     description:
-      "12 high-frequency sensors (brake temps, tire temps, EGT, boost, oil temp, wideband O₂) sample at 4-10Hz via analog/CAN interfaces.",
-    detail: "Brake FL/FR/RL/RR thermocouples, tire FL/FR/RL/RR infrared sensors, K-type EGT probe, MAP sensor, NTC thermistor, Bosch LSU 4.9 wideband.",
+      "13 high-frequency sensors (brake temps, tire temps, EGT, boost, oil temp/pressure, wideband O₂) sample at 4-10Hz via analog/CAN interfaces.",
+    detail: "Brake FL/FR/RL/RR thermocouples, tire FL/FR/RL/RR infrared sensors, K-type EGT probe, MAP sensor, NTC thermistor, oil pressure sender, Bosch LSU 4.9 wideband.",
   },
   {
-    title: "2. ECU Aggregation",
+    title: "2. Vision Layer",
+    description:
+      "4 front-mounted cameras feed directly to the Jetson Orin via USB 3.0 and CSI — thermal, depth, visual, and weather sensing.",
+    detail: "Teledyne FLIR thermal IR, 3D LiDAR point cloud, high-speed RGB camera, weather/ambient conditions camera.",
+  },
+  {
+    title: "3. ECU Aggregation",
     description:
       "Link G4X ECU receives all sensor data via CAN bus, applies calibration tables, and streams merged telemetry over USB.",
     detail: "500Kbps CAN, 100+ channels available, configurable output rates, real-time fuel/ignition corrections.",
   },
   {
-    title: "3. Edge Inference",
+    title: "4. Edge Inference",
     description:
-      "NVIDIA Jetson Orin processes telemetry at the edge — anomaly detection, pattern matching, and predictive diagnostics in <50ms.",
-    detail: "40 TOPS AI performance, TensorRT optimized models, local data buffering when offline.",
+      "NVIDIA Jetson Orin processes telemetry and vision data at the edge — anomaly detection, pattern matching, and predictive diagnostics in <50ms.",
+    detail: "40 TOPS AI performance, TensorRT optimized models, 4 camera inputs, local data buffering when offline.",
   },
   {
-    title: "4. Cloud Sync",
+    title: "5. Cloud Sync",
     description:
       "Zeus Memory ingests telemetry via WiFi/cellular with store-and-forward. AI findings surface in real-time dashboards.",
     detail: "pgvector semantic search, 3.5M+ memories, automatic embedding via Voyage AI, Slack/email alerts.",
@@ -48,7 +54,7 @@ export default function TechPage() {
               System Architecture
             </h2>
             <div className="mt-4 flex flex-col items-center gap-2 sm:flex-row sm:justify-center sm:gap-4">
-              {["Sensors", "CAN Bus", "Link G4X", "USB", "Jetson Orin", "WiFi", "Zeus Cloud"].map(
+              {["Sensors", "CAN", "Link G4X", "USB", "Jetson Orin", "WiFi", "Zeus Cloud"].map(
                 (stage, i) => (
                   <div key={stage} className="flex items-center gap-2">
                     <span className="rounded-md bg-kisti-accent/15 px-3 py-1.5 text-sm font-medium text-kisti-accent">
@@ -62,6 +68,22 @@ export default function TechPage() {
                   </div>
                 )
               )}
+              <div className="mt-3 flex flex-col items-center gap-2 sm:flex-row sm:justify-center sm:gap-4">
+                {["Cameras", "USB/CSI", "Jetson Orin"].map(
+                  (stage, i) => (
+                    <div key={`cam-${stage}`} className="flex items-center gap-2">
+                      <span className="rounded-md bg-cyan-500/15 px-3 py-1.5 text-sm font-medium text-cyan-400">
+                        {stage}
+                      </span>
+                      {i < 2 && (
+                        <span className="hidden text-foreground/30 sm:inline">
+                          →
+                        </span>
+                      )}
+                    </div>
+                  )
+                )}
+              </div>
             </div>
           </div>
 
@@ -91,7 +113,7 @@ export default function TechPage() {
           {/* Specs */}
           <div className="mt-12 grid gap-4 sm:grid-cols-3">
             {[
-              { label: "Sensor Channels", value: "12" },
+              { label: "Sensor Channels", value: "17" },
               { label: "Sample Rate", value: "4-10 Hz" },
               { label: "Edge Latency", value: "<50ms" },
               { label: "CAN Speed", value: "500 Kbps" },

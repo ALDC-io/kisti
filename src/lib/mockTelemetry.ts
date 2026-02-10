@@ -26,9 +26,14 @@ const BASELINES: Record<string, number> = {
   egt: 1350,
   boost: 18,
   "oil-temp": 215,
+  "oil-pressure": 55,
   wideband: 14.2,
+  "teledyne-ir": 30,
+  lidar: 20,
+  "rgb-cam": 60,
+  "weather-cam": 15,
   ecu: 45,
-  jetson: 52,
+  jetson: 62,
 };
 
 /** Noise magnitude per sensor */
@@ -44,7 +49,12 @@ const NOISE: Record<string, number> = {
   egt: 40,
   boost: 2,
   "oil-temp": 5,
+  "oil-pressure": 4,
   wideband: 0.3,
+  "teledyne-ir": 2,
+  lidar: 1.5,
+  "rgb-cam": 3,
+  "weather-cam": 1,
   ecu: 8,
   jetson: 6,
 };
