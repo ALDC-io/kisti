@@ -4,8 +4,8 @@ const PIPELINE_STAGES = [
   {
     title: "1. Sensor Layer",
     description:
-      "8 high-frequency sensors (brake temps, EGT, boost, oil temp, wideband O₂) sample at 4-10Hz via analog/CAN interfaces.",
-    detail: "Brake FL/FR/RL/RR thermocouples, K-type EGT probe, MAP sensor, NTC thermistor, Bosch LSU 4.9 wideband.",
+      "12 high-frequency sensors (brake temps, tire temps, EGT, boost, oil temp, wideband O₂) sample at 4-10Hz via analog/CAN interfaces.",
+    detail: "Brake FL/FR/RL/RR thermocouples, tire FL/FR/RL/RR infrared sensors, K-type EGT probe, MAP sensor, NTC thermistor, Bosch LSU 4.9 wideband.",
   },
   {
     title: "2. ECU Aggregation",
@@ -91,7 +91,7 @@ export default function TechPage() {
           {/* Specs */}
           <div className="mt-12 grid gap-4 sm:grid-cols-3">
             {[
-              { label: "Sensor Channels", value: "8" },
+              { label: "Sensor Channels", value: "12" },
               { label: "Sample Rate", value: "4-10 Hz" },
               { label: "Edge Latency", value: "<50ms" },
               { label: "CAN Speed", value: "500 Kbps" },

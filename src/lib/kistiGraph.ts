@@ -1,18 +1,18 @@
 import { NodeDef, EdgeDef } from "./types";
 
 /**
- * 10 nodes positioned on a 2014 Subaru STI schematic.
+ * 14 nodes positioned on a 2014 Subaru STI schematic.
  * Coordinates are percentages (0-100) of the viewport.
  * Layout: car viewed from above, front at top.
  */
 export const NODES: NodeDef[] = [
-  // Brake sensors — four corners of the car
+  // Brake sensors — four corners, inboard of wheels
   {
     id: "brake-fl",
     label: "Brake FL",
     type: "sensor",
-    x: 28,
-    y: 22,
+    x: 30,
+    y: 20,
     unit: "°F",
     min: 150,
     max: 800,
@@ -24,8 +24,8 @@ export const NODES: NodeDef[] = [
     id: "brake-fr",
     label: "Brake FR",
     type: "sensor",
-    x: 72,
-    y: 22,
+    x: 70,
+    y: 20,
     unit: "°F",
     min: 150,
     max: 800,
@@ -37,8 +37,8 @@ export const NODES: NodeDef[] = [
     id: "brake-rl",
     label: "Brake RL",
     type: "sensor",
-    x: 28,
-    y: 78,
+    x: 30,
+    y: 76,
     unit: "°F",
     min: 100,
     max: 600,
@@ -50,14 +50,67 @@ export const NODES: NodeDef[] = [
     id: "brake-rr",
     label: "Brake RR",
     type: "sensor",
-    x: 72,
-    y: 78,
+    x: 70,
+    y: 76,
     unit: "°F",
     min: 100,
     max: 600,
     warnThreshold: 350,
     hotThreshold: 500,
     description: "Rear-right brake rotor temperature sensor",
+  },
+  // Tire sensors — four corners, outboard of brakes
+  {
+    id: "tire-fl",
+    label: "Tire FL",
+    type: "sensor",
+    x: 19,
+    y: 20,
+    unit: "°F",
+    min: 80,
+    max: 250,
+    warnThreshold: 200,
+    hotThreshold: 230,
+    description: "Front-left tire surface temperature — grip & wear indicator",
+  },
+  {
+    id: "tire-fr",
+    label: "Tire FR",
+    type: "sensor",
+    x: 81,
+    y: 20,
+    unit: "°F",
+    min: 80,
+    max: 250,
+    warnThreshold: 200,
+    hotThreshold: 230,
+    description: "Front-right tire surface temperature — elevated from brake heat soak",
+  },
+  {
+    id: "tire-rl",
+    label: "Tire RL",
+    type: "sensor",
+    x: 19,
+    y: 76,
+    unit: "°F",
+    min: 80,
+    max: 220,
+    warnThreshold: 180,
+    hotThreshold: 210,
+    description: "Rear-left tire surface temperature — traction monitoring",
+  },
+  {
+    id: "tire-rr",
+    label: "Tire RR",
+    type: "sensor",
+    x: 81,
+    y: 76,
+    unit: "°F",
+    min: 80,
+    max: 220,
+    warnThreshold: 180,
+    hotThreshold: 210,
+    description: "Rear-right tire surface temperature — traction monitoring",
   },
   // Engine sensors — clustered around center-front
   {
@@ -144,7 +197,7 @@ export const NODES: NodeDef[] = [
 ];
 
 /**
- * 9 edges: 8 sensors → ECU (CAN bus), ECU → Jetson (USB)
+ * 13 edges: 12 sensors → ECU (CAN bus), ECU → Jetson (USB)
  */
 export const EDGES: EdgeDef[] = [
   {
@@ -171,6 +224,34 @@ export const EDGES: EdgeDef[] = [
   {
     id: "brake-rr-ecu",
     source: "brake-rr",
+    target: "ecu",
+    type: "can",
+    label: "CAN",
+  },
+  {
+    id: "tire-fl-ecu",
+    source: "tire-fl",
+    target: "ecu",
+    type: "can",
+    label: "CAN",
+  },
+  {
+    id: "tire-fr-ecu",
+    source: "tire-fr",
+    target: "ecu",
+    type: "can",
+    label: "CAN",
+  },
+  {
+    id: "tire-rl-ecu",
+    source: "tire-rl",
+    target: "ecu",
+    type: "can",
+    label: "CAN",
+  },
+  {
+    id: "tire-rr-ecu",
+    source: "tire-rr",
     target: "ecu",
     type: "can",
     label: "CAN",

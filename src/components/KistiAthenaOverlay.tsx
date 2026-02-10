@@ -138,20 +138,45 @@ export default function KistiAthenaOverlay({
                 style={{ color }}
               />
 
-              {/* Node circle */}
-              <circle
-                cx={node.x}
-                cy={node.y}
-                r={radius}
-                fill={`${color}20`}
-                stroke={color}
-                strokeWidth={isSelected ? 0.5 : 0.3}
-              />
+              {node.type === "ecu" || node.type === "edge-compute" ? (
+                <>
+                  {/* Logo background */}
+                  <rect
+                    x={node.x - 5}
+                    y={node.y - 2.5}
+                    width={10}
+                    height={5}
+                    rx={1}
+                    fill={`${color}15`}
+                    stroke={color}
+                    strokeWidth={isSelected ? 0.4 : 0.25}
+                  />
+                  {/* Embedded logo */}
+                  <image
+                    href={node.type === "ecu" ? "/assets/link_logo.svg" : "/assets/jetson_orin_logo.svg"}
+                    x={node.x - 4.5}
+                    y={node.y - 2}
+                    width={9}
+                    height={4}
+                    style={{ pointerEvents: "none" }}
+                  />
+                </>
+              ) : (
+                /* Sensor node circle */
+                <circle
+                  cx={node.x}
+                  cy={node.y}
+                  r={radius}
+                  fill={`${color}20`}
+                  stroke={color}
+                  strokeWidth={isSelected ? 0.5 : 0.3}
+                />
+              )}
 
               {/* Label */}
               <text
                 x={node.x}
-                y={node.y - radius - 1.5}
+                y={node.y - (node.type === "ecu" || node.type === "edge-compute" ? 4 : radius + 1.5)}
                 textAnchor="middle"
                 fontSize="2.2"
                 fill={color}
@@ -165,7 +190,7 @@ export default function KistiAthenaOverlay({
               {stream && (
                 <text
                   x={node.x}
-                  y={node.y + 0.8}
+                  y={node.y + (node.type === "ecu" || node.type === "edge-compute" ? 4.5 : 0.8)}
                   textAnchor="middle"
                   fontSize="2"
                   fill={STATUS_COLORS[stream.current.status]}

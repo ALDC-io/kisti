@@ -19,6 +19,10 @@ const BASELINES: Record<string, number> = {
   "brake-fr": 420, // +40°F bias — the "story"
   "brake-rl": 280,
   "brake-rr": 275,
+  "tire-fl": 165,
+  "tire-fr": 178, // Hotter from brake heat soak
+  "tire-rl": 148,
+  "tire-rr": 145,
   egt: 1350,
   boost: 18,
   "oil-temp": 215,
@@ -33,6 +37,10 @@ const NOISE: Record<string, number> = {
   "brake-fr": 18, // More volatile too
   "brake-rl": 8,
   "brake-rr": 8,
+  "tire-fl": 6,
+  "tire-fr": 8,
+  "tire-rl": 5,
+  "tire-rr": 5,
   egt: 40,
   boost: 2,
   "oil-temp": 5,
@@ -96,6 +104,15 @@ function generatePoint(
     }
   }
 
+  // Tire FR: heat soak from hot FR brake
+  if (nodeId === "tire-fr") {
+    const flBaseline = BASELINES["tire-fl"];
+    const minDelta = 10;
+    if (value < flBaseline + minDelta) {
+      value = flBaseline + minDelta + Math.random() * 5;
+    }
+  }
+
   return {
     value: Math.round(value * 10) / 10,
     timestamp: Date.now(),
@@ -136,6 +153,14 @@ const FINDINGS_POOL: Omit<ZeusFinding, "timestamp">[] = [
     description:
       "Engine oil at optimal operating temperature. Viscosity profile nominal.",
     relatedNodes: ["oil-temp"],
+  },
+  {
+    id: "finding-tire-heat-soak",
+    title: "FR Tire Heat Soak",
+    severity: "warning",
+    description:
+      "Front-right tire running 10-15°F hotter than front-left due to brake heat transfer. Monitor for accelerated wear.",
+    relatedNodes: ["tire-fr", "tire-fl", "brake-fr"],
   },
 ];
 
