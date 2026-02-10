@@ -3,13 +3,15 @@
 import { useState } from "react";
 import Nav from "@/components/Nav";
 import HeroSection from "@/components/HeroSection";
+import DriverDisplay from "@/components/driver/DriverDisplay";
+import PitEngineerView from "@/components/pit/PitEngineerView";
 import KistiAthenaOverlay from "@/components/KistiAthenaOverlay";
 import NodeSidebar from "@/components/NodeSidebar";
-import { useTelemetryStream } from "@/lib/mockTelemetry";
+import { useDriverTelemetry } from "@/lib/driverTelemetry";
 
 export default function Home() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const { streams, findings, cloudSync } = useTelemetryStream();
+  const state = useDriverTelemetry();
 
   return (
     <>
@@ -17,6 +19,39 @@ export default function Home() {
       <main className="min-h-screen pt-14">
         <HeroSection />
 
+        {/* Driver View + Pit Engineer View — side by side */}
+        <section className="relative mx-auto max-w-7xl px-4 pb-8">
+          <div className="mb-6 text-center">
+            <h2 className="text-lg font-bold tracking-tight text-foreground sm:text-xl">
+              Live Telemetry Views
+            </h2>
+            <p className="mt-1 text-sm text-foreground/50">
+              Driver gauge cluster (left) and pit engineer dashboard (right) — same data, different perspectives
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {/* Driver View */}
+            <div>
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-foreground/40">
+                Driver View — Kenwood Excelon 800x480
+              </div>
+              <DriverDisplay state={state} />
+            </div>
+
+            {/* Pit Engineer View */}
+            <div className="flex flex-col">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-foreground/40">
+                Pit Engineer — Cloud Monitor
+              </div>
+              <div className="flex-1" style={{ minHeight: 320 }}>
+                <PitEngineerView state={state} />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Existing Car Schematic */}
         <section className="relative mx-auto max-w-7xl px-4 pb-16">
           <div
             className={`transition-all duration-300 ${
@@ -26,7 +61,7 @@ export default function Home() {
             <KistiAthenaOverlay
               selectedNodeId={selectedNodeId}
               onSelectNode={setSelectedNodeId}
-              streams={streams}
+              streams={state.streams}
             />
           </div>
 
@@ -65,9 +100,9 @@ export default function Home() {
 
         <NodeSidebar
           selectedNodeId={selectedNodeId}
-          streams={streams}
-          findings={findings}
-          cloudSync={cloudSync}
+          streams={state.streams}
+          findings={state.findings}
+          cloudSync={state.cloudSync}
           onSelectNode={setSelectedNodeId}
           onClose={() => setSelectedNodeId(null)}
         />

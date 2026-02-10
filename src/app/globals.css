@@ -29,6 +29,24 @@
 
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+
+  /* Driver gauge cluster theme */
+  --driver-bg: #0A0A0A;
+  --driver-panel: #121212;
+  --driver-accent: #1A1A1A;
+  --driver-red: #E60000;
+  --driver-red-bright: #FF1A1A;
+  --driver-cherry: #CC0000;
+  --driver-green: #00CC66;
+  --driver-yellow: #FFAA00;
+  --driver-cyan: #00CCFF;
+  --driver-white: #FFFFFF;
+  --driver-silver: #D0D0D0;
+  --driver-gray: #808080;
+  --driver-dim: #333333;
+  --driver-chrome-light: #C0C0C0;
+  --driver-chrome-mid: #909090;
+  --driver-chrome-dark: #606060;
 }
 
 body {
