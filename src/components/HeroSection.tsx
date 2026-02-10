@@ -3,7 +3,7 @@ export default function HeroSection() {
     <section className="relative z-10 flex flex-col items-center px-4 pt-24 pb-8 text-center">
       {/* KiSTI wordmark in STI font style */}
       <img
-        src="/assets/kisti_wordmark.svg"
+        src="/assets/kisti_logo.png"
         alt="KiSTI"
         className="h-12 sm:h-16 lg:h-20"
         draggable={false}

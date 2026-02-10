@@ -20,7 +20,7 @@ export default function Nav() {
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4">
         <Link href="/" className="flex items-center gap-2">
           <img
-            src="/assets/kisti_wordmark.svg"
+            src="/assets/kisti_logo.png"
             alt="KiSTI"
             className="h-6"
             draggable={false}
