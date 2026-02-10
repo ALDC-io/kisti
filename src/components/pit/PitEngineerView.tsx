@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import {
   DriverDisplayState,
   CornerTelemetry,
@@ -129,13 +129,6 @@ interface PitEngineerViewProps {
 }
 
 export default function PitEngineerView({ state }: PitEngineerViewProps) {
-  const findingsEndRef = useRef<HTMLDivElement>(null);
-
-  // Auto-scroll findings
-  useEffect(() => {
-    findingsEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [state.findings]);
-
   const syncColor =
     state.cloudSync.status === "ONLINE"
       ? "#10b981"
@@ -267,7 +260,7 @@ export default function PitEngineerView({ state }: PitEngineerViewProps) {
                 </div>
               </div>
             ))}
-            <div ref={findingsEndRef} />
+
           </div>
         </div>
 
