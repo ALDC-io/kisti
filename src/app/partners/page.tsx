@@ -7,7 +7,7 @@ const PARTNERS = [
     description:
       "Custom STI build, turbo installation, brake system, and sensor integration. The hands that built KiSTI.",
     color: "#ef4444",
-    logo: "/assets/boost_barn_logo.svg",
+    logo: "/assets/boost_barn_logo.png",
   },
   {
     name: "Link Engine Management",

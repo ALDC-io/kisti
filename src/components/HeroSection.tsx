@@ -21,7 +21,7 @@ export default function HeroSection() {
         <div className="flex items-center gap-2 text-xs text-foreground/40">
           <span>Built by</span>
           <img
-            src="/assets/boost_barn_logo.svg"
+            src="/assets/boost_barn_logo.png"
             alt="Boost Barn"
             className="h-6"
             draggable={false}
