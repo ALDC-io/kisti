@@ -57,9 +57,19 @@ export default function TechPage() {
               {["Sensors", "CAN", "Link G4X", "USB", "Jetson Orin", "WiFi", "Zeus Cloud"].map(
                 (stage, i) => (
                   <div key={stage} className="flex items-center gap-2">
-                    <span className="rounded-md bg-kisti-accent/15 px-3 py-1.5 text-sm font-medium text-kisti-accent">
-                      {stage}
-                    </span>
+                    {stage === "Link G4X" ? (
+                      <span className="flex items-center rounded-md bg-kisti-accent/15 px-2 py-1">
+                        <img src="/assets/link_logo.svg" alt="Link G4X" className="h-5" draggable={false} />
+                      </span>
+                    ) : stage === "Jetson Orin" ? (
+                      <span className="flex items-center rounded-md bg-kisti-accent/15 px-2 py-1">
+                        <img src="/assets/jetson_orin_logo.svg" alt="Jetson Orin" className="h-5" draggable={false} />
+                      </span>
+                    ) : (
+                      <span className="rounded-md bg-kisti-accent/15 px-3 py-1.5 text-sm font-medium text-kisti-accent">
+                        {stage}
+                      </span>
+                    )}
                     {i < 6 && (
                       <span className="hidden text-foreground/30 sm:inline">
                         →

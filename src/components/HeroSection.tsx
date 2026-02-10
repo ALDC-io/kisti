@@ -1,14 +1,44 @@
 export default function HeroSection() {
   return (
     <section className="relative z-10 flex flex-col items-center px-4 pt-24 pb-8 text-center">
-      <h1 className="text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
-        <span className="text-kisti-accent">KiSTI</span>
-        <span className="text-foreground"> — Make Data Speak Racer</span>
+      {/* KiSTI wordmark in STI font style */}
+      <img
+        src="/assets/kisti_wordmark.svg"
+        alt="KiSTI"
+        className="h-12 sm:h-16 lg:h-20"
+        draggable={false}
+      />
+      <h1 className="mt-4 text-2xl font-bold tracking-tight text-foreground sm:text-3xl lg:text-4xl">
+        Make Data Speak Racer
       </h1>
       <p className="mt-4 max-w-2xl text-base text-foreground/60 sm:text-lg">
         Real-time edge telemetry on a 2014 Subaru STI. Link ECU G4X + NVIDIA
         Jetson Orin — sensor fusion, AI diagnostics, cloud sync.
       </p>
+
+      {/* Built by badges */}
+      <div className="mt-5 flex items-center gap-4">
+        <div className="flex items-center gap-2 text-xs text-foreground/40">
+          <span>Built by</span>
+          <img
+            src="/assets/boost_barn_logo.svg"
+            alt="Boost Barn"
+            className="h-6"
+            draggable={false}
+          />
+        </div>
+        <span className="text-foreground/20">|</span>
+        <div className="flex items-center gap-2 text-xs text-foreground/40">
+          <span>Powered by</span>
+          <img
+            src="/assets/aldc_logo.svg"
+            alt="ALDC"
+            className="h-6"
+            draggable={false}
+          />
+        </div>
+      </div>
+
       <div className="mt-6 flex gap-3">
         <a
           href="#schematic"

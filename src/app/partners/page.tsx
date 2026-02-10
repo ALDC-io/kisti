@@ -2,11 +2,20 @@ import Nav from "@/components/Nav";
 
 const PARTNERS = [
   {
+    name: "Boost Barn",
+    role: "Build Partner",
+    description:
+      "Custom STI build, turbo installation, brake system, and sensor integration. The hands that built KiSTI.",
+    color: "#ef4444",
+    logo: "/assets/boost_barn_logo.svg",
+  },
+  {
     name: "Link Engine Management",
     role: "ECU Platform",
     description:
       "Link G4X provides the CAN bus backbone — 100+ configurable channels with real-time calibration and logging.",
     color: "#f59e0b",
+    logo: "/assets/link_logo.svg",
   },
   {
     name: "NVIDIA",
@@ -14,13 +23,15 @@ const PARTNERS = [
     description:
       "Jetson Orin delivers 40 TOPS of AI performance at the edge for real-time anomaly detection and inference.",
     color: "#76b900",
+    logo: "/assets/jetson_orin_logo.svg",
   },
   {
-    name: "Zeus Memory",
-    role: "Cloud Intelligence",
+    name: "ALDC",
+    role: "Platform & Intelligence",
     description:
-      "AI-powered memory layer with semantic search across 3.5M+ telemetry memories, powering Zeus Findings.",
-    color: "#8b5cf6",
+      "Edge telemetry platform architecture, Zeus Memory cloud intelligence, and AI-powered diagnostics.",
+    color: "#6366f1",
+    logo: "/assets/aldc_logo.svg",
   },
 ];
 
@@ -39,12 +50,20 @@ export default function PartnersPage() {
             motorsport ECU, edge AI, and cloud intelligence.
           </p>
 
-          <div className="mt-10 grid gap-6 sm:grid-cols-3">
+          <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {PARTNERS.map((partner) => (
               <div
                 key={partner.name}
                 className="rounded-xl border border-white/10 bg-white/5 p-6"
               >
+                {partner.logo && (
+                  <img
+                    src={partner.logo}
+                    alt={`${partner.name} logo`}
+                    className="mb-4 h-8"
+                    draggable={false}
+                  />
+                )}
                 <div
                   className="mb-3 inline-block rounded-full px-3 py-1 text-xs font-semibold"
                   style={{

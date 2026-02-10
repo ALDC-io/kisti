@@ -56,6 +56,14 @@ export default function NodeSidebar({
       <div className="sticky top-0 z-10 border-b border-gray-200 bg-gradient-to-r from-kisti-accent/10 to-transparent p-4">
         <div className="flex items-center justify-between">
           <div>
+            {(node.type === "ecu" || node.type === "edge-compute") && (
+              <img
+                src={node.type === "ecu" ? "/assets/link_logo.svg" : "/assets/jetson_orin_logo.svg"}
+                alt={node.label}
+                className="mb-2 h-8"
+                draggable={false}
+              />
+            )}
             <h2 className="text-lg font-bold text-sidebar-text">
               {node.label}
             </h2>

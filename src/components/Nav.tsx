@@ -19,12 +19,12 @@ export default function Nav() {
     <nav className="fixed top-0 left-0 right-0 z-50 border-b border-white/10 bg-background/90 backdrop-blur-md">
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4">
         <Link href="/" className="flex items-center gap-2">
-          <span className="text-lg font-bold tracking-wider text-kisti-accent">
-            KiSTI
-          </span>
-          <span className="hidden text-xs text-foreground/50 sm:inline">
-            by ALDC
-          </span>
+          <img
+            src="/assets/kisti_wordmark.svg"
+            alt="KiSTI"
+            className="h-6"
+            draggable={false}
+          />
         </Link>
 
         {/* Desktop links */}

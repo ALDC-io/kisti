@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 40" fill="none">
+  <!-- ALDC logo -->
+  <defs>
+    <linearGradient id="aldcGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8b5cf6"/>
+      <stop offset="50%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#3b82f6"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Container -->
+  <rect x="1" y="1" width="118" height="38" rx="6" fill="#6366f110" stroke="url(#aldcGrad)" stroke-width="1.5"/>
+
+  <!-- Data/graph icon -->
+  <g transform="translate(8, 8)">
+    <!-- Grid lines -->
+    <line x1="0" y1="24" x2="24" y2="24" stroke="#6366f1" stroke-width="0.8" opacity="0.3"/>
+    <line x1="0" y1="16" x2="24" y2="16" stroke="#6366f1" stroke-width="0.5" opacity="0.2"/>
+    <line x1="0" y1="8" x2="24" y2="8" stroke="#6366f1" stroke-width="0.5" opacity="0.2"/>
+    <!-- Data line -->
+    <polyline points="0,20 4,18 8,14 12,16 16,8 20,10 24,4" fill="none" stroke="url(#aldcGrad)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Data dots -->
+    <circle cx="8" cy="14" r="1.5" fill="#8b5cf6"/>
+    <circle cx="16" cy="8" r="1.5" fill="#6366f1"/>
+    <circle cx="24" cy="4" r="1.5" fill="#3b82f6"/>
+  </g>
+
+  <!-- "ALDC" text -->
+  <text x="40" y="27" font-family="system-ui, sans-serif" font-size="18" font-weight="800" fill="url(#aldcGrad)" letter-spacing="2">ALDC</text>
+
+  <!-- Tagline dots -->
+  <g transform="translate(100, 32)" opacity="0.3">
+    <circle cx="0" cy="0" r="1.5" fill="#8b5cf6"/>
+    <circle cx="6" cy="0" r="1.5" fill="#6366f1"/>
+    <circle cx="12" cy="0" r="1.5" fill="#3b82f6"/>
+  </g>
+</svg>
