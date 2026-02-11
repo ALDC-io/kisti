@@ -23,7 +23,41 @@ function fmtTime(seconds: number): string {
   return `${m}:${s.toFixed(1).padStart(4, "0")}`;
 }
 
-/** Driver POV forward-looking track view with vanishing point perspective */
+/**
+ * Sample the circuit ahead of the current position, returning
+ * lateral offsets (positive = right, negative = left) for N slices
+ * of road stretching into the distance.
+ */
+function sampleRoadAhead(progress: number, slices: number): number[] {
+  const cur = getCircuitPosition(progress);
+  const offsets: number[] = [];
+  // heading from current to next point
+  const tiny = getCircuitPosition((progress + 0.005) % 1);
+  const headX = tiny.x - cur.x;
+  const headY = tiny.y - cur.y;
+  const headLen = Math.sqrt(headX * headX + headY * headY) || 0.001;
+  // unit heading
+  const hx = headX / headLen;
+  const hy = headY / headLen;
+  // perpendicular (right-hand)
+  const px = -hy;
+  const py = hx;
+
+  for (let i = 0; i < slices; i++) {
+    // look further ahead for each slice (exponential spacing for perspective)
+    const lookDist = 0.005 + (i / slices) * 0.18;
+    const ahead = getCircuitPosition((progress + lookDist) % 1);
+    // vector from car to lookahead point
+    const dx = ahead.x - cur.x;
+    const dy = ahead.y - cur.y;
+    // project onto perpendicular axis → lateral offset
+    const lateral = dx * px + dy * py;
+    offsets.push(lateral);
+  }
+  return offsets;
+}
+
+/** Driver POV forward-looking track view with animated road flow */
 function drawDriverPOV(
   ctx: CanvasRenderingContext2D,
   w: number,
@@ -45,133 +79,170 @@ function drawDriverPOV(
   ctx.fillStyle = groundGrad;
   ctx.fillRect(0, h * 0.4, w, h * 0.6);
 
-  // Vanishing point
-  const vpX = w * 0.5;
   const vpY = h * 0.38;
+  const roadH = h - vpY; // height of road area
 
-  // Determine upcoming turn from circuit data
-  const segCount = CIRCUIT.length - 1;
-  const segFloat = (progress % 1) * segCount;
-  const segIdx = Math.floor(segFloat) % segCount;
-  const lookAhead1 = CIRCUIT[(segIdx + 1) % CIRCUIT.length];
-  const lookAhead2 = CIRCUIT[(segIdx + 2) % CIRCUIT.length];
-  const lookAhead3 = CIRCUIT[(segIdx + 3) % CIRCUIT.length];
+  // --- Build curved road from circuit data ---
+  const SLICES = 24;
+  const laterals = sampleRoadAhead(progress, SLICES);
+  const curveMagnitude = 2.8; // how dramatically turns show
 
-  // Track curve direction from upcoming segments
-  const curveDir = (lookAhead2.x - lookAhead1.x) * 3;
-  const curveDir2 = (lookAhead3.x - lookAhead2.x) * 2;
+  // For each depth slice, compute screen-space center and width
+  // Perspective: depth t=0 is far (VP), t=1 is near (bottom of screen)
+  const roadPts: { y: number; cx: number; halfW: number }[] = [];
+  for (let i = 0; i < SLICES; i++) {
+    // t goes from 0 (far/horizon) to 1 (near/camera)
+    const t = i / (SLICES - 1);
+    // Exponential depth — more detail near camera
+    const depth = t * t;
+    const y = vpY + roadH * depth;
+    // Road width grows with perspective
+    const halfW = w * (0.03 + 0.38 * depth);
+    // Lateral offset from circuit curvature (scaled by screen width, stronger near camera)
+    const lateralIdx = SLICES - 1 - i; // far slices use far lookahead
+    const lateral = laterals[lateralIdx] || 0;
+    const cx = w * 0.5 - lateral * curveMagnitude * w * (0.3 + depth * 0.7);
+    roadPts.push({ y, cx, halfW });
+  }
 
-  // Road edges with perspective — curve shifts the vanishing point
-  const curveShift = curveDir * w * 0.3;
-  const curveShift2 = (curveDir + curveDir2) * w * 0.2;
-  const adjustedVpX = vpX + curveShift;
-
-  // Track surface — trapezoidal road
-  const roadBottomL = w * 0.1;
-  const roadBottomR = w * 0.9;
-  const roadTopL = adjustedVpX - w * 0.04;
-  const roadTopR = adjustedVpX + w * 0.04;
-
-  // Asphalt
-  ctx.fillStyle = "#1E1E1E";
-  ctx.beginPath();
-  ctx.moveTo(roadBottomL, h);
-  ctx.lineTo(roadTopL, vpY);
-  ctx.lineTo(roadTopR, vpY);
-  ctx.lineTo(roadBottomR, h);
-  ctx.closePath();
-  ctx.fill();
-
-  // Track surface texture — subtle strips
-  ctx.globalAlpha = 0.08;
-  for (let i = 0; i < 8; i++) {
-    const t = i / 8;
-    const y = vpY + (h - vpY) * t;
-    const lx = roadTopL + (roadBottomL - roadTopL) * t;
-    const rx = roadTopR + (roadBottomR - roadTopR) * t;
-    ctx.strokeStyle = i % 2 === 0 ? "#333" : "#111";
-    ctx.lineWidth = 1 + t * 2;
+  // --- Draw asphalt as filled trapezoid strips ---
+  for (let i = 0; i < roadPts.length - 1; i++) {
+    const a = roadPts[i];
+    const b = roadPts[i + 1];
+    // Slightly lighter asphalt near camera for depth
+    const shade = Math.round(0x1a + (b.y - vpY) / roadH * 0x0e);
+    ctx.fillStyle = `rgb(${shade},${shade},${shade})`;
     ctx.beginPath();
-    ctx.moveTo(lx, y);
-    ctx.lineTo(rx, y);
+    ctx.moveTo(a.cx - a.halfW, a.y);
+    ctx.lineTo(a.cx + a.halfW, a.y);
+    ctx.lineTo(b.cx + b.halfW, b.y);
+    ctx.lineTo(b.cx - b.halfW, b.y);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // --- Scrolling road stripes (perspective-correct, flow toward camera) ---
+  const stripePhase = (progress * 400) % 1; // fast scroll
+  ctx.globalAlpha = 0.07;
+  const stripeCount = 16;
+  for (let i = 0; i < stripeCount; i++) {
+    const rawT = (i / stripeCount + stripePhase) % 1;
+    const depth = rawT * rawT;
+    const y = vpY + roadH * depth;
+    // Interpolate road center/width at this y
+    const idx = rawT * (SLICES - 1);
+    const lo = Math.floor(idx);
+    const hi = Math.min(lo + 1, SLICES - 1);
+    const frac = idx - lo;
+    const cx = roadPts[lo].cx + (roadPts[hi].cx - roadPts[lo].cx) * frac;
+    const hw = roadPts[lo].halfW + (roadPts[hi].halfW - roadPts[lo].halfW) * frac;
+    ctx.strokeStyle = i % 2 === 0 ? "#444" : "#222";
+    ctx.lineWidth = 1 + depth * 3;
+    ctx.beginPath();
+    ctx.moveTo(cx - hw * 0.95, y);
+    ctx.lineTo(cx + hw * 0.95, y);
     ctx.stroke();
   }
   ctx.globalAlpha = 1;
 
-  // Curbs (red/white kerbing on edges)
-  const kerbSegments = 12;
-  for (let i = 0; i < kerbSegments; i++) {
-    const t0 = i / kerbSegments;
-    const t1 = (i + 1) / kerbSegments;
+  // --- Scrolling curbs (red/white kerbing) ---
+  const kerbCount = 18;
+  const kerbPhase = (progress * 300) % 1;
+  for (let i = 0; i < kerbCount; i++) {
+    const rawT0 = (i / kerbCount + kerbPhase) % 1;
+    const rawT1 = ((i + 1) / kerbCount + kerbPhase) % 1;
+    if (rawT1 < rawT0) continue; // skip wrap-around segment
 
-    const y0 = vpY + (h - vpY) * t0;
-    const y1 = vpY + (h - vpY) * t1;
+    const depth0 = rawT0 * rawT0;
+    const depth1 = rawT1 * rawT1;
+    const y0 = vpY + roadH * depth0;
+    const y1 = vpY + roadH * depth1;
 
-    // Left curb
-    const lx0 = roadTopL + (roadBottomL - roadTopL) * t0;
-    const lx1 = roadTopL + (roadBottomL - roadTopL) * t1;
-    const curbW0 = (roadBottomR - roadBottomL) * 0.02 * (0.1 + t0 * 0.9);
-    const curbW1 = (roadBottomR - roadBottomL) * 0.02 * (0.1 + t1 * 0.9);
+    // Interpolate road edges
+    const idx0 = rawT0 * (SLICES - 1);
+    const lo0 = Math.floor(idx0);
+    const hi0 = Math.min(lo0 + 1, SLICES - 1);
+    const f0 = idx0 - lo0;
+    const cx0 = roadPts[lo0].cx + (roadPts[hi0].cx - roadPts[lo0].cx) * f0;
+    const hw0 = roadPts[lo0].halfW + (roadPts[hi0].halfW - roadPts[lo0].halfW) * f0;
+
+    const idx1 = rawT1 * (SLICES - 1);
+    const lo1 = Math.floor(idx1);
+    const hi1 = Math.min(lo1 + 1, SLICES - 1);
+    const f1 = idx1 - lo1;
+    const cx1 = roadPts[lo1].cx + (roadPts[hi1].cx - roadPts[lo1].cx) * f1;
+    const hw1 = roadPts[lo1].halfW + (roadPts[hi1].halfW - roadPts[lo1].halfW) * f1;
+
+    const curbW0 = hw0 * 0.06;
+    const curbW1 = hw1 * 0.06;
 
     ctx.fillStyle = i % 2 === 0 ? HIGHLIGHT : WHITE;
-    ctx.globalAlpha = 0.6 + t0 * 0.4;
+    ctx.globalAlpha = 0.5 + depth0 * 0.5;
+
+    // Left curb
     ctx.beginPath();
-    ctx.moveTo(lx0 - curbW0, y0);
-    ctx.lineTo(lx0, y0);
-    ctx.lineTo(lx1, y1);
-    ctx.lineTo(lx1 - curbW1, y1);
+    ctx.moveTo(cx0 - hw0 - curbW0, y0);
+    ctx.lineTo(cx0 - hw0, y0);
+    ctx.lineTo(cx1 - hw1, y1);
+    ctx.lineTo(cx1 - hw1 - curbW1, y1);
     ctx.closePath();
     ctx.fill();
 
     // Right curb
-    const rx0 = roadTopR + (roadBottomR - roadTopR) * t0;
-    const rx1 = roadTopR + (roadBottomR - roadTopR) * t1;
     ctx.beginPath();
-    ctx.moveTo(rx0, y0);
-    ctx.lineTo(rx0 + curbW0, y0);
-    ctx.lineTo(rx1 + curbW1, y1);
-    ctx.lineTo(rx1, y1);
+    ctx.moveTo(cx0 + hw0, y0);
+    ctx.lineTo(cx0 + hw0 + curbW0, y0);
+    ctx.lineTo(cx1 + hw1 + curbW1, y1);
+    ctx.lineTo(cx1 + hw1, y1);
     ctx.closePath();
     ctx.fill();
   }
   ctx.globalAlpha = 1;
 
-  // Center dashed line
-  ctx.strokeStyle = "#444";
-  ctx.lineWidth = 1.5;
-  ctx.setLineDash([8, 12]);
-  ctx.beginPath();
-  ctx.moveTo(w * 0.5, h);
-  ctx.lineTo(adjustedVpX, vpY);
-  ctx.stroke();
-  ctx.setLineDash([]);
+  // --- Scrolling center dashes ---
+  const dashCount = 14;
+  const dashPhase = (progress * 350) % 1;
+  ctx.strokeStyle = "#555";
+  for (let i = 0; i < dashCount; i++) {
+    const rawT = (i / dashCount + dashPhase) % 1;
+    const depth = rawT * rawT;
+    const idx = rawT * (SLICES - 1);
+    const lo = Math.floor(idx);
+    const hi = Math.min(lo + 1, SLICES - 1);
+    const frac = idx - lo;
+    const cx = roadPts[lo].cx + (roadPts[hi].cx - roadPts[lo].cx) * frac;
+    const y = vpY + roadH * depth;
 
-  // Distant track curve hint (where the road bends)
-  if (Math.abs(curveDir) > 0.02) {
-    const bendX = adjustedVpX + curveShift2;
-    const bendY = vpY - h * 0.06;
-    ctx.strokeStyle = "#2A2A2A";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(roadTopL, vpY);
-    ctx.quadraticCurveTo(adjustedVpX, vpY - 8, bendX - w * 0.03, bendY);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(roadTopR, vpY);
-    ctx.quadraticCurveTo(adjustedVpX, vpY - 8, bendX + w * 0.03, bendY);
-    ctx.stroke();
+    if (i % 2 === 0) {
+      ctx.lineWidth = 1 + depth * 1.5;
+      ctx.globalAlpha = 0.3 + depth * 0.5;
+      const nextT = ((i + 0.4) / dashCount + dashPhase) % 1;
+      const nextDepth = nextT * nextT;
+      const nextIdx = nextT * (SLICES - 1);
+      const nlo = Math.floor(nextIdx);
+      const nhi = Math.min(nlo + 1, SLICES - 1);
+      const nf = nextIdx - nlo;
+      const ncx = roadPts[nlo].cx + (roadPts[nhi].cx - roadPts[nlo].cx) * nf;
+      const ny = vpY + roadH * nextDepth;
+      ctx.beginPath();
+      ctx.moveTo(cx, y);
+      ctx.lineTo(ncx, ny);
+      ctx.stroke();
+    }
   }
+  ctx.globalAlpha = 1;
 
-  // Horizon glow
-  const horizGlow = ctx.createRadialGradient(adjustedVpX, vpY, 0, adjustedVpX, vpY, w * 0.3);
+  // --- Horizon glow ---
+  const vpCx = roadPts[0].cx;
+  const horizGlow = ctx.createRadialGradient(vpCx, vpY, 0, vpCx, vpY, w * 0.25);
   horizGlow.addColorStop(0, "rgba(230,0,0,0.06)");
   horizGlow.addColorStop(1, "rgba(230,0,0,0)");
   ctx.fillStyle = horizGlow;
   ctx.beginPath();
-  ctx.arc(adjustedVpX, vpY, w * 0.3, 0, Math.PI * 2);
+  ctx.arc(vpCx, vpY, w * 0.25, 0, Math.PI * 2);
   ctx.fill();
 
-  // Find nearest turn label
+  // --- Find nearest turn label ---
   const pos = getCircuitPosition(progress);
   let nearestTurn = "";
   let nearestDist = Infinity;
