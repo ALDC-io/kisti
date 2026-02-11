@@ -173,6 +173,30 @@ export const ZEUS_RESPONSES: ZeusQA[] = [
     answer:
       "Shell 93 octane — the primary map. The entire tune is calibrated around consistent 93 octane operation with conservative ignition timing. No E85, no race gas dependencies. The philosophy is: if you can get it at a gas station, the car should run perfectly on it. That's part of the 'executive hot rod' concept — it's a canyon monster you can daily without a fuel logistics plan.",
   },
+  {
+    keywords: ["boost barn", "shop", "who built", "builder", "aaron", "nijjar", "langley"],
+    question: "Tell me about Boost Barn.",
+    answer:
+      "Boost Barn Motorsports is a Subaru specialty shop in Langley, BC, Canada, run by Aaron Nijjar. They do everything from parts and regular maintenance to full project builds, fabrication, and dyno tuning. They're appointment-only — you don't just walk in, you book time. They tune on Cobb, EcuTek, OpenSource, and standalone ECUs like Link, Ecumaster, Haltech, and AEM. For KiSTI, Aaron handled the full mechanical build: IAG 750 short block, BCP X400 turbo install, fueling, FMIC plumbing, Link ECU integration, and calibration. Their philosophy is coherent system assembly — not piecemeal power chasing.",
+  },
+  {
+    keywords: ["boost barn builds", "portfolio", "projects", "other builds", "clients"],
+    question: "What else has Boost Barn built?",
+    answer:
+      "Boost Barn has a serious portfolio. Highlights: Kevin's 2008 STI with a Garrett G30-660 rotated turbo making 500 WHP on flex fuel — daily driven year-round including Canadian winters. Gurj's 2007 STI show car with a GTX3582R targeting 500-600 WHP, winner of car shows across Canada and the US. Rene's 2019 widebody STI 'Casper' — first 2015+ STI in Canada to run the Pandem Oiram kit, three-time first place and a national competition winner. And Aaron's own 2006 Baja drag build making 800 AWHP that ran a 10.8 at 121 mph. Every build is different, but the approach is the same: build it as a system, not a parts catalog.",
+  },
+  {
+    keywords: ["contact", "phone", "email", "hours", "appointment", "location", "visit"],
+    question: "How do I contact Boost Barn?",
+    answer:
+      "Boost Barn is appointment-only in Langley, BC. Phone: 604-613-4751. Email: info@boostbarnmotorsports.com. Hours are Tuesday through Friday 8am-5pm, Saturday 10am-5pm, closed Sunday and Monday. They don't publish their address publicly — contact them and they'll give you the location when you book. Find them on Instagram and Facebook at @boostbarnmotorsports.",
+  },
+  {
+    keywords: ["dyno", "tuning", "tune", "cobb", "ecutek", "haltech", "standalone"],
+    question: "Does Boost Barn do dyno tuning?",
+    answer:
+      "Yes — Boost Barn offers dyno tuning across multiple platforms: Cobb Accessport, EcuTek, OpenSource, and standalone ECUs including Link, Ecumaster, Vipec, AEM, and Haltech. For KiSTI, the Link G4X tune was done in-house with their 'one change at a time' logging discipline. They prioritize repeatable, heat-stable performance over chasing peak dyno numbers. If you're running a Subaru with any ECU platform, they can tune it.",
+  },
 ];
 
 export const STARTER_CHIPS = [

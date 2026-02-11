@@ -12,8 +12,8 @@ export default function HeroSection() {
         Make Data Speak Racer
       </h1>
       <p className="mt-4 max-w-2xl text-base text-foreground/60 sm:text-lg">
-        Real-time edge telemetry on a 2014 Subaru STI. Link ECU G4X + NVIDIA
-        Jetson Orin — sensor fusion, AI diagnostics, cloud sync.
+        Real-time edge telemetry on a 2014 Subaru STI. Your car already knows
+        what&apos;s wrong — now it can tell you in plain English.
       </p>
 
       {/* Built by badges */}
