@@ -135,8 +135,11 @@ vercel-live-feedback,
   0% {
     transform: translateX(-100%);
   }
-  100% {
+  50% {
     transform: translateX(300%);
+  }
+  100% {
+    transform: translateX(-100%);
   }
 }
 
@@ -174,7 +177,7 @@ vercel-live-feedback,
 }
 
 .animate-kitt-scan {
-  animation: kittScan 1.2s ease-in-out infinite;
+  animation: kittScan 2.4s ease-in-out infinite;
 }
 
 .animate-kitt-divider {
