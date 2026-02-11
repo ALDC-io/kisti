@@ -55,6 +55,14 @@ body {
   font-family: var(--font-sans);
 }
 
+/* Hide Vercel toolbar */
+vercel-live-feedback,
+[data-vercel-toolbar],
+#__next-build-indicator,
+#__vercel-toolbar {
+  display: none !important;
+}
+
 /* Node glow animation */
 @keyframes nodeGlow {
   0%,
