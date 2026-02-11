@@ -53,51 +53,39 @@ export default function TechPage() {
             <h2 className="text-lg font-semibold text-foreground/80">
               System Architecture
             </h2>
-            <div className="mt-4 flex flex-col items-center gap-2 sm:flex-row sm:justify-center sm:gap-4">
-              {["Sensors", "CAN", "Link G4X", "USB", "Jetson Orin", "WiFi", "Zeus"].map(
-                (stage, i) => (
-                  <div key={stage} className="flex items-center gap-2">
-                    {stage === "Link G4X" ? (
-                      <span className="flex items-center rounded-md bg-kisti-accent/15 px-2 py-1">
-                        <img src="/assets/link_logo.svg" alt="Link G4X" className="h-5" draggable={false} />
-                      </span>
-                    ) : stage === "Jetson Orin" ? (
-                      <span className="flex items-center rounded-md bg-kisti-accent/15 px-2 py-1">
-                        <img src="/assets/jetson_orin_logo.svg" alt="Jetson Orin" className="h-5" draggable={false} />
-                      </span>
-                    ) : stage === "Zeus" ? (
-                      <span className="flex items-center gap-1.5 rounded-md bg-kisti-accent/15 px-2 py-1">
-                        <img src="/assets/aldc_logo.svg" alt="ALDC" className="h-4" draggable={false} />
-                        <span className="text-sm font-medium text-kisti-accent">Zeus</span>
-                      </span>
-                    ) : (
-                      <span className="rounded-md bg-kisti-accent/15 px-3 py-1.5 text-sm font-medium text-kisti-accent">
-                        {stage}
-                      </span>
-                    )}
-                    {i < 6 && (
-                      <span className="hidden text-foreground/30 sm:inline">
-                        →
-                      </span>
-                    )}
-                  </div>
-                )
-              )}
-              <div className="mt-3 flex flex-col items-center gap-2 sm:flex-row sm:justify-center sm:gap-4">
-                {["Cameras", "USB/CSI", "Jetson Orin"].map(
-                  (stage, i) => (
-                    <div key={`cam-${stage}`} className="flex items-center gap-2">
-                      <span className="rounded-md bg-cyan-500/15 px-3 py-1.5 text-sm font-medium text-cyan-400">
-                        {stage}
-                      </span>
-                      {i < 2 && (
-                        <span className="hidden text-foreground/30 sm:inline">
-                          →
-                        </span>
-                      )}
-                    </div>
-                  )
-                )}
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+              {/* Sensors → CAN → Link → Jetson Orin → branches */}
+              <span className="rounded-md bg-kisti-accent/15 px-3 py-1.5 text-sm font-medium text-kisti-accent">
+                Sensors
+              </span>
+              <span className="text-foreground/30">→</span>
+              <span className="rounded-md bg-kisti-accent/15 px-3 py-1.5 text-sm font-medium text-kisti-accent">
+                CAN
+              </span>
+              <span className="text-foreground/30">→</span>
+              <span className="flex items-center rounded-md bg-kisti-accent/15 px-2 py-1">
+                <img src="/assets/link_logo.svg" alt="Link" className="h-5" draggable={false} />
+              </span>
+              <span className="text-foreground/30">→</span>
+              <span className="flex items-center rounded-md bg-kisti-accent/15 px-2 py-1">
+                <img src="/assets/jetson_orin_logo.svg" alt="Jetson Orin" className="h-5" draggable={false} />
+              </span>
+              <span className="text-foreground/30">→</span>
+              {/* Branch: Driver View / Zeus → Pit Engineer */}
+              <div className="flex flex-col items-start gap-1">
+                <span className="rounded-md bg-kisti-accent/15 px-3 py-1 text-sm font-medium text-kisti-accent">
+                  Driver View
+                </span>
+                <div className="flex items-center gap-2">
+                  <span className="flex items-center gap-1.5 rounded-md bg-kisti-accent/15 px-2 py-1">
+                    <img src="/assets/aldc_logo.svg" alt="ALDC" className="h-4" draggable={false} />
+                    <span className="text-sm font-medium text-kisti-accent">Zeus</span>
+                  </span>
+                  <span className="text-foreground/30">→</span>
+                  <span className="rounded-md bg-kisti-accent/15 px-3 py-1 text-sm font-medium text-kisti-accent">
+                    Pit Engineer
+                  </span>
+                </div>
               </div>
             </div>
           </div>
