@@ -55,7 +55,7 @@
 - [x] Brand voice audit — no negative competitor references ("work hard, be kind")
 
 ## Phase 8: Driver View — ZMID Spec Match (1ec8edc3) — COMPLETE (2026-02-10)
-- [x] KistiMode: expanded from 30 → 100 idle lines across 10 categories (personality, STI/Subaru, Boost Barn, ALDC, FLIR thermal, track tips, tire/brake telemetry, engine/powertrain, Zeus Memory, motorsport trivia)
+- [x] KistiMode: expanded from 30 → 250 idle lines across 14 categories (personality, STI/Subaru, EJ257 jokes & build philosophy, Boost Barn, ALDC, FLIR thermal, track tips, tire/brake telemetry, engine/powertrain, Zeus Memory, motorsport trivia, weather/environment, philosophy/humor, data geek jokes)
 - [x] KistiMode: scrolling message log — newest at top, older messages fade, max 8 visible
 - [x] KistiMode: typewriter speed 35ms → 30ms
 - [x] KistiMode: cursor accent #E60000 → #C80A33 (brand red)
@@ -65,10 +65,12 @@
 - [x] TrackMode: removed corner temp labels — pure visual heatmap
 - [x] TrackMode: cold tire color #0077DD → #50B4FF per ZMID spec
 - [x] ZeusScanBar: purple → red (#C80A33), left-to-right-only → bidirectional sweep (KITT-style)
-- [x] Build: zero errors, 4 commits pushed
+- [x] zeusResponses: added website refs (www.boostbarnmotorsports.com, www.aldc.io) to all 10 relevant Q&A entries
+- [x] Build: zero errors, 8 commits pushed
 
 ### Files Modified
-- `src/components/driver/KistiMode.tsx` — 100 idle lines, scrolling log, 30ms typewriter, #C80A33 cursor, removed logo
+- `src/components/driver/KistiMode.tsx` — 250 idle lines (14 categories), scrolling log, 30ms typewriter, #C80A33 cursor, removed logo
+- `src/lib/zeusResponses.ts` — website references added to Boost Barn and ALDC Q&A entries
 - `src/components/driver/DriverSoftkeyBar.tsx` — logo 28px
 - `src/components/driver/DriverStatusBar.tsx` — removed KiSTI logo + mode text
 - `src/components/driver/DriverDisplay.tsx` — removed mode prop from StatusBar
@@ -84,3 +86,4 @@
 - **Logo assumptions**: Always check actual image dimensions before applying CSS crops. The plan assumed 1536x1024 with 65% padding, but the real file was 1332x329 (already tight). Wasted a commit.
 - **KITT scan bar**: CSS `translateX(-100%)` to `translateX(300%)` is one-way only. For back-and-forth, add a 50% keyframe and double the duration.
 - **Spec vs reality**: When implementing from a spec (ZMID 1ec8edc3), always cross-check asset files before assuming the spec's description of those assets is accurate.
+- **Chat Q&A website refs**: Always include partner/company website URLs in chat responses for lead generation (Boost Barn → www.boostbarnmotorsports.com, ALDC → www.aldc.io).
