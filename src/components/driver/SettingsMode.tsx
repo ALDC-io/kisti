@@ -26,9 +26,7 @@ export default function SettingsMode({ gpsFixed, networkConnected }: SettingsMod
           KiSTI
         </h2>
         <p className="text-center text-[10px] leading-tight" style={{ color: SILVER }}>
-          Knowledge-Integrated Smart
-          <br />
-          Telemetry Interface
+          Knight Industries STI
         </p>
 
         <div className="my-1" />

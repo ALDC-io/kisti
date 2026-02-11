@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { DriverDisplayState } from "@/lib/driverTelemetry";
 import DriverStatusBar from "./DriverStatusBar";
 import DriverSoftkeyBar, { DriverMode } from "./DriverSoftkeyBar";
+import KistiMode from "./KistiMode";
 import StreetMode from "./StreetMode";
 import TrackMode from "./TrackMode";
 import VideoMode from "./VideoMode";
@@ -15,12 +16,12 @@ interface DriverDisplayProps {
 }
 
 export default function DriverDisplay({ state }: DriverDisplayProps) {
-  const [mode, setMode] = useState<DriverMode>("STREET");
+  const [mode, setMode] = useState<DriverMode>("KISTI");
 
-  // Keyboard shortcuts (1-5)
+  // Keyboard shortcuts (1-6)
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      const modes: DriverMode[] = ["STREET", "TRACK", "VIDEO", "LOG", "SETTINGS"];
+      const modes: DriverMode[] = ["KISTI", "STREET", "TRACK", "VIDEO", "LOG", "SETTINGS"];
       const idx = parseInt(e.key) - 1;
       if (idx >= 0 && idx < modes.length) {
         setMode(modes[idx]);
@@ -50,6 +51,7 @@ export default function DriverDisplay({ state }: DriverDisplayProps) {
       />
 
       <div className="relative flex-1 overflow-hidden">
+        {mode === "KISTI" && <KistiMode />}
         {mode === "STREET" && <StreetMode state={state} />}
         {mode === "TRACK" && <TrackMode state={state} />}
         {mode === "VIDEO" && <VideoMode state={state} />}

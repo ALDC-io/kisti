@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useCallback } from "react";
-import { DriverDisplayState, CornerTelemetry, gt7TireColor, GT7_COLORS } from "@/lib/driverTelemetry";
+import { DriverDisplayState, CornerTelemetry } from "@/lib/driverTelemetry";
 import { CIRCUIT, TURNS, getCircuitPosition } from "@/lib/lagunaSecaCircuit";
 
 const BG_DARK = "#0A0A0A";
@@ -22,174 +22,177 @@ function fmtTime(seconds: number): string {
   return `${m}:${s.toFixed(1).padStart(4, "0")}`;
 }
 
-function drawThermalCorner(
+function tireHeatColor(tempC: number): string {
+  // cold=blue → green → yellow → red
+  if (tempC < 60) return "#0077DD";
+  if (tempC < 80) return "#00CC66";
+  if (tempC < 100) return "#FFAA00";
+  return "#FF2222";
+}
+
+function drawStiHeatmap(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
   w: number,
   h: number,
-  corner: CornerTelemetry,
-  label: string,
-  isHottest: boolean
+  corners: Record<string, CornerTelemetry>,
+  oilTempC: number
 ) {
   // Background
-  ctx.fillStyle = isHottest ? "#1A0505" : BG_DARK;
+  ctx.fillStyle = BG_DARK;
   ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = CHROME_DARK;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x, y, w, h);
 
-  // Chrome bezel
-  ctx.strokeStyle = isHottest ? HIGHLIGHT : CHROME_DARK;
-  ctx.lineWidth = isHottest ? 2 : 1;
+  // Car dimensions within panel
+  const carW = w * 0.5;
+  const carH = h * 0.82;
+  const carX = x + (w - carW) / 2;
+  const carY = y + (h - carH) / 2;
+
+  // --- Draw simplified STI silhouette (top-down 5-door hatchback) ---
+  const cx = carX + carW / 2;
+
   ctx.beginPath();
-  ctx.roundRect(x + 1, y + 1, w - 2, h - 2, 3);
-  ctx.stroke();
-
-  // Glow effect for hottest
-  if (isHottest) {
-    ctx.shadowColor = HIGHLIGHT;
-    ctx.shadowBlur = 8;
-    ctx.strokeStyle = HIGHLIGHT;
-    ctx.lineWidth = 0.5;
-    ctx.beginPath();
-    ctx.roundRect(x + 2, y + 2, w - 4, h - 4, 2);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-  }
-
-  // Corner name
-  ctx.fillStyle = WHITE;
-  ctx.font = "bold 10px Helvetica, sans-serif";
-  ctx.textAlign = "left";
-  ctx.fillText(label, x + 6, y + 14);
-
-  // Wear % (top right)
-  const wearColor = corner.tireWearPct > 50 ? GREEN : corner.tireWearPct > 25 ? YELLOW : RED;
-  ctx.fillStyle = wearColor;
-  ctx.font = "bold 8px Helvetica, sans-serif";
-  ctx.textAlign = "right";
-  ctx.fillText(`${Math.round(corner.tireWearPct)}%`, x + w - 5, y + 14);
-  ctx.textAlign = "left";
-
-  // --- GT7 Mini Tire Shape (left side) ---
-  const tireColor = gt7TireColor(corner.tireTempC);
-  const tireX = x + 6;
-  const tireY = y + 20;
-  const tireW = w * 0.22;
-  const tireH = h - 28;
-  const r = Math.min(tireW, tireH) * 0.2;
-
-  // Tire outline
-  ctx.fillStyle = "#1A1A1A";
-  ctx.beginPath();
-  ctx.roundRect(tireX, tireY, tireW, tireH, r);
-  ctx.fill();
-  ctx.strokeStyle = "#3A3A3A";
-  ctx.lineWidth = 0.5;
-  ctx.beginPath();
-  ctx.roundRect(tireX, tireY, tireW, tireH, r);
-  ctx.stroke();
-
-  // Wear fill bar
-  const fillH = tireH * (corner.tireWearPct / 100);
-  const fillY = tireY + tireH - fillH;
-  ctx.save();
-  ctx.beginPath();
-  ctx.roundRect(tireX + 1, tireY + 1, tireW - 2, tireH - 2, r - 1);
-  ctx.clip();
-
-  const grad = ctx.createLinearGradient(tireX, fillY, tireX, tireY + tireH);
-  grad.addColorStop(0, tireColor);
-  grad.addColorStop(1, tireColor + "88");
-  ctx.fillStyle = grad;
-  ctx.fillRect(tireX + 1, fillY, tireW - 2, fillH);
-
-  // Glossy highlight
-  if (fillH > 3) {
-    const glossGrad = ctx.createLinearGradient(tireX, fillY, tireX, fillY + 4);
-    glossGrad.addColorStop(0, "rgba(255,255,255,0.25)");
-    glossGrad.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.fillStyle = glossGrad;
-    ctx.fillRect(tireX + 1, fillY, tireW - 2, Math.min(4, fillH));
-  }
-
-  // Tread lines
-  ctx.strokeStyle = "rgba(0,0,0,0.3)";
-  ctx.lineWidth = 0.5;
-  for (let i = 1; i < 4; i++) {
-    const ly = tireY + (tireH * i) / 4;
-    ctx.beginPath();
-    ctx.moveTo(tireX + 2, ly);
-    ctx.lineTo(tireX + tireW - 2, ly);
-    ctx.stroke();
-  }
-  ctx.restore();
-
-  // Brake strip (right of tire)
-  const brakeX = tireX + tireW + 3;
-  const brakeW = 4;
-  const brakeColor = corner.brakeTempC > 316 ? RED : corner.brakeTempC > 232 ? YELLOW : GREEN;
-  const brakeNorm = Math.max(0, Math.min(1, (corner.brakeTempC - 100) / 400));
+  // Front bumper — rounded nose
+  ctx.moveTo(carX + carW * 0.25, carY);
+  ctx.quadraticCurveTo(cx, carY - carH * 0.02, carX + carW * 0.75, carY);
+  // Right side — front fender to rear
+  ctx.lineTo(carX + carW * 0.82, carY + carH * 0.08);
+  ctx.lineTo(carX + carW * 0.85, carY + carH * 0.18);
+  ctx.lineTo(carX + carW * 0.83, carY + carH * 0.35);
+  // Right door indent
+  ctx.lineTo(carX + carW * 0.82, carY + carH * 0.50);
+  ctx.lineTo(carX + carW * 0.84, carY + carH * 0.65);
+  // Rear fender flare
+  ctx.lineTo(carX + carW * 0.86, carY + carH * 0.78);
+  ctx.lineTo(carX + carW * 0.82, carY + carH * 0.90);
+  // Rear bumper
+  ctx.quadraticCurveTo(cx, carY + carH * 1.02, carX + carW * 0.18, carY + carH * 0.90);
+  // Left side — rear to front (mirror)
+  ctx.lineTo(carX + carW * 0.14, carY + carH * 0.78);
+  ctx.lineTo(carX + carW * 0.16, carY + carH * 0.65);
+  ctx.lineTo(carX + carW * 0.18, carY + carH * 0.50);
+  ctx.lineTo(carX + carW * 0.17, carY + carH * 0.35);
+  ctx.lineTo(carX + carW * 0.15, carY + carH * 0.18);
+  ctx.lineTo(carX + carW * 0.18, carY + carH * 0.08);
+  ctx.closePath();
 
   ctx.fillStyle = "#1A1A1A";
+  ctx.fill();
+  ctx.strokeStyle = "#606060";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Hood scoop (STI signature)
+  ctx.fillStyle = "#222222";
   ctx.beginPath();
-  ctx.roundRect(brakeX, tireY, brakeW, tireH, 1.5);
+  ctx.roundRect(cx - carW * 0.1, carY + carH * 0.08, carW * 0.2, carH * 0.12, 2);
+  ctx.fill();
+  ctx.strokeStyle = "#444444";
+  ctx.lineWidth = 0.5;
+  ctx.stroke();
+
+  // Windshield line
+  ctx.strokeStyle = "#404040";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(carX + carW * 0.22, carY + carH * 0.25);
+  ctx.lineTo(carX + carW * 0.78, carY + carH * 0.25);
+  ctx.stroke();
+
+  // Rear window line
+  ctx.beginPath();
+  ctx.moveTo(carX + carW * 0.25, carY + carH * 0.72);
+  ctx.lineTo(carX + carW * 0.75, carY + carH * 0.72);
+  ctx.stroke();
+
+  // Wing (rear spoiler)
+  ctx.fillStyle = "#252525";
+  ctx.beginPath();
+  ctx.roundRect(carX + carW * 0.12, carY + carH * 0.88, carW * 0.76, carH * 0.03, 1);
+  ctx.fill();
+  ctx.strokeStyle = "#505050";
+  ctx.lineWidth = 0.5;
+  ctx.stroke();
+
+  // --- Wheel positions (relative to car) ---
+  const wheels = [
+    { key: "FL", wx: carX + carW * 0.15, wy: carY + carH * 0.15 },
+    { key: "FR", wx: carX + carW * 0.85, wy: carY + carH * 0.15 },
+    { key: "RL", wx: carX + carW * 0.15, wy: carY + carH * 0.80 },
+    { key: "RR", wx: carX + carW * 0.85, wy: carY + carH * 0.80 },
+  ];
+
+  const heatRadius = carW * 0.22;
+  const brakeRadius = heatRadius * 0.35;
+
+  for (const wh of wheels) {
+    const corner = corners[wh.key];
+    if (!corner) continue;
+
+    // Tire thermal radial gradient
+    const heatColor = tireHeatColor(corner.tireTempC);
+    const grad = ctx.createRadialGradient(wh.wx, wh.wy, 0, wh.wx, wh.wy, heatRadius);
+    grad.addColorStop(0, heatColor + "CC");
+    grad.addColorStop(0.5, heatColor + "66");
+    grad.addColorStop(1, heatColor + "00");
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(wh.wx, wh.wy, heatRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Brake disc indicator
+    const brakeColor = corner.brakeTempC > 316 ? RED : corner.brakeTempC > 232 ? YELLOW : GREEN;
+    ctx.fillStyle = brakeColor;
+    ctx.beginPath();
+    ctx.arc(wh.wx, wh.wy, brakeRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Small dark center dot
+    ctx.fillStyle = "#111111";
+    ctx.beginPath();
+    ctx.arc(wh.wx, wh.wy, brakeRadius * 0.35, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Engine bay heat zone (front-center)
+  const engX = cx;
+  const engY = carY + carH * 0.12;
+  const engRadius = carW * 0.18;
+  const oilNorm = Math.max(0, Math.min(1, (oilTempC - 80) / 80));
+  const engAlpha = Math.round(0x33 + oilNorm * 0x99).toString(16).padStart(2, "0");
+  const engGrad = ctx.createRadialGradient(engX, engY, 0, engX, engY, engRadius);
+  engGrad.addColorStop(0, `#FF4400${engAlpha}`);
+  engGrad.addColorStop(0.6, `#FF220044`);
+  engGrad.addColorStop(1, "#FF220000");
+  ctx.fillStyle = engGrad;
+  ctx.beginPath();
+  ctx.arc(engX, engY, engRadius, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.save();
-  ctx.beginPath();
-  ctx.roundRect(brakeX, tireY, brakeW, tireH, 1.5);
-  ctx.clip();
-  ctx.fillStyle = brakeColor;
-  ctx.fillRect(brakeX, tireY + tireH * (1 - brakeNorm), brakeW, tireH * brakeNorm);
-  ctx.restore();
+  // --- Corner labels with temps ---
+  ctx.font = "bold 9px Helvetica, sans-serif";
+  ctx.textAlign = "center";
 
-  // --- Temp readouts + sparkline (right side) ---
-  const textX = x + w * 0.42;
+  const labelPositions = [
+    { key: "FL", lx: carX + carW * 0.15, ly: carY - 4 },
+    { key: "FR", lx: carX + carW * 0.85, ly: carY - 4 },
+    { key: "RL", lx: carX + carW * 0.15, ly: carY + carH + 12 },
+    { key: "RR", lx: carX + carW * 0.85, ly: carY + carH + 12 },
+  ];
 
-  // Tire temp (big)
-  ctx.fillStyle = tireColor;
-  ctx.font = "bold 16px Helvetica, sans-serif";
-  ctx.textAlign = "left";
-  ctx.fillText(`${Math.round(corner.tireTempC)}°`, textX, tireY + tireH * 0.3);
-
-  // Brake temp
-  ctx.fillStyle = brakeColor;
-  ctx.font = "10px Helvetica, sans-serif";
-  ctx.fillText(`BRK ${Math.round(corner.brakeTempC)}°`, textX, tireY + tireH * 0.3 + 14);
-
-  // Sparkline (right side, compact)
-  const trend = corner.tireTrend;
-  if (trend.length >= 2) {
-    const sx = x + w * 0.6;
-    const sy = tireY + tireH * 0.5;
-    const sw = w * 0.35;
-    const sh = tireH * 0.35;
-    const mn = Math.min(...trend);
-    const mx = Math.max(...trend);
-    const rng = mx - mn || 1;
-
-    ctx.beginPath();
-    for (let i = 0; i < trend.length; i++) {
-      const px = sx + (i / (trend.length - 1)) * sw;
-      const py = sy + sh - ((trend[i] - mn) / rng) * sh;
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
-    }
-    ctx.strokeStyle = tireColor;
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
+  for (const lbl of labelPositions) {
+    const corner = corners[lbl.key];
+    if (!corner) continue;
+    const color = tireHeatColor(corner.tireTempC);
+    ctx.fillStyle = color;
+    ctx.fillText(`${lbl.key} ${Math.round(corner.tireTempC)}°C`, lbl.lx, lbl.ly);
   }
 
-  // Delta arrow
-  if (trend.length >= 2) {
-    const delta = trend[trend.length - 1] - trend[trend.length - 2];
-    const arrow = delta > 0 ? "\u2191" : delta < 0 ? "\u2193" : "\u2192";
-    const dColor = delta > 1 ? RED : delta < -1 ? GREEN : GRAY;
-    ctx.fillStyle = dColor;
-    ctx.font = "10px Helvetica, sans-serif";
-    ctx.textAlign = "right";
-    ctx.fillText(`${arrow}${Math.abs(delta).toFixed(1)}`, x + w - 4, y + h - 5);
-    ctx.textAlign = "start";
-  }
+  ctx.textAlign = "start";
 }
 
 function drawTrackMap(
@@ -322,33 +325,13 @@ export default function TrackMode({ state }: TrackModeProps) {
     ctx.fillStyle = BG_DARK;
     ctx.fillRect(0, 0, w, h);
 
-    // Layout: left 55% = thermal quadrant, right 45% = track map + info
+    // Layout: left 55% = STI heatmap, right 45% = track map + info
     const leftW = w * 0.55;
     const rightX = leftW + 2;
     const rightW = w - rightX;
 
-    // 2x2 thermal corners
-    const cornerW = (leftW - 4) / 2;
-    const cornerH = (h - 4) / 2;
-
-    // Find hottest corner
-    const hottestKey = Object.entries(state.corners).sort(
-      ([, a], [, b]) => b.tireTempC - a.tireTempC
-    )[0]?.[0];
-
-    const cornerPositions = [
-      { key: "FL", x: 0, y: 0 },
-      { key: "FR", x: cornerW + 2, y: 0 },
-      { key: "RL", x: 0, y: cornerH + 2 },
-      { key: "RR", x: cornerW + 2, y: cornerH + 2 },
-    ];
-
-    for (const c of cornerPositions) {
-      const data = state.corners[c.key];
-      if (data) {
-        drawThermalCorner(ctx, c.x, c.y, cornerW, cornerH, data, c.key, c.key === hottestKey);
-      }
-    }
+    // STI silhouette heatmap
+    drawStiHeatmap(ctx, 0, 0, leftW, h, state.corners, state.oilTempC);
 
     // Track map (right, top portion)
     const trackH = h * 0.6;

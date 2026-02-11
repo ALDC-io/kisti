@@ -1,13 +1,14 @@
 "use client";
 
-export type DriverMode = "STREET" | "TRACK" | "VIDEO" | "LOG" | "SETTINGS";
+export type DriverMode = "KISTI" | "STREET" | "TRACK" | "VIDEO" | "LOG" | "SETTINGS";
 
 const MODES: { key: DriverMode; label: string; shortcut: string }[] = [
-  { key: "STREET", label: "STREET", shortcut: "1" },
-  { key: "TRACK", label: "TRACK", shortcut: "2" },
-  { key: "VIDEO", label: "VIDEO", shortcut: "3" },
-  { key: "LOG", label: "LOG", shortcut: "4" },
-  { key: "SETTINGS", label: "SET", shortcut: "5" },
+  { key: "KISTI", label: "KISTI", shortcut: "1" },
+  { key: "STREET", label: "STREET", shortcut: "2" },
+  { key: "TRACK", label: "TRACK", shortcut: "3" },
+  { key: "VIDEO", label: "VIDEO", shortcut: "4" },
+  { key: "LOG", label: "LOG", shortcut: "5" },
+  { key: "SETTINGS", label: "SET", shortcut: "6" },
 ];
 
 interface DriverSoftkeyBarProps {
@@ -33,7 +34,7 @@ export default function DriverSoftkeyBar({
           <button
             key={m.key}
             onClick={() => onModeChange(m.key)}
-            className="flex-1 text-xs font-bold tracking-wider transition-colors"
+            className="flex flex-1 items-center justify-center text-xs font-bold tracking-wider transition-colors"
             style={{
               backgroundColor: isActive ? "var(--driver-cherry)" : "transparent",
               color: isActive ? "var(--driver-white)" : "var(--driver-silver)",
@@ -43,7 +44,16 @@ export default function DriverSoftkeyBar({
             aria-label={`Switch to ${m.key} mode`}
             aria-pressed={isActive}
           >
-            {m.label}
+            {m.key === "KISTI" ? (
+              <img
+                src="/assets/kisti_logo.png"
+                alt="KiSTI"
+                style={{ height: 14 }}
+                draggable={false}
+              />
+            ) : (
+              m.label
+            )}
           </button>
         );
       })}

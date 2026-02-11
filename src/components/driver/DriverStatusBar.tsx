@@ -28,12 +28,18 @@ export default function DriverStatusBar({
         borderBottom: "1px solid var(--driver-chrome-dark)",
       }}
     >
-      {/* Link ECU logo (left) */}
+      {/* Left: Link ECU + KiSTI logo + mode */}
       <div className="flex items-center gap-2">
         <img
           src="/assets/link_logo.svg"
           alt="Link ECU"
           className="h-5"
+          draggable={false}
+        />
+        <img
+          src="/assets/kisti_logo.png"
+          alt="KiSTI"
+          className="h-4"
           draggable={false}
         />
         <span
