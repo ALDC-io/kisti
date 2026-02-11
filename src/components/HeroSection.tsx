@@ -47,12 +47,12 @@ export default function HeroSection() {
       />
       <h1 className="mt-4 text-2xl font-bold tracking-tight text-foreground sm:text-3xl lg:text-4xl">
         Make Data Speak{" "}
-        <span
-          className="animate-hero-word relative inline-block h-[1.15em] min-w-[3ch] overflow-hidden align-baseline"
-        >
+        <span className="animate-hero-word relative inline-block overflow-hidden align-middle" style={{ height: "1.2em" }}>
+          {/* Invisible sizer — forces container width to widest word */}
+          <span className="invisible block text-kisti-accent" aria-hidden="true">Racer</span>
           {/* Current word */}
           <span
-            className="absolute inset-x-0 text-kisti-accent transition-all duration-[600ms] ease-in-out"
+            className="absolute inset-0 text-kisti-accent transition-all duration-[600ms] ease-in-out"
             style={{
               ...glowStyle,
               transform: animating ? "translateY(-100%)" : "translateY(0)",
@@ -63,7 +63,7 @@ export default function HeroSection() {
           </span>
           {/* Next word */}
           <span
-            className="absolute inset-x-0 text-kisti-accent transition-all duration-[600ms] ease-in-out"
+            className="absolute inset-0 text-kisti-accent transition-all duration-[600ms] ease-in-out"
             style={{
               ...glowStyle,
               transform: animating ? "translateY(0)" : "translateY(100%)",
