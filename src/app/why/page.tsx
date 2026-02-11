@@ -137,6 +137,10 @@ export default function WhyPage() {
                 Our mission is to{" "}
                 <span className="font-semibold text-kisti-accent">
                   make data speak human
+                </span>{" "}
+                &mdash; or, in this case,{" "}
+                <span className="font-semibold text-kisti-accent">
+                  make data speak racer
                 </span>
                 . KiSTI shows off our ability to gather, analyze, and share data
                 in novel and fun ways &mdash; while making all of it as easy to

@@ -200,8 +200,13 @@ vercel-live-feedback,
   .animate-kitt-divider,
   .animate-cursor-blink,
   .animate-fab-pulse,
+  .animate-hero-word,
   [style*="zeusVoiceBar"] {
     animation: none !important;
+  }
+
+  .animate-hero-word * {
+    transition: none !important;
   }
 }
 

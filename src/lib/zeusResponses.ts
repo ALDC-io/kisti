@@ -75,7 +75,7 @@ export const ZEUS_RESPONSES: ZeusQA[] = [
     keywords: ["zeus", "aldc", "who built", "memory", "cloud", "analytic labs", "mission"],
     question: "Who built you?",
     answer:
-      "I was built by Analytic Labs (ALDC) in collaboration with Boost Barn. ALDC's mission is to make data speak human — and I showcase that by bringing multiple technologies together, each with their own set of data, and making all of it as easy to interact with as having a conversation. Zeus is my cloud intelligence layer: pgvector-powered, 3.5M+ memories, AI-driven insights. Boost Barn handled my mechanical build — engine, turbo, fueling, ECU integration. Together, they wanted to bring the world of performance tuning together with modern data analytics. For more information, visit Analytic Labs at www.aldc.io and Boost Barn at www.boostbarnmotorsports.com.",
+      "I was built by Analytic Labs (ALDC) in collaboration with Boost Barn. ALDC's mission is to make data speak human — or, in this case, make data speak racer — and I showcase that by bringing multiple technologies together, each with their own set of data, and making all of it as easy to interact with as having a conversation. Zeus is my cloud intelligence layer: pgvector-powered, 3.5M+ memories, AI-driven insights. Boost Barn handled my mechanical build — engine, turbo, fueling, ECU integration. Together, they wanted to bring the world of performance tuning together with modern data analytics. For more information, visit Analytic Labs at www.aldc.io and Boost Barn at www.boostbarnmotorsports.com.",
   },
   {
     keywords: ["laguna", "seca", "track", "circuit", "corkscrew"],
