@@ -8,13 +8,13 @@ const STATUS_CONFIG: Record<
 > = {
   ONLINE: {
     color: "#10b981",
-    label: "Cloud Sync Active",
-    description: "Telemetry streaming to Zeus Memory in real-time",
+    label: "Eclipse Sync Active",
+    description: "Telemetry streaming to ALDC Eclipse in real-time",
   },
   QUEUED: {
     color: "#f59e0b",
     label: "Queued",
-    description: "Data buffered on Jetson, uploading when bandwidth allows",
+    description: "Data buffered on Jetson, uploading to Eclipse when bandwidth allows",
   },
   OFFLINE: {
     color: "#ef4444",

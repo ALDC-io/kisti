@@ -277,7 +277,15 @@ export default function PitEngineerView({ state }: PitEngineerViewProps) {
             </div>
           </div>
           <div className="rounded-lg border border-gray-200 bg-white p-2">
-            <div className="text-[10px] font-medium text-gray-500">CLOUD SYNC</div>
+            <div className="flex items-center gap-1.5">
+              <img
+                src="/assets/aldc_logo.svg"
+                alt="ALDC"
+                className="h-3"
+                draggable={false}
+              />
+              <div className="text-[10px] font-medium text-gray-500">ECLIPSE SYNC</div>
+            </div>
             <div className="mt-0.5 flex items-center gap-1">
               <span
                 className="inline-block h-2 w-2 rounded-full"
@@ -287,11 +295,11 @@ export default function PitEngineerView({ state }: PitEngineerViewProps) {
                 {state.cloudSync.status}
               </span>
             </div>
-            {state.cloudSync.pendingCount > 0 && (
-              <div className="text-[10px] text-gray-500">
-                {state.cloudSync.pendingCount} pending uploads
-              </div>
-            )}
+            <div className="text-[10px] text-gray-500">
+              {state.cloudSync.pendingCount > 0
+                ? `${state.cloudSync.pendingCount} pending uploads`
+                : "Streaming to Eclipse"}
+            </div>
           </div>
         </div>
       </div>
