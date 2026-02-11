@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { matchResponse } from "@/lib/zeusResponses";
 
 export interface ChatMessage {
@@ -12,38 +12,40 @@ export interface ChatMessage {
 export function useZeusChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [processing, setProcessing] = useState(false);
+  const processingRef = useRef(false);
 
-  const send = useCallback(
-    (text: string) => {
-      if (processing || !text.trim()) return;
+  const send = useCallback((text: string) => {
+    if (processingRef.current || !text.trim()) return;
 
-      const userMsg: ChatMessage = {
-        id: `u-${Date.now()}`,
-        role: "user",
-        text: text.trim(),
+    processingRef.current = true;
+    setProcessing(true);
+
+    const userMsg: ChatMessage = {
+      id: `u-${Date.now()}`,
+      role: "user",
+      text: text.trim(),
+    };
+
+    setMessages((prev) => [...prev, userMsg]);
+
+    const answer = matchResponse(text);
+    const delay = 800 + Math.random() * 700;
+
+    setTimeout(() => {
+      const zeusMsg: ChatMessage = {
+        id: `z-${Date.now()}`,
+        role: "zeus",
+        text: answer,
       };
-
-      setMessages((prev) => [...prev, userMsg]);
-      setProcessing(true);
-
-      const answer = matchResponse(text);
-      const delay = 800 + Math.random() * 700; // 800-1500ms
-
-      setTimeout(() => {
-        const zeusMsg: ChatMessage = {
-          id: `z-${Date.now()}`,
-          role: "zeus",
-          text: answer,
-        };
-        setMessages((prev) => [...prev, zeusMsg]);
-        setProcessing(false);
-      }, delay);
-    },
-    [processing]
-  );
+      setMessages((prev) => [...prev, zeusMsg]);
+      processingRef.current = false;
+      setProcessing(false);
+    }, delay);
+  }, []);
 
   const clear = useCallback(() => {
     setMessages([]);
+    processingRef.current = false;
     setProcessing(false);
   }, []);
 

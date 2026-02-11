@@ -2,26 +2,19 @@
 
 import { useEffect, useRef, useState } from "react";
 
-const BAR_COUNT = 24;
-const UPDATE_MS = 70;
+const BAR_COUNT = 3;
+const UPDATE_MS = 80;
 
 function randomHeights(): number[] {
-  // Generate speech-like random heights — center bars tend taller, edges shorter
-  const center = (BAR_COUNT - 1) / 2;
-  return Array.from({ length: BAR_COUNT }, (_, i) => {
-    const dist = Math.abs(i - center) / center;
-    const ceiling = 1 - dist * 0.5; // center: 1.0, edges: 0.5
-    const floor = 0.1;
-    // Random with bias toward mid-range for natural speech feel
-    const r1 = Math.random();
-    const r2 = Math.random();
-    const biased = (r1 + r2) / 2; // averages two randoms — clusters toward middle
-    return floor + biased * (ceiling - floor);
-  });
+  // KITT-style 3-bar VU meter: center = overall volume, sides = L/R channels
+  const center = 0.4 + Math.random() * 0.6; // 40-100%
+  const left = center * (0.5 + Math.random() * 0.5); // proportional to center
+  const right = center * (0.5 + Math.random() * 0.5);
+  return [left, center, right];
 }
 
 function idleHeights(): number[] {
-  return Array.from({ length: BAR_COUNT }, () => 0.06);
+  return [0.06, 0.06, 0.06];
 }
 
 export default function ZeusVoiceWave({ active }: { active: boolean }) {
@@ -30,7 +23,6 @@ export default function ZeusVoiceWave({ active }: { active: boolean }) {
 
   useEffect(() => {
     if (active) {
-      // Immediately show activity
       setHeights(randomHeights());
       intervalRef.current = setInterval(() => {
         setHeights(randomHeights());
@@ -51,19 +43,19 @@ export default function ZeusVoiceWave({ active }: { active: boolean }) {
   }, [active]);
 
   return (
-    <div className="flex h-8 items-end justify-center gap-[2px] px-4 py-1">
+    <div className="flex h-10 items-end justify-center gap-1 px-4 py-1">
       {heights.map((h, i) => (
         <div
           key={i}
-          className="w-[3px] rounded-full"
+          className="w-3 rounded-sm"
           style={{
             height: `${h * 100}%`,
             background: active
-              ? "linear-gradient(to top, #CC0000, #E60000, #FF1A1A)"
-              : "#CC000040",
-            transition: "height 60ms ease-out",
-            boxShadow: active && h > 0.4
-              ? `0 0 ${h * 8}px #E6000060`
+              ? "linear-gradient(to top, #990000, #CC0000, #E60000, #FF1A1A)"
+              : "#CC000025",
+            transition: "height 70ms ease-out",
+            boxShadow: active
+              ? `0 0 ${6 + h * 10}px #E6000080, 0 0 ${2 + h * 4}px #FF1A1A60`
               : "none",
           }}
         />
