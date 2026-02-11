@@ -81,7 +81,7 @@ export default function Home() {
             {/* Driver View */}
             <div>
               <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-foreground/40">
-                Driver View — Kenwood Excelon 800x480
+                Driver View
               </div>
               <DriverDisplay state={state} />
             </div>
