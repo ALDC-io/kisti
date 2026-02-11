@@ -48,37 +48,39 @@ export default function ZeusChatPanel({
 
   return (
     <div className="flex w-[min(384px,calc(100vw-2rem))] max-h-[min(28rem,calc(100vh-6rem))] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0d0d20] shadow-2xl shadow-kisti-accent/10">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-        <div className="flex items-center gap-2">
-          <img
-            src="/assets/aldc_logo.svg"
-            alt="ALDC"
-            className="h-4"
-            draggable={false}
-          />
-          <span className="text-sm font-bold text-foreground">Zeus</span>
-          <span className="relative flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
-          </span>
+      {/* Header — pinned with voice waveform */}
+      <div className="shrink-0 border-b border-white/10">
+        <div className="flex items-center justify-between px-4 py-3">
+          <div className="flex items-center gap-2">
+            <img
+              src="/assets/aldc_logo.svg"
+              alt="ALDC"
+              className="h-4"
+              draggable={false}
+            />
+            <span className="text-sm font-bold text-foreground">Zeus</span>
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+            </span>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-md p-1 text-foreground/40 transition-colors hover:bg-white/5 hover:text-foreground/70"
+            aria-label="Close chat"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M4.293 4.293a1 1 0 011.414 0L8 6.586l2.293-2.293a1 1 0 111.414 1.414L9.414 8l2.293 2.293a1 1 0 01-1.414 1.414L8 9.414l-2.293 2.293a1 1 0 01-1.414-1.414L6.586 8 4.293 5.707a1 1 0 010-1.414z" />
+            </svg>
+          </button>
         </div>
-        <button
-          onClick={onClose}
-          className="rounded-md p-1 text-foreground/40 transition-colors hover:bg-white/5 hover:text-foreground/70"
-          aria-label="Close chat"
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M4.293 4.293a1 1 0 011.414 0L8 6.586l2.293-2.293a1 1 0 111.414 1.414L9.414 8l2.293 2.293a1 1 0 01-1.414 1.414L8 9.414l-2.293 2.293a1 1 0 01-1.414-1.414L6.586 8 4.293 5.707a1 1 0 010-1.414z" />
-          </svg>
-        </button>
+
+        {/* Voice waveform — active while Zeus is typing */}
+        <ZeusVoiceWave active={speaking} />
+
+        {/* Scan bar — active while Zeus is thinking */}
+        <ZeusScanBar active={processing && !speaking} />
       </div>
-
-      {/* Voice waveform — active while Zeus is typing */}
-      <ZeusVoiceWave active={speaking} />
-
-      {/* Scan bar — active while Zeus is thinking */}
-      <ZeusScanBar active={processing && !speaking} />
 
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
