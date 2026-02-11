@@ -12,8 +12,9 @@ export default function HeroSection() {
         Make Data Speak Racer
       </h1>
       <p className="mt-4 max-w-2xl text-base text-foreground/60 sm:text-lg">
-        Real-time edge telemetry on a 2014 Subaru STI. Your car already knows
-        what&apos;s wrong — now it can tell you in plain English.
+        Real-time edge telemetry on a 2014 Subaru STI. Pull in after a lap
+        and quickly understand what&apos;s working and what&apos;s not from your
+        car&apos;s own suite of sensors — now it can tell you in plain English.
       </p>
 
       {/* Built by badges */}
