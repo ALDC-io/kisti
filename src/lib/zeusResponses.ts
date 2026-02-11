@@ -206,10 +206,10 @@ export const ZEUS_RESPONSES: ZeusQA[] = [
 ];
 
 export const STARTER_CHIPS = [
-  "How much power does it make?",
-  "What's the build philosophy?",
-  "What's wrong with the FR brake?",
-  "What does the name KiSTI mean?",
+  "How much power do you make?",
+  "Who are you?",
+  "How are your brakes feeling?",
+  "What does your name mean?",
 ];
 
 const FALLBACK_RESPONSE =

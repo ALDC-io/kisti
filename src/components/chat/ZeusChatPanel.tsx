@@ -93,7 +93,7 @@ export default function ZeusChatPanel({
         {messages.length === 0 && !processing ? (
           <div className="space-y-3">
             <p className="text-center text-xs text-foreground/40">
-              Ask Zeus about the car
+              Ask me anything
             </p>
             <div className="flex flex-wrap justify-center gap-2">
               {STARTER_CHIPS.map((chip) => (
@@ -139,7 +139,7 @@ export default function ZeusChatPanel({
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask about the car..."
+          placeholder="Ask me anything..."
           disabled={processing}
           className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground placeholder-foreground/30 outline-none transition-colors focus:border-kisti-accent/40"
         />
