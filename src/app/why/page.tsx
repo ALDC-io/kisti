@@ -124,8 +124,9 @@ export default function WhyPage() {
                 >
                   Analytic Labs
                 </a>{" "}
-                to showcase what happens when you bring multiple data sources
-                together and let them talk.
+                in collaboration with Boost Barn, to showcase what happens when
+                you bring multiple technologies together, each with their own
+                set of data.
               </p>
               <p>
                 Our mission is to{" "}
