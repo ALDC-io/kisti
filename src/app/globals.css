@@ -164,6 +164,26 @@ vercel-live-feedback,
   }
 }
 
+/* Voice ticker bar bounce (driver modes) */
+@keyframes tickerBarBounce {
+  from {
+    height: 4px;
+  }
+  to {
+    height: 16px;
+  }
+}
+
+.animate-ticker-bar {
+  animation: tickerBarBounce 0.4s ease-in-out infinite alternate;
+}
+.animate-ticker-bar-1 {
+  animation-delay: 0.12s;
+}
+.animate-ticker-bar-2 {
+  animation-delay: 0.24s;
+}
+
 /* FAB pulse ring */
 @keyframes fabPulse {
   0% {
@@ -200,6 +220,7 @@ vercel-live-feedback,
   .animate-kitt-divider,
   .animate-cursor-blink,
   .animate-fab-pulse,
+  .animate-ticker-bar,
   .animate-hero-word,
   [style*="zeusVoiceBar"] {
     animation: none !important;

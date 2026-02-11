@@ -2,6 +2,7 @@
 
 import { useRef, useEffect, useCallback } from "react";
 import { CornerTelemetry, CameraInfo, DriverDisplayState, gt7TireColor, GT7_COLORS } from "@/lib/driverTelemetry";
+import VoiceTicker from "./VoiceTicker";
 
 // Theme constants matching PySide6
 const BG_DARK = "#0A0A0A";
@@ -69,7 +70,7 @@ function drawGT7Tire(
   const tireY = y + 20;
   const tireW = w * 0.35;
   const tireH = h - 30;
-  const r = Math.min(tireW, tireH) * 0.22; // corner radius
+  const r = Math.min(tireW, tireH) * 0.22;
 
   // Tire outline (dark rubber)
   ctx.fillStyle = "#1A1A1A";
@@ -198,6 +199,14 @@ function drawRoadMap(
   ctx.lineWidth = 1;
   ctx.strokeRect(0, 0, w, h);
 
+  // Zoomed-out: scale drawing area by 0.75 to show wider visible range
+  ctx.save();
+  const scale = 0.75;
+  const offX = (w * (1 - scale)) / 2;
+  const offY = (h * (1 - scale)) / 2;
+  ctx.translate(offX, offY);
+  ctx.scale(scale, scale);
+
   // Main highway (Hwy 68)
   ctx.strokeStyle = "#2A2A2A";
   ctx.lineWidth = 6;
@@ -270,7 +279,6 @@ function drawRoadMap(
   const dotX = w * 0.5;
   const dotY = h * 0.48;
 
-  // Outer glow
   const glow = ctx.createRadialGradient(dotX, dotY, 0, dotX, dotY, 18);
   glow.addColorStop(0, "rgba(230, 0, 0, 0.4)");
   glow.addColorStop(1, "rgba(230, 0, 0, 0)");
@@ -279,7 +287,6 @@ function drawRoadMap(
   ctx.arc(dotX, dotY, 18, 0, Math.PI * 2);
   ctx.fill();
 
-  // Inner dot
   ctx.fillStyle = HIGHLIGHT;
   ctx.beginPath();
   ctx.arc(dotX, dotY, 5, 0, Math.PI * 2);
@@ -290,7 +297,9 @@ function drawRoadMap(
   ctx.arc(dotX, dotY, 2, 0, Math.PI * 2);
   ctx.fill();
 
-  // Speed readout
+  ctx.restore(); // End zoom-out transform
+
+  // Speed readout (drawn at full resolution, not scaled)
   ctx.fillStyle = WHITE;
   ctx.font = "bold 16px Helvetica, sans-serif";
   ctx.textAlign = "left";
@@ -382,75 +391,45 @@ export default function StreetMode({ state }: StreetModeProps) {
   }, [draw]);
 
   return (
-    <div className="relative flex h-full w-full">
-      {/* Canvas layer for gauges + map */}
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0 h-full w-full"
-        aria-label="Street mode: road map and corner temperature gauges"
-      />
+    <div className="relative flex h-full w-full flex-col">
+      {/* Canvas + overlays */}
+      <div className="relative flex-1">
+        <canvas
+          ref={canvasRef}
+          className="absolute inset-0 h-full w-full"
+          aria-label="Street mode: road map and corner temperature gauges"
+        />
 
-      {/* HTML overlay: oil gauge + sensor status + alerts */}
-      <div
-        className="pointer-events-none absolute bottom-0 left-0 flex flex-col gap-1 p-1"
-        style={{ width: "55%" }}
-      >
-        {/* Oil gauge overlay */}
+        {/* Sensor status (bottom right, above ticker) */}
         <div
-          className="rounded px-2 py-1"
-          style={{ backgroundColor: "rgba(18,18,18,0.9)", border: `1px solid ${CHROME_DARK}` }}
+          className="pointer-events-none absolute right-0 bottom-0 flex flex-col gap-0.5 p-1"
+          style={{ width: "45%" }}
         >
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-bold" style={{ color: HIGHLIGHT }}>
-              OIL
-            </span>
-            <span
-              className="text-base font-bold tabular-nums"
-              style={{
-                color: state.oilStatus === "hot" ? RED : state.oilStatus === "warn" ? YELLOW : GREEN,
-              }}
+          {state.cameras.map((cam) => (
+            <div
+              key={cam.name}
+              className="flex items-center justify-between rounded px-1.5 py-0.5"
+              style={{ backgroundColor: "rgba(18,18,18,0.85)" }}
             >
-              {Math.round(state.oilPsi)}
-            </span>
-            <span className="text-[10px]" style={{ color: GRAY }}>
-              PSI
-            </span>
-            <span
-              className="text-[10px]"
-              style={{ color: state.oilTempC > 130 ? RED : WHITE }}
-            >
-              {Math.round(state.oilTempC)}°C
-            </span>
-          </div>
+              <div className="flex items-center gap-1">
+                <span
+                  className="inline-block h-1.5 w-1.5 rounded-full"
+                  style={{ backgroundColor: cam.connected ? GREEN : RED }}
+                />
+                <span className="text-[9px]" style={{ color: GRAY }}>
+                  {cam.name}
+                </span>
+              </div>
+              <span className="text-[9px] tabular-nums" style={{ color: WHITE }}>
+                {Math.round(cam.fps)}fps
+              </span>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* Sensor status (bottom right) */}
-      <div
-        className="pointer-events-none absolute right-0 bottom-0 flex flex-col gap-0.5 p-1"
-        style={{ width: "45%" }}
-      >
-        {state.cameras.map((cam) => (
-          <div
-            key={cam.name}
-            className="flex items-center justify-between rounded px-1.5 py-0.5"
-            style={{ backgroundColor: "rgba(18,18,18,0.85)" }}
-          >
-            <div className="flex items-center gap-1">
-              <span
-                className="inline-block h-1.5 w-1.5 rounded-full"
-                style={{ backgroundColor: cam.connected ? GREEN : RED }}
-              />
-              <span className="text-[9px]" style={{ color: GRAY }}>
-                {cam.name}
-              </span>
-            </div>
-            <span className="text-[9px] tabular-nums" style={{ color: WHITE }}>
-              {Math.round(cam.fps)}fps
-            </span>
-          </div>
-        ))}
-      </div>
+      {/* Voice ticker at bottom (replaces oil gauge overlay) */}
+      <VoiceTicker findings={state.findings} />
     </div>
   );
 }

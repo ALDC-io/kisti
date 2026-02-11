@@ -48,8 +48,7 @@ export default function HeroSection() {
       <h1 className="mt-4 text-2xl font-bold tracking-tight text-foreground sm:text-3xl lg:text-4xl">
         Make Data Speak{" "}
         <span
-          className="animate-hero-word relative inline-flex h-[1.2em] overflow-hidden align-bottom"
-          style={{ width: "3.5em" }}
+          className="animate-hero-word relative inline-block h-[1.15em] min-w-[3ch] overflow-hidden align-baseline"
         >
           {/* Current word */}
           <span
