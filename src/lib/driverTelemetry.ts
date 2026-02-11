@@ -14,6 +14,22 @@ export interface CornerTelemetry {
   brakeStatus: "ok" | "warn" | "hot";
   tireTrend: number[]; // last 30 values in C
   brakeTrend: number[]; // last 30 values in C
+  tireWearPct: number; // 0-100, degrades over time
+}
+
+// GT7-style tire color thresholds (°C)
+export const GT7_COLORS = {
+  BLUE: "#0077DD",   // < 75°C (cold)
+  GREEN: "#00CC66",  // 75-90°C (optimal)
+  YELLOW: "#FFAA00", // 90-105°C (warm)
+  RED: "#FF2222",    // > 105°C (overheating)
+} as const;
+
+export function gt7TireColor(tempC: number): string {
+  if (tempC < 75) return GT7_COLORS.BLUE;
+  if (tempC < 90) return GT7_COLORS.GREEN;
+  if (tempC < 105) return GT7_COLORS.YELLOW;
+  return GT7_COLORS.RED;
 }
 
 export interface GPSPosition {
@@ -90,6 +106,9 @@ export function useDriverTelemetry(): DriverDisplayState {
   const progressRef = useRef(0);
   const sessionStartRef = useRef(Date.now());
   const lapStartRef = useRef(Date.now());
+  const wearRef = useRef<Record<string, number>>({
+    FL: 100, FR: 100, RL: 100, RR: 100,
+  });
   const [session, setSession] = useState<SessionData>({
     sessionTimeS: 0,
     lapCount: 0,
@@ -128,6 +147,17 @@ export function useDriverTelemetry(): DriverDisplayState {
         position: pos,
       });
 
+      // Tire wear degradation (~0.015% per tick, faster in corners)
+      const cornerLoad = Math.abs(Math.sin(progressRef.current * Math.PI * 6));
+      const wearRate = 0.012 + cornerLoad * 0.008;
+      for (const k of ["FL", "FR", "RL", "RR"]) {
+        wearRef.current[k] = Math.max(0, wearRef.current[k] - wearRate);
+        // Auto pit-stop reset at 15%
+        if (wearRef.current[k] <= 15) {
+          wearRef.current[k] = 100;
+        }
+      }
+
       // Session timing
       const now = Date.now();
       const sessionTimeS = (now - sessionStartRef.current) / 1000;
@@ -157,7 +187,7 @@ export function useDriverTelemetry(): DriverDisplayState {
 
   // Build driver state from streams
   const buildCorner = useCallback(
-    (tireId: string, brakeId: string): CornerTelemetry => {
+    (tireId: string, brakeId: string, cornerKey: string): CornerTelemetry => {
       const tire = streams.get(tireId);
       const brake = streams.get(brakeId);
       const tireTempC = tire ? fToC(tire.current.value) : 85;
@@ -169,6 +199,7 @@ export function useDriverTelemetry(): DriverDisplayState {
         brakeStatus: getStatusFromC(brakeTempC, 232, 316), // ~450F, ~600F
         tireTrend: (tire?.history || []).map((p) => fToC(p.value)),
         brakeTrend: (brake?.history || []).map((p) => fToC(p.value)),
+        tireWearPct: wearRef.current[cornerKey] ?? 100,
       };
     },
     [streams]
@@ -222,10 +253,10 @@ export function useDriverTelemetry(): DriverDisplayState {
 
   return {
     corners: {
-      FL: buildCorner("tire-fl", "brake-fl"),
-      FR: buildCorner("tire-fr", "brake-fr"),
-      RL: buildCorner("tire-rl", "brake-rl"),
-      RR: buildCorner("tire-rr", "brake-rr"),
+      FL: buildCorner("tire-fl", "brake-fl", "FL"),
+      FR: buildCorner("tire-fr", "brake-fr", "FR"),
+      RL: buildCorner("tire-rl", "brake-rl", "RL"),
+      RR: buildCorner("tire-rr", "brake-rr", "RR"),
     },
     gps,
     oilPsi,

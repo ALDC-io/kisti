@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useCallback } from "react";
-import { DriverDisplayState, CornerTelemetry } from "@/lib/driverTelemetry";
+import { DriverDisplayState, CornerTelemetry, gt7TireColor, GT7_COLORS } from "@/lib/driverTelemetry";
 import { CIRCUIT, TURNS, getCircuitPosition } from "@/lib/lagunaSecaCircuit";
 
 const BG_DARK = "#0A0A0A";
@@ -14,12 +14,6 @@ const WHITE = "#FFFFFF";
 const GRAY = "#808080";
 const DIM = "#333333";
 const HIGHLIGHT = "#E60000";
-
-function tempColor(c: number, greenMax: number, yellowMax: number): string {
-  if (c < greenMax) return GREEN;
-  if (c < yellowMax) return YELLOW;
-  return RED;
-}
 
 function fmtTime(seconds: number): string {
   if (seconds <= 0) return "--:--";
@@ -67,27 +61,108 @@ function drawThermalCorner(
   ctx.textAlign = "left";
   ctx.fillText(label, x + 6, y + 14);
 
-  // Tire temp (big number)
-  const tireColor = tempColor(corner.tireTempC, 90, 105);
+  // Wear % (top right)
+  const wearColor = corner.tireWearPct > 50 ? GREEN : corner.tireWearPct > 25 ? YELLOW : RED;
+  ctx.fillStyle = wearColor;
+  ctx.font = "bold 8px Helvetica, sans-serif";
+  ctx.textAlign = "right";
+  ctx.fillText(`${Math.round(corner.tireWearPct)}%`, x + w - 5, y + 14);
+  ctx.textAlign = "left";
+
+  // --- GT7 Mini Tire Shape (left side) ---
+  const tireColor = gt7TireColor(corner.tireTempC);
+  const tireX = x + 6;
+  const tireY = y + 20;
+  const tireW = w * 0.22;
+  const tireH = h - 28;
+  const r = Math.min(tireW, tireH) * 0.2;
+
+  // Tire outline
+  ctx.fillStyle = "#1A1A1A";
+  ctx.beginPath();
+  ctx.roundRect(tireX, tireY, tireW, tireH, r);
+  ctx.fill();
+  ctx.strokeStyle = "#3A3A3A";
+  ctx.lineWidth = 0.5;
+  ctx.beginPath();
+  ctx.roundRect(tireX, tireY, tireW, tireH, r);
+  ctx.stroke();
+
+  // Wear fill bar
+  const fillH = tireH * (corner.tireWearPct / 100);
+  const fillY = tireY + tireH - fillH;
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(tireX + 1, tireY + 1, tireW - 2, tireH - 2, r - 1);
+  ctx.clip();
+
+  const grad = ctx.createLinearGradient(tireX, fillY, tireX, tireY + tireH);
+  grad.addColorStop(0, tireColor);
+  grad.addColorStop(1, tireColor + "88");
+  ctx.fillStyle = grad;
+  ctx.fillRect(tireX + 1, fillY, tireW - 2, fillH);
+
+  // Glossy highlight
+  if (fillH > 3) {
+    const glossGrad = ctx.createLinearGradient(tireX, fillY, tireX, fillY + 4);
+    glossGrad.addColorStop(0, "rgba(255,255,255,0.25)");
+    glossGrad.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = glossGrad;
+    ctx.fillRect(tireX + 1, fillY, tireW - 2, Math.min(4, fillH));
+  }
+
+  // Tread lines
+  ctx.strokeStyle = "rgba(0,0,0,0.3)";
+  ctx.lineWidth = 0.5;
+  for (let i = 1; i < 4; i++) {
+    const ly = tireY + (tireH * i) / 4;
+    ctx.beginPath();
+    ctx.moveTo(tireX + 2, ly);
+    ctx.lineTo(tireX + tireW - 2, ly);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Brake strip (right of tire)
+  const brakeX = tireX + tireW + 3;
+  const brakeW = 4;
+  const brakeColor = corner.brakeTempC > 316 ? RED : corner.brakeTempC > 232 ? YELLOW : GREEN;
+  const brakeNorm = Math.max(0, Math.min(1, (corner.brakeTempC - 100) / 400));
+
+  ctx.fillStyle = "#1A1A1A";
+  ctx.beginPath();
+  ctx.roundRect(brakeX, tireY, brakeW, tireH, 1.5);
+  ctx.fill();
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(brakeX, tireY, brakeW, tireH, 1.5);
+  ctx.clip();
+  ctx.fillStyle = brakeColor;
+  ctx.fillRect(brakeX, tireY + tireH * (1 - brakeNorm), brakeW, tireH * brakeNorm);
+  ctx.restore();
+
+  // --- Temp readouts + sparkline (right side) ---
+  const textX = x + w * 0.42;
+
+  // Tire temp (big)
   ctx.fillStyle = tireColor;
-  ctx.font = "bold 18px Helvetica, sans-serif";
-  ctx.textAlign = "center";
-  ctx.fillText(`${Math.round(corner.tireTempC)}°`, x + w * 0.35, y + h * 0.55);
+  ctx.font = "bold 16px Helvetica, sans-serif";
+  ctx.textAlign = "left";
+  ctx.fillText(`${Math.round(corner.tireTempC)}°`, textX, tireY + tireH * 0.3);
 
   // Brake temp
-  const brakeColor = tempColor(corner.brakeTempC, 232, 316);
   ctx.fillStyle = brakeColor;
-  ctx.font = "11px Helvetica, sans-serif";
-  ctx.fillText(`BRK ${Math.round(corner.brakeTempC)}°`, x + w * 0.35, y + h * 0.75);
-  ctx.textAlign = "start";
+  ctx.font = "10px Helvetica, sans-serif";
+  ctx.fillText(`BRK ${Math.round(corner.brakeTempC)}°`, textX, tireY + tireH * 0.3 + 14);
 
-  // Sparkline (right side)
+  // Sparkline (right side, compact)
   const trend = corner.tireTrend;
   if (trend.length >= 2) {
     const sx = x + w * 0.6;
-    const sy = y + 8;
+    const sy = tireY + tireH * 0.5;
     const sw = w * 0.35;
-    const sh = h * 0.5;
+    const sh = tireH * 0.35;
     const mn = Math.min(...trend);
     const mx = Math.max(...trend);
     const rng = mx - mn || 1;
@@ -112,7 +187,7 @@ function drawThermalCorner(
     ctx.fillStyle = dColor;
     ctx.font = "10px Helvetica, sans-serif";
     ctx.textAlign = "right";
-    ctx.fillText(`${arrow}${Math.abs(delta).toFixed(1)}`, x + w - 4, y + h - 6);
+    ctx.fillText(`${arrow}${Math.abs(delta).toFixed(1)}`, x + w - 4, y + h - 5);
     ctx.textAlign = "start";
   }
 }

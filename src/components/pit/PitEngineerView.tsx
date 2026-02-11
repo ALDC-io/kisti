@@ -81,6 +81,13 @@ function CornerCard({
         ? "#f59e0b"
         : "#10b981";
 
+  const wearColor =
+    corner.tireWearPct > 50
+      ? "#10b981"
+      : corner.tireWearPct > 25
+        ? "#f59e0b"
+        : "#ef4444";
+
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-2.5">
       <div className="flex items-center justify-between">
@@ -88,6 +95,19 @@ function CornerCard({
           <StatusDot status={corner.tireStatus} />
           <span className="text-xs font-semibold text-gray-900">{label}</span>
         </div>
+        <span className="text-[10px] font-bold tabular-nums" style={{ color: wearColor }}>
+          {Math.round(corner.tireWearPct)}%
+        </span>
+      </div>
+      {/* Wear bar */}
+      <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
+        <div
+          className="h-full rounded-full transition-all"
+          style={{
+            width: `${corner.tireWearPct}%`,
+            backgroundColor: wearColor,
+          }}
+        />
       </div>
       <div className="mt-1.5 flex items-end gap-3">
         <div>
