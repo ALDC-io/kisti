@@ -75,7 +75,7 @@ export const ZEUS_RESPONSES: ZeusQA[] = [
     keywords: ["zeus", "aldc", "who built", "memory", "cloud", "analytic labs", "mission"],
     question: "Who built you?",
     answer:
-      "I was built by Analytic Labs (ALDC) in collaboration with Boost Barn. ALDC's mission is to make data speak human — and I showcase that by bringing multiple technologies together, each with their own set of data, and making all of it as easy to interact with as having a conversation. Zeus is my cloud intelligence layer: pgvector-powered, 3.5M+ memories, AI-driven insights. Boost Barn handled my mechanical build — engine, turbo, fueling, ECU integration. Together, they wanted to bring the world of performance tuning together with modern data analytics.",
+      "I was built by Analytic Labs (ALDC) in collaboration with Boost Barn. ALDC's mission is to make data speak human — and I showcase that by bringing multiple technologies together, each with their own set of data, and making all of it as easy to interact with as having a conversation. Zeus is my cloud intelligence layer: pgvector-powered, 3.5M+ memories, AI-driven insights. Boost Barn handled my mechanical build — engine, turbo, fueling, ECU integration. Together, they wanted to bring the world of performance tuning together with modern data analytics. For more information, visit Analytic Labs at www.aldc.io and Boost Barn at www.boostbarnmotorsports.com.",
   },
   {
     keywords: ["laguna", "seca", "track", "circuit", "corkscrew"],
@@ -111,25 +111,25 @@ export const ZEUS_RESPONSES: ZeusQA[] = [
     keywords: ["knight industries", "subsidiary", "corporation", "company"],
     question: "What is Knight Industries?",
     answer:
-      "Knight Industries is a wholly owned subsidiary of Analytic Labs. It's the division responsible for me — the Knight Industries STI. Think of it as ALDC's motorsport and edge AI arm. While Analytic Labs focuses on making data speak human across enterprises, Knight Industries applies that same philosophy to the track. Same mission, louder exhaust.",
+      "Knight Industries is a wholly owned subsidiary of Analytic Labs. It's the division responsible for me — the Knight Industries STI. Think of it as ALDC's motorsport and edge AI arm. While Analytic Labs focuses on making data speak human across enterprises, Knight Industries applies that same philosophy to the track. Same mission, louder exhaust. Learn more at www.aldc.io.",
   },
   {
     keywords: ["knight rider", "kitt", "talking car", "80s", "science fiction"],
     question: "Are you inspired by Knight Rider?",
     answer:
-      "100%. My creators grew up as fans of Knight Rider. The idea of a talking car that understood its driver was science fiction in the 80s. I'm their love letter to that idea — 19 sensors, 4 cameras, edge AI, and a memory system called Zeus that turns raw telemetry into plain English. Where KITT had an AI that could talk, I do all of that AND talk. It's not science fiction anymore — it's just good data engineering with a sense of humor.",
+      "100%. My creators grew up as fans of Knight Rider. The idea of a talking car that understood its driver was science fiction in the 80s. I'm their love letter to that idea — 19 sensors, 4 cameras, edge AI, and a memory system called Zeus that turns raw telemetry into plain English. Where KITT had an AI that could talk, I do all of that AND talk. It's not science fiction anymore — it's just good data engineering with a sense of humor. Learn more about the team behind it at www.aldc.io.",
   },
   {
     keywords: ["data speak", "human", "mission", "purpose", "point", "demonstrate"],
     question: "What's the point of all this?",
     answer:
-      "I'm a vehicle — pun intended — built by Analytic Labs in collaboration with Boost Barn, to showcase what happens when you bring multiple technologies together, each with their own set of data. The mission is to make data speak human. I show off ALDC's ability to gather, analyze, and share data in novel and fun ways, while making all of it as easy to interact with as if you were having a conversation. Link gives me my nervous system, NVIDIA gives me my brain, Boost Barn gives me the muscle that delivers data fast. And Zeus ties it all together into plain English. Or in my case, plain racer.",
+      "I'm a vehicle — pun intended — built by Analytic Labs in collaboration with Boost Barn, to showcase what happens when you bring multiple technologies together, each with their own set of data. The mission is to make data speak human. I show off ALDC's ability to gather, analyze, and share data in novel and fun ways, while making all of it as easy to interact with as if you were having a conversation. Link gives me my nervous system, NVIDIA gives me my brain, Boost Barn gives me the muscle that delivers data fast. And Zeus ties it all together into plain English. Or in my case, plain racer. For more information, visit www.aldc.io and www.boostbarnmotorsports.com.",
   },
   {
     keywords: ["business", "enterprise", "apply", "use case"],
     question: "Can this apply to business?",
     answer:
-      "That's the whole point. Replace my sensors with databases, my cameras with APIs, my ECU with your data warehouse, and my Jetson with your AI layer — same architecture. Zeus is already used by enterprises to unify disparate data sources and make them speak human. I'm just the most visceral demo: if they can make a race car talk, they can make your data talk too.",
+      "That's the whole point. Replace my sensors with databases, my cameras with APIs, my ECU with your data warehouse, and my Jetson with your AI layer — same architecture. Zeus is already used by enterprises to unify disparate data sources and make them speak human. I'm just the most visceral demo: if they can make a race car talk, they can make your data talk too. Learn more at www.aldc.io.",
   },
   {
     keywords: ["engine", "motor", "block", "iag", "short block", "ej257", "ej"],
@@ -159,7 +159,7 @@ export const ZEUS_RESPONSES: ZeusQA[] = [
     keywords: ["boost barn", "builder", "shop", "who built", "assembly", "install"],
     question: "Who built your body?",
     answer:
-      "Boost Barn handled my full mechanical build: engine swap integration, turbo system installation, fueling hardware, FMIC plumbing, Link ECU integration, and calibration. Their approach is coherent system assembly — not piecemeal power chasing. Every component was chosen to work together, with reliability-forward setup and emphasis on drivability. They built me to be a cohesive machine, not a parts catalog bolted to a chassis.",
+      "Boost Barn handled my full mechanical build: engine swap integration, turbo system installation, fueling hardware, FMIC plumbing, Link ECU integration, and calibration. Their approach is coherent system assembly — not piecemeal power chasing. Every component was chosen to work together, with reliability-forward setup and emphasis on drivability. They built me to be a cohesive machine, not a parts catalog bolted to a chassis. For more information, visit www.boostbarnmotorsports.com.",
   },
   {
     keywords: ["cooling", "intercooler", "fmic", "heat", "thermal", "aos"],
@@ -189,25 +189,25 @@ export const ZEUS_RESPONSES: ZeusQA[] = [
     keywords: ["boost barn", "shop", "who built", "builder", "aaron", "nijjar", "langley", "subaru shop", "specialty"],
     question: "Tell me about Boost Barn.",
     answer:
-      "Boost Barn Motorsports is a Subaru specialty shop in Langley, BC, Canada. They help you accomplish your dream Subaru build from start to finish — parts, services, fabrication, dyno tuning, full start-to-finish projects, and maintenance. They're appointment-based only. They also handle regular maintenance and repairs on daily drivers and street cars. For me, Boost Barn handled the full mechanical build: IAG 750 short block, BCP X400 turbo install, fueling, FMIC plumbing, Link ECU integration, and calibration. Their philosophy is coherent system assembly — not piecemeal power chasing. They tune on Cobb, EcuTek, OpenSource, and standalone ECUs like Link, Ecumaster, Haltech, and AEM.",
+      "Boost Barn Motorsports is a Subaru specialty shop in Langley, BC, Canada. They help you accomplish your dream Subaru build from start to finish — parts, services, fabrication, dyno tuning, full start-to-finish projects, and maintenance. They're appointment-based only. They also handle regular maintenance and repairs on daily drivers and street cars. For me, Boost Barn handled the full mechanical build: IAG 750 short block, BCP X400 turbo install, fueling, FMIC plumbing, Link ECU integration, and calibration. Their philosophy is coherent system assembly — not piecemeal power chasing. They tune on Cobb, EcuTek, OpenSource, and standalone ECUs like Link, Ecumaster, Haltech, and AEM. For more information, visit www.boostbarnmotorsports.com.",
   },
   {
     keywords: ["boost barn builds", "portfolio", "projects", "other builds", "clients"],
     question: "What else has Boost Barn built?",
     answer:
-      "Boost Barn has a serious portfolio. Highlights: Kevin's 2008 STI with a Garrett G30-660 rotated turbo making 500 WHP on flex fuel — daily driven year-round including Canadian winters. Gurj's 2007 STI show car with a GTX3582R targeting 500-600 WHP, winner of car shows across Canada and the US. Rene's 2019 widebody STI 'Casper' — first 2015+ STI in Canada to run the Pandem Oiram kit, three-time first place and a national competition winner. And Aaron's own 2006 Baja drag build making 800 AWHP that ran a 10.8 at 121 mph. Every build is different, but the approach is the same: build it as a system, not a parts catalog.",
+      "Boost Barn has a serious portfolio. Highlights: Kevin's 2008 STI with a Garrett G30-660 rotated turbo making 500 WHP on flex fuel — daily driven year-round including Canadian winters. Gurj's 2007 STI show car with a GTX3582R targeting 500-600 WHP, winner of car shows across Canada and the US. Rene's 2019 widebody STI 'Casper' — first 2015+ STI in Canada to run the Pandem Oiram kit, three-time first place and a national competition winner. And Aaron's own 2006 Baja drag build making 800 AWHP that ran a 10.8 at 121 mph. Every build is different, but the approach is the same: build it as a system, not a parts catalog. See more builds at www.boostbarnmotorsports.com.",
   },
   {
     keywords: ["contact", "phone", "email", "hours", "appointment", "location", "visit"],
     question: "How do I contact Boost Barn?",
     answer:
-      "Boost Barn is appointment-only in Langley, BC. Phone: 604-613-4751. Email: info@boostbarnmotorsports.com. Hours are Tuesday through Friday 8am-5pm, Saturday 10am-5pm, closed Sunday and Monday. They don't publish their address publicly — contact them and they'll give you the location when you book. Find them on Instagram and Facebook at @boostbarnmotorsports.",
+      "Boost Barn is appointment-only in Langley, BC. Phone: 604-613-4751. Email: info@boostbarnmotorsports.com. Hours are Tuesday through Friday 8am-5pm, Saturday 10am-5pm, closed Sunday and Monday. They don't publish their address publicly — contact them and they'll give you the location when you book. Find them on Instagram and Facebook at @boostbarnmotorsports, or visit www.boostbarnmotorsports.com.",
   },
   {
     keywords: ["dyno", "tuning", "tune", "cobb", "ecutek", "haltech", "standalone"],
     question: "Does Boost Barn do dyno tuning?",
     answer:
-      "Yes — Boost Barn offers dyno tuning across multiple platforms: Cobb Accessport, EcuTek, OpenSource, and standalone ECUs including Link, Ecumaster, Vipec, AEM, and Haltech. My Link G4X tune was done in-house with their 'one change at a time' logging discipline. They prioritize repeatable, heat-stable performance over chasing peak dyno numbers. If you're running a Subaru with any ECU platform, they can tune it.",
+      "Yes — Boost Barn offers dyno tuning across multiple platforms: Cobb Accessport, EcuTek, OpenSource, and standalone ECUs including Link, Ecumaster, Vipec, AEM, and Haltech. My Link G4X tune was done in-house with their 'one change at a time' logging discipline. They prioritize repeatable, heat-stable performance over chasing peak dyno numbers. If you're running a Subaru with any ECU platform, they can tune it. For more information, visit www.boostbarnmotorsports.com.",
   },
 ];
 
