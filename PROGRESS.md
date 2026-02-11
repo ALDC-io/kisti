@@ -44,7 +44,7 @@
 - [x] Nav: "Why KiSTI" link between Technology and Partners
 - [x] Zeus chat widget — FAB, 384×448 panel, 34 Q&A entries, keyword matcher
 - [x] KITT voice waveform — 3×14 mirrored horizontal segments, KiSTI logo red (#C80A33)
-- [x] KITT scan bar — purple gradient sweep during "thinking" phase
+- [x] KITT scan bar — red (#C80A33) bidirectional sweep (KITT-style)
 - [x] Typewriter effect — 25ms/char with blinking cursor
 - [x] KiSTI persona — first-person voice, Knight Industries STI identity, born 2014, upgraded 2026
 - [x] Boost Barn knowledge — shop details, builds portfolio, contact info, tuning platforms
@@ -59,19 +59,28 @@
 - [x] KistiMode: scrolling message log — newest at top, older messages fade, max 8 visible
 - [x] KistiMode: typewriter speed 35ms → 30ms
 - [x] KistiMode: cursor accent #E60000 → #C80A33 (brand red)
-- [x] KistiMode: logo cropped via CSS (object-fit/position, overflow container) to remove 65% PNG padding
-- [x] DriverSoftkeyBar: KiSTI logo height 14px → 28px with CSS crop
+- [x] KistiMode: removed redundant logo above waveform
+- [x] DriverSoftkeyBar: KiSTI logo height 14px → 28px
+- [x] DriverStatusBar: removed KiSTI logo and mode text, keep Link ECU logo only
 - [x] TrackMode: removed corner temp labels — pure visual heatmap
 - [x] TrackMode: cold tire color #0077DD → #50B4FF per ZMID spec
-- [x] Build: zero errors
+- [x] ZeusScanBar: purple → red (#C80A33), left-to-right-only → bidirectional sweep (KITT-style)
+- [x] Build: zero errors, 4 commits pushed
 
 ### Files Modified
-- `src/components/driver/KistiMode.tsx` — 100 idle lines, scrolling log, 30ms typewriter, #C80A33 cursor, logo crop
-- `src/components/driver/DriverSoftkeyBar.tsx` — logo 28px + crop styling
+- `src/components/driver/KistiMode.tsx` — 100 idle lines, scrolling log, 30ms typewriter, #C80A33 cursor, removed logo
+- `src/components/driver/DriverSoftkeyBar.tsx` — logo 28px
+- `src/components/driver/DriverStatusBar.tsx` — removed KiSTI logo + mode text
+- `src/components/driver/DriverDisplay.tsx` — removed mode prop from StatusBar
 - `src/components/driver/TrackMode.tsx` — removed corner labels, updated cold color to #50B4FF
+- `src/components/chat/ZeusScanBar.tsx` — red gradient, bidirectional animation
+- `src/app/globals.css` — kittScan keyframes: bounce back-and-forth, 2.4s cycle
 
 ### Learnings
 - **useEffect callback identity**: Putting callback props in useEffect deps causes re-fires on parent re-render. Use useRef to store callbacks, depend only on stable values (IDs).
 - **Brand voice**: Never reference competing products negatively. Describe what you ARE, not what you're not relative to others.
 - **Zeus API URL**: Use `zeus.aldc.io`, not `zeus-api.analyticlabs.io` (no DNS records).
 - **Persona layering**: Volunteer the identity ("Knight Industries STI"), but layer details like "subsidiary of Analytic Labs" behind direct questions only.
+- **Logo assumptions**: Always check actual image dimensions before applying CSS crops. The plan assumed 1536x1024 with 65% padding, but the real file was 1332x329 (already tight). Wasted a commit.
+- **KITT scan bar**: CSS `translateX(-100%)` to `translateX(300%)` is one-way only. For back-and-forth, add a 50% keyframe and double the duration.
+- **Spec vs reality**: When implementing from a spec (ZMID 1ec8edc3), always cross-check asset files before assuming the spec's description of those assets is accurate.
