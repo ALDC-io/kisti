@@ -112,6 +112,16 @@ body {
   animation: slideIn 0.3s ease-out forwards;
 }
 
+/* Zeus voice waveform bars */
+@keyframes zeusVoiceBar {
+  0% {
+    transform: scaleY(0.3);
+  }
+  100% {
+    transform: scaleY(1);
+  }
+}
+
 /* KITT scanning light bar */
 @keyframes kittScan {
   0% {
@@ -178,8 +188,9 @@ body {
   .animate-kitt-scan,
   .animate-kitt-divider,
   .animate-cursor-blink,
-  .animate-fab-pulse {
-    animation: none;
+  .animate-fab-pulse,
+  [style*="zeusVoiceBar"] {
+    animation: none !important;
   }
 }
 

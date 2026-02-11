@@ -5,7 +5,12 @@ import type { ChatMessage } from "./useZeusChat";
 
 const CHAR_DELAY = 25;
 
-export default function ZeusChatMessage({ message }: { message: ChatMessage }) {
+interface ZeusChatMessageProps {
+  message: ChatMessage;
+  onSpeaking?: (active: boolean) => void;
+}
+
+export default function ZeusChatMessage({ message, onSpeaking }: ZeusChatMessageProps) {
   const [displayed, setDisplayed] = useState(
     message.role === "user" ? message.text : ""
   );
@@ -14,6 +19,7 @@ export default function ZeusChatMessage({ message }: { message: ChatMessage }) {
   useEffect(() => {
     if (message.role === "user") return;
 
+    onSpeaking?.(true);
     let i = 0;
     const id = setInterval(() => {
       i++;
@@ -21,11 +27,15 @@ export default function ZeusChatMessage({ message }: { message: ChatMessage }) {
       if (i >= message.text.length) {
         clearInterval(id);
         setDone(true);
+        onSpeaking?.(false);
       }
     }, CHAR_DELAY);
 
-    return () => clearInterval(id);
-  }, [message]);
+    return () => {
+      clearInterval(id);
+      onSpeaking?.(false);
+    };
+  }, [message, onSpeaking]);
 
   if (message.role === "user") {
     return (

@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, useCallback } from "react";
 import type { ChatMessage } from "./useZeusChat";
 import ZeusChatMessage from "./ZeusChatMessage";
 import ZeusScanBar from "./ZeusScanBar";
+import ZeusVoiceWave from "./ZeusVoiceWave";
 import { STARTER_CHIPS } from "@/lib/zeusResponses";
 
 interface ZeusChatPanelProps {
@@ -20,8 +21,13 @@ export default function ZeusChatPanel({
   onClose,
 }: ZeusChatPanelProps) {
   const [input, setInput] = useState("");
+  const [speaking, setSpeaking] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleSpeaking = useCallback((active: boolean) => {
+    setSpeaking(active);
+  }, []);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -68,8 +74,11 @@ export default function ZeusChatPanel({
         </button>
       </div>
 
-      {/* Scan bar */}
-      <ZeusScanBar active={processing} />
+      {/* Voice waveform — active while Zeus is typing */}
+      <ZeusVoiceWave active={speaking} />
+
+      {/* Scan bar — active while Zeus is thinking */}
+      <ZeusScanBar active={processing && !speaking} />
 
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
@@ -91,7 +100,17 @@ export default function ZeusChatPanel({
             </div>
           </div>
         ) : (
-          messages.map((msg) => <ZeusChatMessage key={msg.id} message={msg} />)
+          messages.map((msg, idx) => (
+            <ZeusChatMessage
+              key={msg.id}
+              message={msg}
+              onSpeaking={
+                msg.role === "zeus" && idx === messages.length - 1
+                  ? handleSpeaking
+                  : undefined
+              }
+            />
+          ))
         )}
         {processing && messages.length > 0 && (
           <div className="flex justify-start">
