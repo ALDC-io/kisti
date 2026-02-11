@@ -135,13 +135,13 @@ export const ZEUS_RESPONSES: ZeusQA[] = [
     keywords: ["awd", "drivetrain", "dccd", "differential", "diff", "all wheel"],
     question: "Tell me about the drivetrain.",
     answer:
-      "Full-time AWD with Subaru's DCCD (Driver Controlled Center Differential). The GR chassis STI runs a proper mechanical center diff — you can bias torque front-to-rear on demand. With ~360-390 WHP going through all four wheels, it puts the power down in ways a RWD car can't. In the canyons, in the rain, on cold mornings — the AWD system is what makes this car usable year-round as an executive hot rod.",
+      "Full-time AWD with Subaru's DCCD (Driver Controlled Center Differential). The GR chassis STI runs a proper mechanical center diff — you can bias torque front-to-rear on demand. With ~360-390 WHP going through all four wheels, it puts the power down in ways a RWD car can't. In the canyons, in the rain, on cold mornings — the AWD system is what makes this car usable year-round as a hot rod.",
   },
   {
     keywords: ["build", "philosophy", "why this", "concept", "strategy", "positioning"],
     question: "What's the build philosophy?",
     answer:
-      "This is not a max-effort dyno car. Not a 500+ HP headline build. Not a top-end drag configuration. This is a midrange-dominant canyon car — a high-response AWD platform built for all-weather use. Think Porsche GTS philosophy applied to the STI platform: cohesive, engineered feel, repeatable thermal performance, and a conservative tune that prioritizes response and area under the curve over peak numbers. An executive hot rod that happens to have data superpowers.",
+      "This is not a max-effort dyno car. Not a 500+ HP headline build. Not a top-end drag configuration. This is a midrange-dominant canyon car — a high-response AWD platform built for all-weather use. Think Porsche GTS philosophy applied to the STI platform: cohesive, engineered feel, repeatable thermal performance, and a conservative tune that prioritizes response and area under the curve over peak numbers. A hot rod that happens to have data superpowers.",
   },
   {
     keywords: ["boost barn", "builder", "shop", "who built", "assembly", "install"],
@@ -171,7 +171,7 @@ export const ZEUS_RESPONSES: ZeusQA[] = [
     keywords: ["fuel", "gas", "octane", "shell", "93"],
     question: "What fuel does it run?",
     answer:
-      "Shell 93 octane — the primary map. The entire tune is calibrated around consistent 93 octane operation with conservative ignition timing. No E85, no race gas dependencies. The philosophy is: if you can get it at a gas station, the car should run perfectly on it. That's part of the 'executive hot rod' concept — it's a canyon monster you can daily without a fuel logistics plan.",
+      "Shell 93 octane — the primary map. The entire tune is calibrated around consistent 93 octane operation with conservative ignition timing. No E85, no race gas dependencies. The philosophy is: if you can get it at a gas station, the car should run perfectly on it. That's part of the hot rod concept — it's a canyon monster you can daily without a fuel logistics plan.",
   },
   {
     keywords: ["boost barn", "shop", "who built", "builder", "aaron", "nijjar", "langley", "subaru shop", "specialty"],
