@@ -45,12 +45,28 @@ export default function DriverSoftkeyBar({
             aria-pressed={isActive}
           >
             {m.key === "KISTI" ? (
-              <img
-                src="/assets/kisti_logo.png"
-                alt="KiSTI"
-                style={{ height: 14 }}
-                draggable={false}
-              />
+              <div
+                style={{
+                  height: 28,
+                  width: 100,
+                  overflow: "hidden",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <img
+                  src="/assets/kisti_logo.png"
+                  alt="KiSTI"
+                  style={{
+                    height: 86,
+                    objectFit: "cover",
+                    objectPosition: "center 32.5%",
+                    filter: isActive ? "brightness(0) invert(1)" : "none",
+                  }}
+                  draggable={false}
+                />
+              </div>
             ) : (
               m.label
             )}

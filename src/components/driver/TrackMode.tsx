@@ -24,7 +24,7 @@ function fmtTime(seconds: number): string {
 
 function tireHeatColor(tempC: number): string {
   // cold=blue → green → yellow → red
-  if (tempC < 60) return "#0077DD";
+  if (tempC < 60) return "#50B4FF";
   if (tempC < 80) return "#00CC66";
   if (tempC < 100) return "#FFAA00";
   return "#FF2222";
@@ -173,26 +173,7 @@ function drawStiHeatmap(
   ctx.arc(engX, engY, engRadius, 0, Math.PI * 2);
   ctx.fill();
 
-  // --- Corner labels with temps ---
-  ctx.font = "bold 9px Helvetica, sans-serif";
-  ctx.textAlign = "center";
-
-  const labelPositions = [
-    { key: "FL", lx: carX + carW * 0.15, ly: carY - 4 },
-    { key: "FR", lx: carX + carW * 0.85, ly: carY - 4 },
-    { key: "RL", lx: carX + carW * 0.15, ly: carY + carH + 12 },
-    { key: "RR", lx: carX + carW * 0.85, ly: carY + carH + 12 },
-  ];
-
-  for (const lbl of labelPositions) {
-    const corner = corners[lbl.key];
-    if (!corner) continue;
-    const color = tireHeatColor(corner.tireTempC);
-    ctx.fillStyle = color;
-    ctx.fillText(`${lbl.key} ${Math.round(corner.tireTempC)}°C`, lbl.lx, lbl.ly);
-  }
-
-  ctx.textAlign = "start";
+  // Pure visual heatmap — no corner labels
 }
 
 function drawTrackMap(
