@@ -52,7 +52,12 @@ export default function WhyPage() {
                 elemetry{" "}
                 <span className="font-semibold text-kisti-accent">I</span>
                 nterface &mdash; is our love letter to that idea, built on a
-                2014 Subaru STI.
+                2014 Subaru STI.{" "}
+                <span className="text-foreground/40 italic">
+                  Truthfully, it actually stands for the Knight Industries STI.
+                  We&apos;re just kids who got older and needed a board-ready
+                  acronym. How are we doing, Ms. Chairman?
+                </span>
               </p>
               <p>
                 Where KITT had an AI that could talk, KiSTI has 19 sensors, 4
