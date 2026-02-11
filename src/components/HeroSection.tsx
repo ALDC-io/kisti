@@ -13,8 +13,8 @@ export default function HeroSection() {
       </h1>
       <p className="mt-4 max-w-2xl text-base text-foreground/60 sm:text-lg">
         Real-time edge telemetry on a 2014 Subaru STI. Pull in after a lap
-        and quickly understand what&apos;s working and what&apos;s not from your
-        car&apos;s own suite of sensors — now it can tell you in plain English.
+        and understand what&apos;s working and what&apos;s not from your
+        car&apos;s own suite of sensors — just by asking it.
       </p>
 
       {/* Built by badges */}
