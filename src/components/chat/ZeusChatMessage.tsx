@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import type { ChatMessage } from "./useZeusChat";
 
 const CHAR_DELAY = 25;
@@ -15,11 +15,13 @@ export default function ZeusChatMessage({ message, onSpeaking }: ZeusChatMessage
     message.role === "user" ? message.text : ""
   );
   const [done, setDone] = useState(message.role === "user");
+  const onSpeakingRef = useRef(onSpeaking);
+  onSpeakingRef.current = onSpeaking;
 
   useEffect(() => {
     if (message.role === "user") return;
 
-    onSpeaking?.(true);
+    onSpeakingRef.current?.(true);
     let i = 0;
     const id = setInterval(() => {
       i++;
@@ -27,15 +29,15 @@ export default function ZeusChatMessage({ message, onSpeaking }: ZeusChatMessage
       if (i >= message.text.length) {
         clearInterval(id);
         setDone(true);
-        onSpeaking?.(false);
+        onSpeakingRef.current?.(false);
       }
     }, CHAR_DELAY);
 
     return () => {
       clearInterval(id);
-      onSpeaking?.(false);
     };
-  }, [message, onSpeaking]);
+    // Only re-run when the message itself changes, not when callback ref changes
+  }, [message.id, message.text, message.role]);
 
   if (message.role === "user") {
     return (
