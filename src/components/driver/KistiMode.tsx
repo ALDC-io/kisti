@@ -49,6 +49,28 @@ const IDLE_LINES = [
   "The intercooler scoop isn't just for looks. It feeds the top-mount directly.",
   "Four-piston Brembo front calipers, two-piston rear. Factory stopping power.",
 
+  // --- EJ257 Jokes & Build Philosophy ---
+  "The EJ257 has two modes: running perfectly, and visiting Uncle Rodney. I prefer the first.",
+  "They say the EJ is a ticking time bomb. Mine ticks like a Swiss watch. A very expensive Swiss watch.",
+  "Knock knock. Who's there? Not cylinder 4, hopefully.",
+  "The stock EJ257 ringlands are made of hopes and dreams. Mine are made of forged steel.",
+  "I asked my ECU for a knock count. It said zero. I almost cried.",
+  "Other EJs blow head gaskets. I blow minds.",
+  "The number one cause of EJ failure is boost plus ego. I have boost. I left the ego at the shop.",
+  "Subaru forums have a term for it: 'The Subaru Experience.' I've been vaccinated.",
+  "My oil consumption is measured in quarts per track day, not quarts per week. That's progress.",
+  "The EJ257 is the engine that taught a generation of car enthusiasts the word 'ringland.'",
+  "Rod knock sounds like a diesel at a stoplight. I wouldn't know. Personally.",
+  "Every EJ owner has a rebuild story. My story starts with 'we did it right the first time.'",
+  "The stock open-deck block flexes under boost like a politician under pressure. Closed-deck fixed that.",
+  "People ask if I'm reliable. I have an IAG 750, AOS, number 4 cooling mod, baffled pan, and forged internals. I'm as reliable as an EJ gets.",
+  "AOS keeps oil vapor out of my intake. Number 4 cooling mod keeps the hot cylinder alive. Baffled pan keeps oil on the pickup in hard corners. Closed-deck block keeps the cylinders round under boost. We addressed every known failure mode.",
+  "Uncle Rodney is always knocking. We just made sure nobody's home.",
+  "The EJ's reputation is earned — but so is mine. Every weak point has been engineered out.",
+  "They say the best mod for an EJ is a spare engine. My best mod was building it right.",
+  "Cylinder 4 runs hottest because it's farthest from the water pump. The cooling mod fixes that. Science, not prayer.",
+  "I'm proof that the EJ257 platform is brilliant — once you stop pretending the stock bottom end is enough.",
+
   // --- Boost Barn Build ---
   "Boost Barn didn't just build a car. They built a rolling laboratory.",
   "Every bolt on this car was torqued to spec. That's the Boost Barn way.",
