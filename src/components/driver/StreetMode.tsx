@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useCallback } from "react";
-import { CornerTelemetry, CameraInfo, DriverDisplayState, gt7TireColor, GT7_COLORS } from "@/lib/driverTelemetry";
+import { CornerTelemetry, DriverDisplayState, gt7TireColor } from "@/lib/driverTelemetry";
 import VoiceTicker from "./VoiceTicker";
 
 // Theme constants matching PySide6
@@ -400,32 +400,6 @@ export default function StreetMode({ state }: StreetModeProps) {
           aria-label="Street mode: road map and corner temperature gauges"
         />
 
-        {/* Sensor status (bottom right, above ticker) */}
-        <div
-          className="pointer-events-none absolute right-0 bottom-0 flex flex-col gap-0.5 p-1"
-          style={{ width: "45%" }}
-        >
-          {state.cameras.map((cam) => (
-            <div
-              key={cam.name}
-              className="flex items-center justify-between rounded px-1.5 py-0.5"
-              style={{ backgroundColor: "rgba(18,18,18,0.85)" }}
-            >
-              <div className="flex items-center gap-1">
-                <span
-                  className="inline-block h-1.5 w-1.5 rounded-full"
-                  style={{ backgroundColor: cam.connected ? GREEN : RED }}
-                />
-                <span className="text-[9px]" style={{ color: GRAY }}>
-                  {cam.name}
-                </span>
-              </div>
-              <span className="text-[9px] tabular-nums" style={{ color: WHITE }}>
-                {Math.round(cam.fps)}fps
-              </span>
-            </div>
-          ))}
-        </div>
       </div>
 
       {/* Voice ticker at bottom (replaces oil gauge overlay) */}
