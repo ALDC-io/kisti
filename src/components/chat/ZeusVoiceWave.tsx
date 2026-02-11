@@ -2,37 +2,38 @@
 
 import { useEffect, useRef, useState } from "react";
 
-const BAR_COUNT = 3;
+const COLUMNS = 3;
+const SEGMENTS = 7; // segments per half (top + bottom = 14 total per column)
 const UPDATE_MS = 80;
 
-function randomHeights(): number[] {
-  // KITT-style 3-bar VU meter: center = overall volume, sides = L/R channels
-  const center = 0.4 + Math.random() * 0.6; // 40-100%
-  const left = center * (0.5 + Math.random() * 0.5); // proportional to center
-  const right = center * (0.5 + Math.random() * 0.5);
-  return [left, center, right];
+function randomLevels(): number[] {
+  // KITT 3-bar: center = overall, sides = L/R channels
+  const center = Math.floor(2 + Math.random() * (SEGMENTS - 1)); // 2-7 segments lit
+  const left = Math.floor(center * (0.4 + Math.random() * 0.6));
+  const right = Math.floor(center * (0.4 + Math.random() * 0.6));
+  return [Math.max(1, left), center, Math.max(1, right)];
 }
 
-function idleHeights(): number[] {
-  return [0.06, 0.06, 0.06];
+function idleLevels(): number[] {
+  return [0, 0, 0];
 }
 
 export default function ZeusVoiceWave({ active }: { active: boolean }) {
-  const [heights, setHeights] = useState<number[]>(idleHeights);
+  const [levels, setLevels] = useState<number[]>(idleLevels);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (active) {
-      setHeights(randomHeights());
+      setLevels(randomLevels());
       intervalRef.current = setInterval(() => {
-        setHeights(randomHeights());
+        setLevels(randomLevels());
       }, UPDATE_MS);
     } else {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
-      setHeights(idleHeights());
+      setLevels(idleLevels());
     }
 
     return () => {
@@ -43,22 +44,56 @@ export default function ZeusVoiceWave({ active }: { active: boolean }) {
   }, [active]);
 
   return (
-    <div className="flex h-10 items-end justify-center gap-1 px-4 py-1">
-      {heights.map((h, i) => (
-        <div
-          key={i}
-          className="w-3 rounded-sm"
-          style={{
-            height: `${h * 100}%`,
-            background: active
-              ? "linear-gradient(to top, #8A0623, #C80A33, #D4163F)"
-              : "#C80A3325",
-            transition: "height 70ms ease-out",
-            boxShadow: active
-              ? `0 0 ${6 + h * 10}px #C80A3380, 0 0 ${2 + h * 4}px #D4163F60`
-              : "none",
-          }}
-        />
+    <div className="flex h-14 items-center justify-center gap-1.5 px-4 py-1">
+      {levels.map((level, col) => (
+        <div key={col} className="flex flex-col items-center gap-[2px]">
+          {/* Top half — segments grow upward from center */}
+          {Array.from({ length: SEGMENTS }, (_, seg) => {
+            const fromCenter = SEGMENTS - seg; // 7 at top, 1 at center
+            const lit = active && fromCenter <= level;
+            const intensity = lit ? 1 - (fromCenter - 1) / SEGMENTS : 0;
+            return (
+              <div
+                key={`t${seg}`}
+                className="rounded-[1px]"
+                style={{
+                  width: 10,
+                  height: 3,
+                  background: lit
+                    ? `rgba(200, 10, 51, ${0.4 + intensity * 0.6})`
+                    : "rgba(200, 10, 51, 0.08)",
+                  boxShadow: lit
+                    ? `0 0 ${3 + intensity * 5}px rgba(200, 10, 51, ${0.3 + intensity * 0.4})`
+                    : "none",
+                  transition: "all 70ms ease-out",
+                }}
+              />
+            );
+          })}
+          {/* Bottom half — mirror of top */}
+          {Array.from({ length: SEGMENTS }, (_, seg) => {
+            const fromCenter = seg + 1; // 1 at center, 7 at bottom
+            const lit = active && fromCenter <= level;
+            const intensity = lit ? 1 - (fromCenter - 1) / SEGMENTS : 0;
+            return (
+              <div
+                key={`b${seg}`}
+                className="rounded-[1px]"
+                style={{
+                  width: 10,
+                  height: 3,
+                  background: lit
+                    ? `rgba(200, 10, 51, ${0.4 + intensity * 0.6})`
+                    : "rgba(200, 10, 51, 0.08)",
+                  boxShadow: lit
+                    ? `0 0 ${3 + intensity * 5}px rgba(200, 10, 51, ${0.3 + intensity * 0.4})`
+                    : "none",
+                  transition: "all 70ms ease-out",
+                }}
+              />
+            );
+          })}
+        </div>
       ))}
     </div>
   );
