@@ -51,11 +51,11 @@ export default function ZeusVoiceWave({ active }: { active: boolean }) {
           style={{
             height: `${h * 100}%`,
             background: active
-              ? "linear-gradient(to top, #990000, #CC0000, #E60000, #FF1A1A)"
-              : "#CC000025",
+              ? "linear-gradient(to top, #8A0623, #C80A33, #D4163F)"
+              : "#C80A3325",
             transition: "height 70ms ease-out",
             boxShadow: active
-              ? `0 0 ${6 + h * 10}px #E6000080, 0 0 ${2 + h * 4}px #FF1A1A60`
+              ? `0 0 ${6 + h * 10}px #C80A3380, 0 0 ${2 + h * 4}px #D4163F60`
               : "none",
           }}
         />
