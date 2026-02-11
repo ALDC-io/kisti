@@ -44,7 +44,6 @@ export default function DriverDisplay({ state }: DriverDisplayProps) {
       aria-label="Driver gauge cluster display"
     >
       <DriverStatusBar
-        mode={mode}
         gpsFixed={true}
         logging={true}
         networkConnected={state.cloudSync.status !== "OFFLINE"}

@@ -222,14 +222,6 @@ export default function KistiMode() {
       className="flex h-full w-full flex-col items-center justify-center gap-4 px-6"
       style={{ backgroundColor: "#0A0A0A" }}
     >
-      {/* KiSTI logo */}
-      <img
-        src="/assets/kisti_logo.png"
-        alt="KiSTI"
-        style={{ height: 48 }}
-        draggable={false}
-      />
-
       {/* KITT voice waveform */}
       <div className="w-full max-w-[280px]">
         <ZeusVoiceWave active={isSpeaking} />

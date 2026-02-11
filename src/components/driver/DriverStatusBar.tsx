@@ -1,14 +1,12 @@
 "use client";
 
 interface DriverStatusBarProps {
-  mode: string;
   gpsFixed: boolean;
   logging: boolean;
   networkConnected: boolean;
 }
 
 export default function DriverStatusBar({
-  mode,
   gpsFixed,
   logging,
   networkConnected,
@@ -28,7 +26,7 @@ export default function DriverStatusBar({
         borderBottom: "1px solid var(--driver-chrome-dark)",
       }}
     >
-      {/* Left: Link ECU + KiSTI logo + mode */}
+      {/* Left: Link ECU logo */}
       <div className="flex items-center gap-2">
         <img
           src="/assets/link_logo.svg"
@@ -36,18 +34,6 @@ export default function DriverStatusBar({
           className="h-5"
           draggable={false}
         />
-        <img
-          src="/assets/kisti_logo.png"
-          alt="KiSTI"
-          className="h-4"
-          draggable={false}
-        />
-        <span
-          className="text-sm font-black tracking-wide"
-          style={{ color: "var(--driver-red)" }}
-        >
-          {mode}
-        </span>
       </div>
 
       {/* Center: clock + status dots */}
