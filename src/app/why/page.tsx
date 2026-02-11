@@ -114,22 +114,48 @@ export default function WhyPage() {
             <div className="mt-4 space-y-4 text-foreground/70">
               <p>
                 KiSTI is a vehicle{" "}
-                <span className="text-foreground/40">(pun intended)</span> to
-                demonstrate how easy it is to bring multiple data sources
-                together.
+                <span className="text-foreground/40">(pun intended)</span> built
+                by{" "}
+                <a
+                  href="https://www.aldc.io"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-semibold text-kisti-accent hover:underline"
+                >
+                  Analytic Labs
+                </a>{" "}
+                to showcase what happens when you bring multiple data sources
+                together and let them talk.
+              </p>
+              <p>
+                Our mission is to{" "}
+                <span className="font-semibold text-kisti-accent">
+                  make data speak human
+                </span>
+                . KiSTI shows off our ability to gather, analyze, and share data
+                in novel and fun ways &mdash; while making all of it as easy to
+                interact with as having a conversation.
               </p>
               <p className="font-mono text-sm text-kisti-accent/80">
                 19 sensors &times; 4 cameras &times; 1 ECU &times; 1 edge
                 computer = one unified story told in plain English.
               </p>
               <p>
-                The same pattern applies to any business: replace sensors with
-                databases, cameras with APIs, the ECU with your data warehouse,
-                and the Jetson with your AI layer.
+                We wanted to bring the world of performance tuning together with
+                modern data analytics. Link Engine Management gives us the
+                nervous system &mdash; 100+ CAN channels of real-time engine
+                data. NVIDIA&apos;s Jetson Orin gives us the brain &mdash; 40
+                TOPS of edge AI processing telemetry and vision in under 50ms.
+                Boost Barn gives us the muscle &mdash; a properly built STI that
+                delivers data{" "}
+                <span className="italic text-kisti-accent">fast</span>.
               </p>
               <p>
-                Zeus doesn&apos;t just store data &mdash; it makes data speak
-                human. Or in this case, speak racer.
+                The same pattern applies to any business: replace sensors with
+                databases, cameras with APIs, the ECU with your data warehouse,
+                and the Jetson with your AI layer. Zeus doesn&apos;t just store
+                data &mdash; it makes data speak human. Or in this case, speak
+                racer.
               </p>
             </div>
           </section>
