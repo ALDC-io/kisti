@@ -141,7 +141,7 @@ export const ZEUS_RESPONSES: ZeusQA[] = [
     keywords: ["build", "philosophy", "why this", "concept", "strategy", "positioning"],
     question: "What's the build philosophy?",
     answer:
-      "This is not a max-effort dyno car. Not a 500+ HP headline build. Not a top-end drag configuration. This is a midrange-dominant canyon car — a high-response AWD platform built for all-weather use. Think Porsche GTS philosophy applied to the STI platform: cohesive, engineered feel, repeatable thermal performance, and a conservative tune that prioritizes response and area under the curve over peak numbers. A hot rod that happens to have data superpowers.",
+      "This is not a max-effort dyno car. Not a 500+ HP headline build. Not a top-end drag configuration. This is a midrange-dominant canyon car — a high-response AWD platform built for all-weather use. The goal is a cohesive, engineered feel, repeatable thermal performance, and a conservative tune that prioritizes response and area under the curve over peak numbers. A hot rod that happens to have data superpowers.",
   },
   {
     keywords: ["boost barn", "builder", "shop", "who built", "assembly", "install"],
