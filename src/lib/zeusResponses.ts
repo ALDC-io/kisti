@@ -51,7 +51,7 @@ export const ZEUS_RESPONSES: ZeusQA[] = [
     keywords: ["link", "ecu", "can", "bus", "g4x", "tune", "tuning", "speed density", "launch control"],
     question: "How does your ECU work?",
     answer:
-      "My Link G4X is a full standalone ECU — not a Cobb Accessport piggyback, a proper standalone. I run speed density (no MAF), which gives cleaner control with my FMIC and full bolt-on setup. All my sensor feeds route through the CAN bus at 500 Kbps. My tune prioritizes smooth torque ramp, conservative ignition timing, and tire management in 2nd and 3rd. Launch control is enabled. My tuning philosophy is 'one change at a time' with logging discipline — no chasing peak dyno numbers, just repeatable heat-stable performance.",
+      "My Link G4X is a full standalone ECU. I run speed density (no MAF), which gives cleaner control with my FMIC and full bolt-on setup. All my sensor feeds route through the CAN bus at 500 Kbps. My tune prioritizes smooth torque ramp, conservative ignition timing, and tire management in 2nd and 3rd. Launch control is enabled. My tuning philosophy is 'one change at a time' with logging discipline — no chasing peak dyno numbers, just repeatable heat-stable performance.",
   },
   {
     keywords: ["camera", "vision", "flir", "thermal", "lidar", "depth"],
