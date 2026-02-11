@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { usePathname } from "next/navigation";
 import { useZeusChat } from "./useZeusChat";
 import ZeusChatPanel from "./ZeusChatPanel";
 
 export default function ZeusChatWidget() {
-  const [open, setOpen] = useState(false);
+  const pathname = usePathname();
+  const [open, setOpen] = useState(pathname === "/");
   const { messages, processing, send, clear } = useZeusChat();
 
   const handleClose = useCallback(() => setOpen(false), []);
