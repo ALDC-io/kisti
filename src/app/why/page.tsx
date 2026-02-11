@@ -57,7 +57,10 @@ export default function WhyPage() {
               <p>
                 Where KITT had an AI that could talk, KiSTI has 19 sensors, 4
                 cameras, an edge AI, and a memory system called Zeus that turns
-                raw telemetry into plain English.
+                raw telemetry into plain English.{" "}
+                <span className="text-kisti-accent">
+                  Oh, and it talks too.
+                </span>
               </p>
             </div>
           </section>
