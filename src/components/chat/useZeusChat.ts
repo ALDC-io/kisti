@@ -12,12 +12,12 @@ export interface ChatMessage {
 export function useZeusChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [processing, setProcessing] = useState(false);
-  const processingRef = useRef(false);
+  const lockedRef = useRef(false);
 
   const send = useCallback((text: string) => {
-    if (processingRef.current || !text.trim()) return;
+    if (lockedRef.current || !text.trim()) return;
 
-    processingRef.current = true;
+    lockedRef.current = true;
     setProcessing(true);
 
     const userMsg: ChatMessage = {
@@ -38,16 +38,28 @@ export function useZeusChat() {
         text: answer,
       };
       setMessages((prev) => [...prev, zeusMsg]);
-      processingRef.current = false;
-      setProcessing(false);
+      // Keep lockedRef true — unlock() is called when typewriter finishes
+      // Safety: auto-unlock after max typewriter time + buffer
+      const maxTypewriterMs = answer.length * 25 + 2000;
+      setTimeout(() => {
+        if (lockedRef.current) {
+          lockedRef.current = false;
+          setProcessing(false);
+        }
+      }, maxTypewriterMs);
     }, delay);
+  }, []);
+
+  const unlock = useCallback(() => {
+    lockedRef.current = false;
+    setProcessing(false);
   }, []);
 
   const clear = useCallback(() => {
     setMessages([]);
-    processingRef.current = false;
+    lockedRef.current = false;
     setProcessing(false);
   }, []);
 
-  return { messages, processing, send, clear };
+  return { messages, processing, send, unlock, clear };
 }

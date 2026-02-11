@@ -174,10 +174,10 @@ export const ZEUS_RESPONSES: ZeusQA[] = [
       "Shell 93 octane — the primary map. The entire tune is calibrated around consistent 93 octane operation with conservative ignition timing. No E85, no race gas dependencies. The philosophy is: if you can get it at a gas station, the car should run perfectly on it. That's part of the 'executive hot rod' concept — it's a canyon monster you can daily without a fuel logistics plan.",
   },
   {
-    keywords: ["boost barn", "shop", "who built", "builder", "aaron", "nijjar", "langley"],
+    keywords: ["boost barn", "shop", "who built", "builder", "aaron", "nijjar", "langley", "subaru shop", "specialty"],
     question: "Tell me about Boost Barn.",
     answer:
-      "Boost Barn Motorsports is a Subaru specialty shop in Langley, BC, Canada, run by Aaron Nijjar. They do everything from parts and regular maintenance to full project builds, fabrication, and dyno tuning. They're appointment-only — you don't just walk in, you book time. They tune on Cobb, EcuTek, OpenSource, and standalone ECUs like Link, Ecumaster, Haltech, and AEM. For KiSTI, Aaron handled the full mechanical build: IAG 750 short block, BCP X400 turbo install, fueling, FMIC plumbing, Link ECU integration, and calibration. Their philosophy is coherent system assembly — not piecemeal power chasing.",
+      "Boost Barn Motorsports is a Subaru specialty shop in Langley, BC, Canada. They help you accomplish your dream Subaru build from start to finish — parts, services, fabrication, dyno tuning, full start-to-finish projects, and maintenance. They're appointment-based only. They also handle regular maintenance and repairs on daily drivers and street cars. For KiSTI, Boost Barn handled the full mechanical build: IAG 750 short block, BCP X400 turbo install, fueling, FMIC plumbing, Link ECU integration, and calibration. Their philosophy is coherent system assembly — not piecemeal power chasing. They tune on Cobb, EcuTek, OpenSource, and standalone ECUs like Link, Ecumaster, Haltech, and AEM.",
   },
   {
     keywords: ["boost barn builds", "portfolio", "projects", "other builds", "clients"],

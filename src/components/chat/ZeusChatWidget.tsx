@@ -8,7 +8,7 @@ import ZeusChatPanel from "./ZeusChatPanel";
 export default function ZeusChatWidget() {
   const pathname = usePathname();
   const [open, setOpen] = useState(pathname === "/");
-  const { messages, processing, send, clear } = useZeusChat();
+  const { messages, processing, send, unlock, clear } = useZeusChat();
 
   const handleClose = useCallback(() => setOpen(false), []);
 
@@ -31,6 +31,7 @@ export default function ZeusChatWidget() {
             messages={messages}
             processing={processing}
             onSend={send}
+            onUnlock={unlock}
             onClose={handleClose}
           />
         </div>

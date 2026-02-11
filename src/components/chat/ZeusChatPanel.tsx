@@ -11,6 +11,7 @@ interface ZeusChatPanelProps {
   messages: ChatMessage[];
   processing: boolean;
   onSend: (text: string) => void;
+  onUnlock: () => void;
   onClose: () => void;
 }
 
@@ -18,6 +19,7 @@ export default function ZeusChatPanel({
   messages,
   processing,
   onSend,
+  onUnlock,
   onClose,
 }: ZeusChatPanelProps) {
   const [input, setInput] = useState("");
@@ -27,7 +29,11 @@ export default function ZeusChatPanel({
 
   const handleSpeaking = useCallback((active: boolean) => {
     setSpeaking(active);
-  }, []);
+    if (!active) {
+      // Typewriter finished — unlock the chat for the next question
+      onUnlock();
+    }
+  }, [onUnlock]);
 
   useEffect(() => {
     if (scrollRef.current) {
