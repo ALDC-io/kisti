@@ -222,28 +222,13 @@ export default function KistiMode() {
       className="flex h-full w-full flex-col items-center justify-center gap-4 px-6"
       style={{ backgroundColor: "#0A0A0A" }}
     >
-      {/* KiSTI logo — cropped to content region */}
-      <div
-        style={{
-          height: 48,
-          width: 200,
-          overflow: "hidden",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <img
-          src="/assets/kisti_logo.png"
-          alt="KiSTI"
-          style={{
-            height: 148,
-            objectFit: "cover",
-            objectPosition: "center 32.5%",
-          }}
-          draggable={false}
-        />
-      </div>
+      {/* KiSTI logo */}
+      <img
+        src="/assets/kisti_logo.png"
+        alt="KiSTI"
+        style={{ height: 48 }}
+        draggable={false}
+      />
 
       {/* KITT voice waveform */}
       <div className="w-full max-w-[280px]">
