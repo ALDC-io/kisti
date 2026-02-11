@@ -85,7 +85,7 @@ export default function SettingsMode({ gpsFixed, networkConnected }: SettingsMod
           <span style={{ color: WHITE }}>4 feeds (IR/RGB/LiDAR/WX)</span>
 
           <span style={{ color: GRAY }}>Cloud</span>
-          <span style={{ color: WHITE }}>Zeus Memory (Azure)</span>
+          <span style={{ color: WHITE }}>Zeus</span>
         </div>
 
         <h3

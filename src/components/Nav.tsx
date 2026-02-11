@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 
 const NAV_LINKS = [
+  { href: "/why", label: "Why KiSTI" },
   { href: "/", label: "Live Demo" },
   { href: "/tech", label: "Technology" },
   { href: "/partners", label: "Partners" },

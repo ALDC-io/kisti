@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import ZeusChatWidget from "@/components/chat/ZeusChatWidget";
 
 export const metadata: Metadata = {
   title: "KiSTI — Edge Telemetry Platform",
@@ -21,7 +22,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="min-h-screen antialiased">{children}</body>
+      <body className="min-h-screen antialiased">
+        {children}
+        <ZeusChatWidget />
+      </body>
     </html>
   );
 }

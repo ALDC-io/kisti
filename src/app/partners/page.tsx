@@ -29,7 +29,7 @@ const PARTNERS = [
     name: "ALDC",
     role: "Platform & Intelligence",
     description:
-      "Edge telemetry platform architecture, Zeus Memory cloud intelligence, and AI-powered diagnostics.",
+      "Edge telemetry platform architecture, Zeus cloud intelligence, and AI-powered diagnostics.",
     color: "#6366f1",
     logo: "/assets/aldc_logo.svg",
   },

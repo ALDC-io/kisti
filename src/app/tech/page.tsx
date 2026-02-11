@@ -28,7 +28,7 @@ const PIPELINE_STAGES = [
   {
     title: "5. Cloud Sync",
     description:
-      "Zeus Memory ingests telemetry via WiFi/cellular with store-and-forward. AI findings surface in real-time dashboards.",
+      "Zeus ingests telemetry via WiFi/cellular with store-and-forward. AI findings surface in real-time dashboards.",
     detail: "pgvector semantic search, 3.5M+ memories, automatic embedding via Voyage AI, Slack/email alerts.",
   },
 ];
@@ -54,7 +54,7 @@ export default function TechPage() {
               System Architecture
             </h2>
             <div className="mt-4 flex flex-col items-center gap-2 sm:flex-row sm:justify-center sm:gap-4">
-              {["Sensors", "CAN", "Link G4X", "USB", "Jetson Orin", "WiFi", "Zeus Cloud"].map(
+              {["Sensors", "CAN", "Link G4X", "USB", "Jetson Orin", "WiFi", "Zeus"].map(
                 (stage, i) => (
                   <div key={stage} className="flex items-center gap-2">
                     {stage === "Link G4X" ? (
@@ -64,6 +64,11 @@ export default function TechPage() {
                     ) : stage === "Jetson Orin" ? (
                       <span className="flex items-center rounded-md bg-kisti-accent/15 px-2 py-1">
                         <img src="/assets/jetson_orin_logo.svg" alt="Jetson Orin" className="h-5" draggable={false} />
+                      </span>
+                    ) : stage === "Zeus" ? (
+                      <span className="flex items-center gap-1.5 rounded-md bg-kisti-accent/15 px-2 py-1">
+                        <img src="/assets/aldc_logo.svg" alt="ALDC" className="h-4" draggable={false} />
+                        <span className="text-sm font-medium text-kisti-accent">Zeus</span>
                       </span>
                     ) : (
                       <span className="rounded-md bg-kisti-accent/15 px-3 py-1.5 text-sm font-medium text-kisti-accent">

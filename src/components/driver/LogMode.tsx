@@ -26,7 +26,7 @@ export default function LogMode() {
         <p className="mt-1 text-[10px]" style={{ color: GRAY }}>
           Will support CAN bus recording, CSV export,
           <br />
-          and cloud upload to Zeus Memory.
+          and cloud upload to Zeus.
         </p>
       </div>
     </div>
