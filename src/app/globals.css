@@ -1,0 +1,240 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: #0a0a1a;
+  --color-foreground: #e2e8f0;
+  --color-sidebar: #ffffff;
+  --color-sidebar-text: #1a1a2e;
+
+  /* Node colors */
+  --color-sensor: #10b981;
+  --color-camera: #06b6d4;
+  --color-ecu: #f59e0b;
+  --color-edge-compute: #8b5cf6;
+
+  /* Connection colors */
+  --color-can: #3b82f6;
+  --color-usb: #ec4899;
+  --color-csi: #f97316;
+  --color-wifi: #06b6d4;
+
+  /* Status colors */
+  --color-status-ok: #10b981;
+  --color-status-warn: #f59e0b;
+  --color-status-hot: #ef4444;
+
+  /* Brand */
+  --color-kisti-accent: #8b5cf6;
+  --color-kisti-glow: #6d28d9;
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+
+  /* Driver gauge cluster theme */
+  --driver-bg: #0A0A0A;
+  --driver-panel: #121212;
+  --driver-accent: #1A1A1A;
+  --driver-red: #E60000;
+  --driver-red-bright: #FF1A1A;
+  --driver-cherry: #CC0000;
+  --driver-green: #00CC66;
+  --driver-yellow: #FFAA00;
+  --driver-cyan: #00CCFF;
+  --driver-white: #FFFFFF;
+  --driver-silver: #D0D0D0;
+  --driver-gray: #808080;
+  --driver-dim: #333333;
+  --driver-chrome-light: #C0C0C0;
+  --driver-chrome-mid: #909090;
+  --driver-chrome-dark: #606060;
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+}
+
+/* Hide Vercel toolbar */
+vercel-live-feedback,
+[data-vercel-toolbar],
+#__next-build-indicator,
+#__vercel-toolbar {
+  display: none !important;
+}
+
+/* Node glow animation */
+@keyframes nodeGlow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 4px currentColor);
+  }
+  50% {
+    filter: drop-shadow(0 0 12px currentColor);
+  }
+}
+
+/* Edge pulse animation */
+@keyframes edgePulse {
+  0% {
+    stroke-dashoffset: 20;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Sidebar slide */
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOut {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+.animate-node-glow {
+  animation: nodeGlow 2s ease-in-out infinite;
+}
+
+.animate-edge-pulse {
+  stroke-dasharray: 10 10;
+  animation: edgePulse 1s linear infinite;
+}
+
+.animate-slide-in {
+  animation: slideIn 0.3s ease-out forwards;
+}
+
+/* Zeus voice waveform bars */
+@keyframes zeusVoiceBar {
+  0% {
+    transform: scaleY(0.3);
+  }
+  100% {
+    transform: scaleY(1);
+  }
+}
+
+/* KITT scanning light bar */
+@keyframes kittScan {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(300%);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
+}
+
+/* KITT divider sweep (Why page) */
+@keyframes kittDivider {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+/* Cursor blink for typewriter */
+@keyframes cursorBlink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Voice ticker bar bounce (driver modes) */
+@keyframes tickerBarBounce {
+  from {
+    height: 4px;
+  }
+  to {
+    height: 16px;
+  }
+}
+
+.animate-ticker-bar {
+  animation: tickerBarBounce 0.4s ease-in-out infinite alternate;
+}
+.animate-ticker-bar-1 {
+  animation-delay: 0.12s;
+}
+.animate-ticker-bar-2 {
+  animation-delay: 0.24s;
+}
+
+/* FAB pulse ring */
+@keyframes fabPulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.4;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+.animate-kitt-scan {
+  animation: kittScan 2.4s ease-in-out infinite;
+}
+
+.animate-kitt-divider {
+  animation: kittDivider 3s ease-in-out infinite;
+}
+
+.animate-cursor-blink {
+  animation: cursorBlink 0.8s step-end infinite;
+}
+
+.animate-fab-pulse {
+  animation: fabPulse 2s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-node-glow,
+  .animate-edge-pulse,
+  .animate-slide-in,
+  .animate-kitt-scan,
+  .animate-kitt-divider,
+  .animate-cursor-blink,
+  .animate-fab-pulse,
+  .animate-ticker-bar,
+  .animate-hero-word,
+  [style*="zeusVoiceBar"] {
+    animation: none !important;
+  }
+
+  .animate-hero-word * {
+    transition: none !important;
+  }
+}
+
+/* Sparkline */
+.sparkline-path {
+  fill: none;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
