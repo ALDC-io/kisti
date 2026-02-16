@@ -2,24 +2,22 @@
 
 Center differential telemetry tab for MapDCCD-equipped 2014 STI.
 Driver-intuitive visual layout: car silhouette with torque-glowing wheels,
-arc gauge for lock %, split bar for F/R torque distribution, compact
-sparklines, and event dots.
+two L-R axle differential arc gauges, split bar for F/R torque distribution,
+compact sparklines, and event dots.
 
 Layout (800 × ~380px content area):
 ┌──────────────────────────────────────────────────────────────────┐
 │ ● DRY  ● CAN OK                         3   142 km/h           │ 24px
 ├─────────────────────────────────┬────────────────────────────────┤
-│                                 │         LOCK                   │
-│     ┌───┐         ┌───┐        │    ╭─────────────╮             │
-│     │FL │         │FR │        │   ╱  GREEN→RED    ╲            │
-│     └───┘         └───┘        │  │    arc gauge    │           │
-│       ╔═══════════╗            │  │                 │    ~250px │
-│       ║    STI    ║            │   ╲    62  %      ╱            │
-│       ║ silhouette║            │    ╰─────────────╯             │
-│       ╚═══════════╝            │       DIAL 45%                 │
+│                                 │  REAR                          │
+│     ┌───┐         ┌───┐        │  L [███|░░░░░░██▌] R  ┃F┃     │
+│     │FL │         │FR │        │       +1.2 km/h Δ     ┃ ┃     │
+│       ╔═══════════╗            │ ──────────────────── ──┃ ┃──   │
+│       ║    STI    ║            │  FRONT                 ┃ ┃     │
+│       ║ silhouette║            │  L [░░░░░██|░░░░░░] R ┃ ┃     │
+│       ╚═══════════╝            │       -0.8 km/h Δ     ┃R┃     │
 │     ┌───┐         ┌───┐        │                                │
-│     │RL │(glow)   │RR │(glow) │  [F ██41██░░59██R] split bar   │
-│     └───┘         └───┘        │                                │
+│     │RL │(glow)   │RR │(glow) │                                │
 ├─────────────────────────────────┴────────────────────────────────┤
 │ LOCK▁▃▇  SLIP▁▅▃  THR▃▇▅    ●●●●   [MARK]                     │ ~80px
 └──────────────────────────────────────────────────────────────────┘
@@ -197,6 +195,9 @@ class _TorqueSilhouette(QWidget):
         self._slip_delta: Optional[float] = None
         self._stale = True
         self._tick = 0  # for pulse animation
+        # Per-wheel speeds (km/h)
+        self._ws = {"FL": 0.0, "FR": 0.0, "RL": 0.0, "RR": 0.0}
+        self._ws_available = False
 
     def set_state(
         self,
@@ -204,12 +205,16 @@ class _TorqueSilhouette(QWidget):
         throttle_pct: float,
         slip_delta: Optional[float],
         stale: bool,
+        wheel_speeds: Optional[dict[str, float]] = None,
     ) -> None:
         self._lock_pct = lock_pct
         self._throttle_pct = throttle_pct
         self._slip_delta = slip_delta
         self._stale = stale
         self._tick += 1
+        if wheel_speeds is not None:
+            self._ws = wheel_speeds
+            self._ws_available = True
         self.update()
 
     def paintEvent(self, event) -> None:  # noqa: N802
@@ -335,7 +340,7 @@ class _TorqueSilhouette(QWidget):
                    int(cx + cw * 0.5), int(cy + ch * 0.96))
 
     def _draw_wheels(self, p: QPainter, cx: float, cy: float, cw: float, ch: float) -> None:
-        """Draw wheels with torque-glow based on DCCD state."""
+        """Draw wheels with torque-glow based on DCCD state and per-wheel speeds."""
         wheel_w = cw * 0.14
         wheel_h = cw * 0.26
 
@@ -352,29 +357,57 @@ class _TorqueSilhouette(QWidget):
 
         abs_slip = abs(self._slip_delta) if self._slip_delta is not None else 0.0
 
+        # Compute L-R differential at rear axle for LSD visualization
+        rear_lr_diff = abs(self._ws["RL"] - self._ws["RR"])
+        avg_rear = (self._ws["RL"] + self._ws["RR"]) / 2.0 if self._ws_available else 1.0
+        # Normalized: 0 = locked (same speed), 1 = fully open (big difference)
+        rear_lr_norm = min(1.0, rear_lr_diff / max(avg_rear * 0.05, 0.5)) if self._ws_available else 0.5
+        # LSD lock indicator: 1 = locked, 0 = open
+        lsd_lock = 1.0 - rear_lr_norm
+
         for name, (wcx_n, wcy_n) in self._WHEEL_CENTERS.items():
             wx = cx + wcx_n * cw - wheel_w / 2
             wy = cy + wcy_n * ch - wheel_h / 2
             center = QPointF(cx + wcx_n * cw, cy + wcy_n * ch)
 
             is_front = name.startswith("F")
+            is_rear = not is_front
             intensity = front_intensity if is_front else rear_intensity
 
-            # Determine wheel color based on slip
+            # Per-wheel speed deviation from average (for individual glow)
+            if self._ws_available and avg_rear > 1.0:
+                wheel_speed = self._ws[name]
+                avg_speed = (self._ws["FL"] + self._ws["FR"]) / 2.0 if is_front else avg_rear
+                speed_ratio = wheel_speed / max(avg_speed, 1.0)
+                # Faster wheel = brighter (spinning = losing grip)
+                per_wheel_boost = max(0.0, (speed_ratio - 1.0) * 10.0)
+            else:
+                per_wheel_boost = 0.0
+
+            # Determine wheel color based on slip and per-wheel data
             if self._stale:
                 glow_color = QColor(DIM)
                 outline_color = QColor(DIM)
-            elif abs_slip > 5.0:
+            elif abs_slip > 5.0 or per_wheel_boost > 0.5:
                 # Hard slip: RED + 4Hz pulse
-                pulse = 0.5 + 0.5 * math.sin(self._tick * 0.63)  # ~4Hz at 20Hz refresh
+                pulse = 0.5 + 0.5 * math.sin(self._tick * 0.63)
                 glow_color = QColor(RED)
                 glow_color.setAlphaF(0.4 + 0.6 * pulse)
                 outline_color = QColor(RED)
-            elif abs_slip > 2.0:
+            elif abs_slip > 2.0 or per_wheel_boost > 0.2:
                 # Mild slip: YELLOW
                 glow_color = QColor(YELLOW)
-                glow_color.setAlphaF(0.6)
+                glow_color.setAlphaF(0.5 + per_wheel_boost * 0.3)
                 outline_color = QColor(YELLOW)
+            elif is_rear and self._ws_available:
+                # Rear wheels: color by LSD lock state
+                # Locked (same speed) = CYAN, Open (different) = GREEN
+                r = int(0x00)
+                g = int(0xCC * (1.0 - lsd_lock) + 0xCC * lsd_lock)
+                b = int(0x66 * (1.0 - lsd_lock) + 0xFF * lsd_lock)
+                glow_color = QColor(r, g, b)
+                glow_color.setAlphaF(max(0.15, min(0.9, intensity)))
+                outline_color = QColor(r, g, b)
             else:
                 # Normal: CYAN torque glow
                 glow_color = QColor(CYAN)
@@ -388,9 +421,9 @@ class _TorqueSilhouette(QWidget):
                 gc = QColor(glow_color)
                 gc.setAlphaF(min(0.7, glow_color.alphaF()))
                 grad.setColorAt(0.0, gc)
-                mid = QColor(glow_color)
-                mid.setAlphaF(gc.alphaF() * 0.4)
-                grad.setColorAt(0.5, mid)
+                mid_c = QColor(glow_color)
+                mid_c.setAlphaF(gc.alphaF() * 0.4)
+                grad.setColorAt(0.5, mid_c)
                 fade = QColor(glow_color)
                 fade.setAlphaF(0.0)
                 grad.setColorAt(1.0, fade)
@@ -409,25 +442,64 @@ class _TorqueSilhouette(QWidget):
             p.setPen(QPen(QColor(GRAY)))
             p.drawText(rect, Qt.AlignCenter, name)
 
+        # LSD lock indicator text below car
+        if self._ws_available and not self._stale:
+            p.setFont(QFont("Helvetica", 8, QFont.Bold))
+            lock_label = f"LSD {lsd_lock * 100:.0f}%"
+            lsd_color = QColor(CYAN) if lsd_lock > 0.7 else QColor(GREEN) if lsd_lock > 0.3 else QColor(YELLOW)
+            p.setPen(QPen(lsd_color))
+            car_bottom = cy + ch / 2 + ch * 0.48
+            p.drawText(QRectF(cx, car_bottom, cw, 14), Qt.AlignHCenter | Qt.AlignTop, lock_label)
+
 
 # ---------------------------------------------------------------------------
-# _LockArcGauge — semicircular arc gauge for lock %
+# _AxleBalanceBar — horizontal L-R balance bar for axle differential
 # ---------------------------------------------------------------------------
 
-class _LockArcGauge(QWidget):
-    """Semi-circular arc gauge (210°→330°) with GREEN→YELLOW→RED fill."""
+class _AxleBalanceBar(QWidget):
+    """Horizontal balance bar showing L-R wheel speed differential.
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    Center = wheels matched (locked/equal). Bar deflects left or right
+    to show which wheel is spinning faster.
+
+    For rear axle (mode='rear'): GREEN center → YELLOW → RED at extremes.
+    For front axle (mode='front'): CYAN scale, informational.
+
+    delta_kph is signed: positive = right wheel faster, negative = left faster.
+    """
+
+    def __init__(self, mode: str = "rear", max_delta: float = 8.0,
+                 parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._lock_pct = 0.0
-        self._dial_pct: Optional[float] = None
+        self._mode = mode
+        self._max_delta = max_delta
+        self._delta_kph = 0.0
         self._stale = True
 
-    def set_state(self, lock_pct: float, dial_pct: Optional[float], stale: bool) -> None:
-        self._lock_pct = lock_pct
-        self._dial_pct = dial_pct
+    def set_state(self, delta_kph: float, stale: bool) -> None:
+        self._delta_kph = delta_kph
         self._stale = stale
         self.update()
+
+    def _bar_color(self, frac: float) -> QColor:
+        """Color based on abs deflection fraction (0=center, 1=full)."""
+        if self._mode == "rear":
+            if frac < 0.25:
+                return QColor(GREEN)
+            elif frac < 0.55:
+                t = (frac - 0.25) / 0.30
+                return QColor(
+                    int(0x00 + t * 0xFF),
+                    int(0xCC + t * (0xAA - 0xCC)),
+                    int(0x66 * (1 - t)),
+                )
+            else:
+                t = min(1.0, (frac - 0.55) / 0.45)
+                return QColor(0xFF, int(0xAA * (1 - t) + 0x1A * t), 0x00)
+        else:
+            t = min(1.0, frac)
+            return QColor(0x00, int(0x77 + t * (0xCC - 0x77)),
+                          int(0xAA + t * (0xFF - 0xAA)))
 
     def paintEvent(self, event) -> None:  # noqa: N802
         p = QPainter(self)
@@ -436,102 +508,88 @@ class _LockArcGauge(QWidget):
 
         p.fillRect(0, 0, w, h, QColor(BG_DARK))
 
-        # "LOCK" label at top
-        p.setFont(QFont("Helvetica", 10, QFont.Bold))
+        # Label
+        label = "REAR" if self._mode == "rear" else "FRONT"
+        p.setFont(QFont("Helvetica", 9, QFont.Bold))
         p.setPen(QPen(QColor(GRAY)))
-        p.drawText(QRectF(0, 2, w, 16), Qt.AlignHCenter | Qt.AlignTop, "LOCK")
+        p.drawText(QRectF(0, 1, w, 14), Qt.AlignHCenter | Qt.AlignTop, label)
 
-        # Arc geometry — centered in widget
-        arc_top = 20
-        arc_size = min(w - 16, h - 56)  # leave room for labels
-        arc_rect = QRectF((w - arc_size) / 2, arc_top, arc_size, arc_size)
+        # L / R labels
+        p.setFont(QFont("Helvetica", 8))
+        p.setPen(QPen(QColor(GRAY)))
+        label_y = 16
+        p.drawText(QRectF(4, label_y, 16, 12), Qt.AlignLeft | Qt.AlignVCenter, "L")
+        p.drawText(QRectF(w - 20, label_y, 16, 12), Qt.AlignRight | Qt.AlignVCenter, "R")
 
-        # Arc spans from 210° to 330° (sweeping 120° total through bottom)
-        # Qt angles: 0=3 o'clock, positive=CCW
-        # We want a gauge from ~7 o'clock to ~5 o'clock (bottom arc, 240° sweep)
-        start_angle = 210 * 16  # Qt uses 1/16th degree units
-        span_angle = 120 * 16
+        # Bar track area
+        margin_x = 22
+        bar_top = 16
+        bar_h = max(16, int(h * 0.28))
+        bar_w = w - margin_x * 2
+        bar_x = margin_x
+        center_x = bar_x + bar_w / 2
 
-        # Background arc (dim track)
-        pen_width = 10
-        p.setPen(QPen(QColor(DIM), pen_width, Qt.SolidLine, Qt.RoundCap))
-        p.setBrush(Qt.NoBrush)
-        p.drawArc(arc_rect, start_angle, span_angle)
+        # Background track
+        track_rect = QRectF(bar_x, bar_top, bar_w, bar_h)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(DIM))
+        p.drawRoundedRect(track_rect, bar_h / 2, bar_h / 2)
+
+        # Center tick mark (zero reference)
+        p.setPen(QPen(QColor(CHROME_MID), 2))
+        p.drawLine(QPointF(center_x, bar_top + 2),
+                   QPointF(center_x, bar_top + bar_h - 2))
 
         if not self._stale:
-            # Filled arc — proportion of lock
-            frac = min(1.0, max(0.0, self._lock_pct / 100.0))
-            fill_span = int(span_angle * frac)
+            # Compute deflection: signed fraction -1..+1
+            clamped = max(-self._max_delta, min(self._max_delta, self._delta_kph))
+            frac = clamped / self._max_delta  # -1..+1
+            abs_frac = abs(frac)
 
-            if fill_span > 0:
-                # Color based on lock %
-                if self._lock_pct < 40:
-                    arc_color = QColor(GREEN)
-                elif self._lock_pct < 70:
-                    # Interpolate GREEN→YELLOW
-                    t = (self._lock_pct - 40) / 30.0
-                    arc_color = QColor(
-                        int(0x00 + t * (0xFF - 0x00)),
-                        int(0xCC + t * (0xAA - 0xCC)),
-                        int(0x66 + t * (0x00 - 0x66)),
-                    )
+            if abs_frac > 0.01:
+                bar_color = self._bar_color(abs_frac)
+
+                # Draw filled bar from center toward the deflection side
+                if frac > 0:
+                    # Right wheel faster — bar extends right from center
+                    fill_x = center_x
+                    fill_w = abs_frac * (bar_w / 2)
                 else:
-                    # Interpolate YELLOW→RED
-                    t = min(1.0, (self._lock_pct - 70) / 30.0)
-                    arc_color = QColor(
-                        int(0xFF),
-                        int(0xAA * (1 - t) + 0x1A * t),
-                        int(0x00),
-                    )
+                    # Left wheel faster — bar extends left from center
+                    fill_w = abs_frac * (bar_w / 2)
+                    fill_x = center_x - fill_w
 
-                p.setPen(QPen(arc_color, pen_width, Qt.SolidLine, Qt.RoundCap))
-                p.drawArc(arc_rect, start_angle, fill_span)
-
-                # Needle dot at tip of filled arc
-                angle_deg = 210 + 120 * frac
-                angle_rad = math.radians(angle_deg)
-                dot_r = arc_size / 2
-                dot_cx = arc_rect.center().x() + dot_r * math.cos(angle_rad)
-                dot_cy = arc_rect.center().y() - dot_r * math.sin(angle_rad)
+                fill_rect = QRectF(fill_x, bar_top + 2, fill_w, bar_h - 4)
                 p.setPen(Qt.NoPen)
+                p.setBrush(bar_color)
+                p.drawRoundedRect(fill_rect, 3, 3)
+
+                # Indicator dot at the tip
+                dot_x = fill_x + fill_w if frac > 0 else fill_x
+                dot_y = bar_top + bar_h / 2
                 p.setBrush(QColor(WHITE))
-                p.drawEllipse(QPointF(dot_cx, dot_cy), 4, 4)
+                p.drawEllipse(QPointF(dot_x, dot_y), 4, 4)
 
-            # Center value text
-            p.setFont(QFont("Helvetica", 28, QFont.Bold))
+            # Delta value text below bar
+            val_y = bar_top + bar_h + 3
+            p.setFont(QFont("Helvetica", 13, QFont.Bold))
             p.setPen(QPen(QColor(WHITE)))
-            val_text = f"{self._lock_pct:.0f}"
-            fm = p.fontMetrics()
-            text_h = fm.height()
-            center_y = arc_rect.center().y() - text_h / 2
-            p.drawText(QRectF(0, center_y, w, text_h),
-                       Qt.AlignHCenter | Qt.AlignVCenter, val_text)
+            sign = "+" if self._delta_kph >= 0 else ""
+            val_text = f"{sign}{self._delta_kph:.1f}"
+            p.drawText(QRectF(0, val_y, w, 18),
+                       Qt.AlignHCenter | Qt.AlignTop, val_text)
 
-            # "%" unit — positioned just right of the number
-            num_w = fm.horizontalAdvance(val_text)
-            pct_x = w / 2 + num_w / 2 + 2
-            p.setFont(QFont("Helvetica", 14))
+            # Unit
+            p.setFont(QFont("Helvetica", 7))
             p.setPen(QPen(QColor(GRAY)))
-            p.drawText(QRectF(pct_x, center_y + 4, 30, text_h),
-                       Qt.AlignLeft | Qt.AlignVCenter, "%")
+            p.drawText(QRectF(0, val_y + 17, w, 12),
+                       Qt.AlignHCenter | Qt.AlignTop, "km/h \u0394")
         else:
-            # Stale — show dash
-            p.setFont(QFont("Helvetica", 28, QFont.Bold))
+            val_y = bar_top + bar_h + 3
+            p.setFont(QFont("Helvetica", 13, QFont.Bold))
             p.setPen(QPen(QColor(GRAY)))
-            text_h = p.fontMetrics().height()
-            center_y = arc_rect.center().y() - text_h / 2
-            p.drawText(QRectF(0, center_y, w, text_h),
-                       Qt.AlignHCenter | Qt.AlignVCenter, "\u2014")
-
-        # DIAL value below arc
-        dial_y = arc_rect.bottom() + 4
-        p.setFont(QFont("Helvetica", 9))
-        p.setPen(QPen(QColor(GRAY)))
-        if self._dial_pct is not None and not self._stale:
-            dial_text = f"DIAL {self._dial_pct:.0f}%"
-        else:
-            dial_text = "DIAL \u2014"
-        p.drawText(QRectF(0, dial_y, w, 18), Qt.AlignHCenter | Qt.AlignTop, dial_text)
+            p.drawText(QRectF(0, val_y, w, 18),
+                       Qt.AlignHCenter | Qt.AlignTop, "\u2014")
 
         p.end()
 
@@ -541,13 +599,16 @@ class _LockArcGauge(QWidget):
 # ---------------------------------------------------------------------------
 
 class _SplitBar(QWidget):
-    """Horizontal bar showing F/R torque distribution."""
+    """Horizontal balance-style bar showing F/R torque distribution (center diff).
+
+    Same visual style as _AxleBalanceBar — horizontal bar with F on left, R on right.
+    Bar fills from center showing the torque bias. GREEN (open) → BLUE (locked).
+    """
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setFixedWidth(30)
-        self._front_pct = 41.0  # default open diff split
-        self._lock_pct = 0.0    # 0=open, 100=locked
+        self._front_pct = 41.0
+        self._lock_pct = 0.0
         self._stale = True
 
     def set_state(self, front_pct: float, lock_pct: float, stale: bool) -> None:
@@ -559,7 +620,6 @@ class _SplitBar(QWidget):
     def _bar_color(self) -> QColor:
         """GREEN (open) → teal → BLUE (locked) based on lock %."""
         t = min(1.0, max(0.0, self._lock_pct / 100.0))
-        # GREEN #00CC66 → CYAN #00CCFF → BLUE #0077DD
         if t < 0.5:
             s = t * 2.0
             r = 0
@@ -579,64 +639,86 @@ class _SplitBar(QWidget):
 
         p.fillRect(0, 0, w, h, QColor(BG_DARK))
 
-        label_h = 14
-        margin_y = 4
-        bar_x = 4
-        bar_w = w - 8
-        bar_y = margin_y + label_h + 2
-        bar_h = h - 2 * margin_y - 2 * label_h - 4
-
-        # "F" label top
-        p.setFont(QFont("Helvetica", 8, QFont.Bold))
+        # Label
+        p.setFont(QFont("Helvetica", 9, QFont.Bold))
         p.setPen(QPen(QColor(GRAY)))
-        p.drawText(QRectF(0, margin_y, w, label_h),
-                   Qt.AlignHCenter | Qt.AlignCenter, "F")
+        p.drawText(QRectF(0, 1, w, 14), Qt.AlignHCenter | Qt.AlignTop, "CENTER")
 
-        # "R" label bottom
-        p.drawText(QRectF(0, h - margin_y - label_h, w, label_h),
-                   Qt.AlignHCenter | Qt.AlignCenter, "R")
+        # F / R side labels
+        p.setFont(QFont("Helvetica", 8))
+        label_y = 16
+        p.drawText(QRectF(4, label_y, 16, 12), Qt.AlignLeft | Qt.AlignVCenter, "F")
+        p.drawText(QRectF(w - 20, label_y, 16, 12), Qt.AlignRight | Qt.AlignVCenter, "R")
 
-        # Bar background
-        p.setPen(QPen(QColor(CHROME_DARK), 1))
-        p.setBrush(QColor(BG_PANEL))
-        p.drawRoundedRect(QRectF(bar_x, bar_y, bar_w, bar_h), 3, 3)
+        # Bar track
+        margin_x = 22
+        bar_top = 16
+        bar_h = max(16, int(h * 0.28))
+        bar_w = w - margin_x * 2
+        bar_x = margin_x
+        center_x = bar_x + bar_w / 2
+
+        track_rect = QRectF(bar_x, bar_top, bar_w, bar_h)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(DIM))
+        p.drawRoundedRect(track_rect, bar_h / 2, bar_h / 2)
+
+        # 50/50 center tick
+        p.setPen(QPen(QColor(CHROME_MID), 2))
+        p.drawLine(QPointF(center_x, bar_top + 2),
+                   QPointF(center_x, bar_top + bar_h - 2))
 
         if not self._stale:
-            frac = min(1.0, max(0.0, self._front_pct / 100.0))
-            front_h = bar_h * frac
             bar_color = self._bar_color()
 
-            # Front fill (top part) — dimmer (less torque)
-            if front_h > 1:
+            # Front fill (left side from bar_x) — dimmer
+            norm = min(1.0, max(0.0, (self._front_pct - 41.0) / 9.0))
+            visual_frac = 0.15 + norm * 0.70
+            front_w = bar_w * visual_frac
+
+            if front_w > 1:
+                fc = QColor(bar_color)
+                fc.setAlphaF(0.25)
                 p.setPen(Qt.NoPen)
-                fill_color = QColor(bar_color)
-                fill_color.setAlphaF(0.25)
-                p.setBrush(fill_color)
-                p.drawRoundedRect(QRectF(bar_x, bar_y, bar_w, front_h), 3, 3)
+                p.setBrush(fc)
+                p.drawRoundedRect(QRectF(bar_x, bar_top + 2, front_w, bar_h - 4), 3, 3)
 
-            # Rear fill (bottom part) — brighter (more torque)
-            rear_h = bar_h - front_h
-            if rear_h > 1:
+            # Rear fill (right side) — brighter
+            rear_w = bar_w - front_w
+            if rear_w > 1:
+                rc = QColor(bar_color)
+                rc.setAlphaF(0.65)
                 p.setPen(Qt.NoPen)
-                rear_color = QColor(bar_color)
-                rear_color.setAlphaF(0.65)
-                p.setBrush(rear_color)
-                p.drawRoundedRect(QRectF(bar_x, bar_y + front_h, bar_w, rear_h), 3, 3)
+                p.setBrush(rc)
+                p.drawRoundedRect(QRectF(bar_x + front_w, bar_top + 2, rear_w, bar_h - 4), 3, 3)
 
-            # 50% center marker
-            center_y = bar_y + bar_h * 0.5
-            p.setPen(QPen(QColor(WHITE), 1, Qt.DashLine))
-            p.drawLine(QPointF(bar_x + 1, center_y),
-                       QPointF(bar_x + bar_w - 1, center_y))
+            # Divider dot at the split point
+            split_x = bar_x + front_w
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(WHITE))
+            p.drawEllipse(QPointF(split_x, bar_top + bar_h / 2), 4, 4)
 
-            # Split text — front % above center, rear % below
-            p.setFont(QFont("Helvetica", 7, QFont.Bold))
+            # Value text below bar
+            val_y = bar_top + bar_h + 3
+            p.setFont(QFont("Helvetica", 13, QFont.Bold))
             p.setPen(QPen(QColor(WHITE)))
-            rear_pct = 100.0 - self._front_pct
-            p.drawText(QRectF(0, center_y - 14, w, 12),
-                       Qt.AlignHCenter | Qt.AlignBottom, f"{self._front_pct:.0f}")
-            p.drawText(QRectF(0, center_y + 2, w, 12),
-                       Qt.AlignHCenter | Qt.AlignTop, f"{rear_pct:.0f}")
+            val_text = f"{self._front_pct:.0f} : {100 - self._front_pct:.0f}"
+            p.drawText(QRectF(0, val_y, w, 18),
+                       Qt.AlignHCenter | Qt.AlignTop, val_text)
+
+            # Lock % below
+            p.setFont(QFont("Helvetica", 7))
+            p.setPen(QPen(QColor(GRAY)))
+            p.drawText(QRectF(0, val_y + 17, w, 12),
+                       Qt.AlignHCenter | Qt.AlignTop,
+                       f"DCCD {self._lock_pct:.0f}%")
+
+        else:
+            val_y = bar_top + bar_h + 3
+            p.setFont(QFont("Helvetica", 13, QFont.Bold))
+            p.setPen(QPen(QColor(GRAY)))
+            p.drawText(QRectF(0, val_y, w, 18),
+                       Qt.AlignHCenter | Qt.AlignTop, "\u2014")
 
         p.end()
 
@@ -836,18 +918,21 @@ class DiffModeWidget(QWidget):
         sep.setStyleSheet(f"background-color: {CHROME_DARK};")
         mid.addWidget(sep)
 
-        # Right column: arc gauge + vertical split bar side by side
-        right_col = QHBoxLayout()
-        right_col.setContentsMargins(0, 0, 0, 0)
-        right_col.setSpacing(2)
+        # Right column: three horizontal bars stacked — front L-R, F:R split, rear L-R
+        right_stack = QVBoxLayout()
+        right_stack.setContentsMargins(0, 0, 0, 0)
+        right_stack.setSpacing(1)
 
-        self._arc_gauge = _LockArcGauge(self)
-        right_col.addWidget(self._arc_gauge, stretch=1)
+        self._front_gauge = _AxleBalanceBar(mode="front", max_delta=8.0, parent=self)
+        right_stack.addWidget(self._front_gauge, stretch=1)
 
         self._split_bar = _SplitBar(self)
-        right_col.addWidget(self._split_bar, stretch=0)
+        right_stack.addWidget(self._split_bar, stretch=1)
 
-        mid.addLayout(right_col, stretch=50)
+        self._rear_gauge = _AxleBalanceBar(mode="rear", max_delta=8.0, parent=self)
+        right_stack.addWidget(self._rear_gauge, stretch=1)
+
+        mid.addLayout(right_stack, stretch=50)
 
         root.addLayout(mid, stretch=70)
 
@@ -882,14 +967,25 @@ class DiffModeWidget(QWidget):
             state.gear, state.speed_kph,
         )
 
-        # Torque silhouette
+        # Torque silhouette — pass per-wheel speeds when available
+        ws_stale = state.is_wheel_stale(now, STALE_TIMEOUT_S)
+        wheel_speeds = (
+            None if ws_stale else {
+                "FL": state.wheel_speed_fl, "FR": state.wheel_speed_fr,
+                "RL": state.wheel_speed_rl, "RR": state.wheel_speed_rr,
+            }
+        )
         self._silhouette.set_state(
             state.dccd_command_pct, state.throttle_pct,
             state.slip_delta, diff_stale,
+            wheel_speeds=wheel_speeds,
         )
 
-        # Arc gauge
-        self._arc_gauge.set_state(state.dccd_command_pct, state.dccd_dial_pct, diff_stale)
+        # Axle L-R balance bars — signed: positive = right faster
+        rear_delta = state.wheel_speed_rr - state.wheel_speed_rl
+        front_delta = state.wheel_speed_fr - state.wheel_speed_fl
+        self._rear_gauge.set_state(rear_delta, ws_stale)
+        self._front_gauge.set_state(front_delta, ws_stale)
 
         # Split bar — front % = 41 + lock*0.09
         lock_frac = state.dccd_command_pct / 100.0

@@ -11,11 +11,16 @@ The decoder in kisti_can.py imports only from this module.
 # Arbitration IDs
 # ---------------------------------------------------------------------------
 
-DIFF_FRAME_ID: int = 0x6A0    # 50 Hz from Link ECU
-CONTEXT_FRAME_ID: int = 0x6A1  # 20 Hz from Link ECU
+DIFF_FRAME_ID: int = 0x6A0         # 50 Hz from Link ECU
+CONTEXT_FRAME_ID: int = 0x6A1      # 20 Hz from Link ECU
+WHEEL_SPEED_FRAME_ID: int = 0x6A2  # 50 Hz — individual wheel speeds
+DYNAMICS_FRAME_ID: int = 0x6A3     # 50 Hz — steering, yaw, lat-G, brake
 
 # Set of all IDs we care about (for CAN filter mask)
-KISTI_CAN_IDS: set[int] = {DIFF_FRAME_ID, CONTEXT_FRAME_ID}
+KISTI_CAN_IDS: set[int] = {
+    DIFF_FRAME_ID, CONTEXT_FRAME_ID,
+    WHEEL_SPEED_FRAME_ID, DYNAMICS_FRAME_ID,
+}
 
 # ---------------------------------------------------------------------------
 # CAN interface
@@ -77,6 +82,45 @@ CTX_THROTTLE_LEN: int = 2
 CTX_THROTTLE_SCALE: float = 0.1  # raw / 10
 
 # ---------------------------------------------------------------------------
+# 0x6A2 — WHEEL_SPEED frame layout (8 bytes)
+# ---------------------------------------------------------------------------
+# Link ECU forwards OEM ABS wheel speed data (OEM CAN ID 0xD4 / 212)
+# Re-encoded by Link into KiSTI publish bus format.
+#
+# Byte0-1: FL_speed_x100   uint16 BE   km/h × 100
+# Byte2-3: FR_speed_x100   uint16 BE   km/h × 100
+# Byte4-5: RL_speed_x100   uint16 BE   km/h × 100
+# Byte6-7: RR_speed_x100   uint16 BE   km/h × 100
+
+WS_FL_OFFSET: int = 0
+WS_FR_OFFSET: int = 2
+WS_RL_OFFSET: int = 4
+WS_RR_OFFSET: int = 6
+WS_SCALE: float = 0.01  # raw / 100 → km/h
+
+# ---------------------------------------------------------------------------
+# 0x6A3 — DYNAMICS frame layout (8 bytes)
+# ---------------------------------------------------------------------------
+# Link ECU forwards OEM VDC/steering sensor data.
+#
+# Byte0-1: Steering_angle_x10   int16 BE   degrees × 10 (negative = right)
+# Byte2-3: Yaw_rate_x100        int16 BE   deg/s × 100
+# Byte4-5: Lateral_G_x1000      int16 BE   g × 1000
+# Byte6-7: Brake_pressure_x10   uint16 BE  bar × 10
+
+DYN_STEER_OFFSET: int = 0
+DYN_STEER_SCALE: float = 0.1  # raw / 10 → degrees
+
+DYN_YAW_OFFSET: int = 2
+DYN_YAW_SCALE: float = 0.01  # raw / 100 → deg/s
+
+DYN_LATG_OFFSET: int = 4
+DYN_LATG_SCALE: float = 0.001  # raw / 1000 → g
+
+DYN_BRAKE_OFFSET: int = 6
+DYN_BRAKE_SCALE: float = 0.1  # raw / 10 → bar
+
+# ---------------------------------------------------------------------------
 # Staleness / timing
 # ---------------------------------------------------------------------------
 
@@ -91,3 +135,5 @@ UI_REFRESH_MS: int = 1000 // UI_REFRESH_HZ  # 50 ms
 MOCK_ENABLED: bool = True      # Use mock data when CAN bus unavailable
 MOCK_DIFF_HZ: int = 50        # Mock DIFF frame rate
 MOCK_CONTEXT_HZ: int = 20     # Mock CONTEXT frame rate
+MOCK_WHEEL_HZ: int = 50       # Mock wheel speed frame rate
+MOCK_DYNAMICS_HZ: int = 50    # Mock dynamics frame rate
