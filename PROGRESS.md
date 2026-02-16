@@ -1,89 +1,80 @@
-# KiSTI — Progress
+# KiSTI - Progress
 
-## Phase 1: Project Scaffolding + Data Layer — COMPLETE
-- [x] GitHub repo `ALDC-io/kisti` created
-- [x] Next.js 15 + TypeScript + Tailwind v4 scaffolded
-- [x] Data model: `types.ts`, `kistiGraph.ts` (10 nodes, 9 edges), `mockTelemetry.ts`
-- [x] Placeholder SVGs for STI schematic, Link logo, Jetson logo
-- [x] Custom color palette in `globals.css` via `@theme inline`
+## Session: 2026-02-10
 
-## Phase 2: Landing Page — Schematic Overlay — COMPLETE
-- [x] `KistiAthenaOverlay.tsx` — interactive SVG with node circles, edge lines, animated pulse
-- [x] `HeroSection.tsx` — title, subtitle, 2 CTAs
-- [x] Node selection with highlight/dim behavior
-- [x] Live telemetry values rendered on each node
+### Completed
+- Project structure created (~20 Python files)
+- Data layer: models.py (8 dataclasses), mock_generator.py (10Hz/1Hz)
+- UI theme: dark automotive palette (2014 STI inspired), QSS stylesheet
+- Status bar: mode, clock, GPS/LOG/NET indicators, Nvidia + Link ECU logos
+- Softkey bar: STREET/TRACK/AUDIO/LOG/SETTINGS (all modes switchable)
+- STREET mode: mock map, corner grid, oil gauge, sensor status, alerts, pit summary modal
+- TRACK mode: thermal quadrant + sparklines, track map, oil gauge + brake strip, sensor status, findings list, session widget
+- SETTINGS mode: corporate branding (KiSTI + Nvidia + Link ECU), system info, sensor connection status
+- Splash screen: 3-second boot screen with logos and branding
+- Main window: QStackedWidget mode switching, F11 fullscreen, CLI args
+- Branding utility: SVG/PNG logo loader with caching (ui/branding.py)
+- Oil pressure: PSI + temp + sparkline with color-coded thresholds
+- Front sensor suite: Teledyne IR, LiDAR, RGB, Weather camera status display
+- Corporate logos: Link ECU (SVG), Nvidia (PNG) in status bar, settings, splash
+- README with install/run/display instructions
 
-## Phase 3: Right Sidebar — Telemetry + Zeus Findings — COMPLETE
-- [x] `NodeSidebar.tsx` — slide-in panel with gradient header
-- [x] `TelemetryCard.tsx` — value display, status dot, SVG sparkline
-- [x] `ZeusFindingsCard.tsx` — severity badges, clickable related-node chips
-- [x] `CloudSyncIndicator.tsx` — ONLINE/QUEUED/OFFLINE with pending count
+### Architecture
+- `data/models.py`: VehicleState, CornerData, GPSData, OilPressureData, FrontSensorSuite, CameraStatus, SessionData, SystemState, KistiFinding
+- `data/mock_generator.py`: 10Hz temps/oil/sensors + 1Hz GPS/session/findings
+- `ui/branding.py`: Logo loader (Nvidia PNG + Link ECU SVG)
+- `ui/splash_screen.py`: 3s boot screen with corporate logos
+- `ui/settings_mode.py`: System info + sensor status + branding
+- `ui/widgets/oil_gauge.py`: Oil pressure gauge with sparkline
+- `ui/widgets/sensor_status.py`: Front camera array status
 
-## Phase 4: Secondary Pages + Navigation — COMPLETE
-- [x] `Nav.tsx` — fixed dark navbar, active link indicator, mobile hamburger
-- [x] `/tech` — system architecture, data pipeline stages, specs grid
-- [x] `/partners` — partner cards, contact CTA
-- [x] `/media` — placeholder media grid with Coming Soon
+### Session 2 Updates (2026-02-10, evening)
+- GT7-style tire indicators: Redesigned CornerCell from segmented bar graphs to rounded tire-shaped indicators with internal fill bars
+- GT7 color palette: Blue (cold) → Green (optimal) → Yellow (warm) → Red (overheating) temperature transitions
+- Tire wear system: Added tire_wear_pct to CornerData model, wear simulation in mock generator (degrades faster when hot)
+- Brake temp strip: Thin vertical bar beside each tire shape
+- Visual polish: Gradient fills, tread line overlays, glossy highlights, wear notch marks at 25/50/75%
+- Theme additions: TIRE_BLUE, TIRE_BLUE_DARK, TIRE_GREEN, TIRE_YELLOW, TIRE_RED
 
-## Phase 5: Polish + Performance — COMPLETE
-- [x] Accessibility: aria-labels, keyboard nav, role attributes
-- [x] Reduced-motion support via `prefers-reduced-motion` media query
-- [x] robots.txt
-- [x] OG metadata
+## Session: 2026-02-16
 
-## Phase 6: Deployment + DNS — COMPLETE
-- [x] Push to GitHub
-- [x] Connect Vercel (ALDC team, auto-deploy on push)
-- [x] Cloudflare A record → 76.76.21.21
-- [x] SSL provisioned via Let's Encrypt
-- [x] Smoke test: all 4 routes return 200 on kisti.analyticlabs.io
+### DIFF Mode — Center Differential Telemetry (MapDCCD 2014 STI)
 
-## Phase 7: Zeus Rebrand + Why KiSTI + Chat — COMPLETE (2026-02-10)
-- [x] Rebrand "Zeus Memory" → "Zeus" across 4 files
-- [x] `/why` page — Knight Industries STI origin, Ki (気) philosophy, ALDC + Boost Barn collab
-- [x] Nav: "Why KiSTI" link between Technology and Partners
-- [x] Zeus chat widget — FAB, 384×448 panel, 34 Q&A entries, keyword matcher
-- [x] KITT voice waveform — 3×14 mirrored horizontal segments, KiSTI logo red (#C80A33)
-- [x] KITT scan bar — red (#C80A33) bidirectional sweep (KITT-style)
-- [x] Typewriter effect — 25ms/char with blinking cursor
-- [x] KiSTI persona — first-person voice, Knight Industries STI identity, born 2014, upgraded 2026
-- [x] Boost Barn knowledge — shop details, builds portfolio, contact info, tuning platforms
-- [x] Favicon — replaced Vercel with KiSTI logo
-- [x] Vercel toolbar hidden
-- [x] Hero tagline — "just by asking it." on its own line
-- [x] Double-response bug fixed (useRef for callback, not useEffect dep)
-- [x] Brand voice audit — no negative competitor references ("work hard, be kind")
+Full DIFF tab build from detailed prompt. 7 files added/modified in one session.
 
-## Phase 8: Driver View — ZMID Spec Match (1ec8edc3) — COMPLETE (2026-02-10)
-- [x] KistiMode: expanded from 30 → 250 idle lines across 14 categories (personality, STI/Subaru, EJ257 jokes & build philosophy, Boost Barn, ALDC, FLIR thermal, track tips, tire/brake telemetry, engine/powertrain, Zeus Memory, motorsport trivia, weather/environment, philosophy/humor, data geek jokes)
-- [x] KistiMode: scrolling message log — newest at top, older messages fade, max 8 visible
-- [x] KistiMode: typewriter speed 35ms → 30ms
-- [x] KistiMode: cursor accent #E60000 → #C80A33 (brand red)
-- [x] KistiMode: removed redundant logo above waveform
-- [x] DriverSoftkeyBar: KiSTI logo height 14px → 28px
-- [x] DriverStatusBar: removed KiSTI logo and mode text, keep Link ECU logo only
-- [x] TrackMode: removed corner temp labels — pure visual heatmap
-- [x] TrackMode: cold tire color #0077DD → #50B4FF per ZMID spec
-- [x] ZeusScanBar: purple → red (#C80A33), left-to-right-only → bidirectional sweep (KITT-style)
-- [x] zeusResponses: added website refs (www.boostbarnmotorsports.com, www.aldc.io) to all 10 relevant Q&A entries
-- [x] Build: zero errors, 8 commits pushed
+### New Files
+- `model/vehicle_state.py`: `DiffState` dataclass (13 fields), `DiffStateBridge` (thread-safe QObject with `threading.Lock` + Qt `Signal`), `SurfaceState` IntEnum (DRY/WET/COLD/LOW_GRIP with label + color properties)
+- `can/can_config.py`: CAN bus constants — frame IDs (`0x6A0` DIFF @ 50Hz, `0x6A1` CONTEXT @ 20Hz), all byte offsets/scales/bitmasks, stale timeout (500ms), UI refresh (20Hz), mock rates, socketcan config (`can0`, 500kbps)
+- `can/kisti_can.py`: Pure decode functions (`decode_diff_frame`, `decode_context_frame`), encode helpers for testing, `CanListenerThread` (daemon thread, reads socketcan, updates bridge), `MockCanGenerator` (QTimer-based canyon driving sim), `create_can_source()` factory (auto-detects real CAN vs mock fallback)
+- `ui/diff_mode.py`: Full QPainter DIFF page — `_HeaderBar` (surface state word + CAN status dot), `_BigNumericPanel` (large LOCK% + smaller DIAL%), `_ContextPanel` (gear/speed/throttle/slip with color-coded slip magnitude), `_StatusPills` (BRAKE/H-BRAKE/ABS/VDC active-highlight pills), `DiffModeWidget` (20Hz refresh timer, MARK button → JSONL to `~/kisti/logs/`, 0.6s flash feedback)
+- `ui/widgets/diff_sparkline.py`: `DiffSparkline` — ring-buffer QPainter widget (200 samples @ 20Hz = 10s), filled area under curve with alpha, optional zero-line for signed signals, auto-expanding Y-axis
+- `tests/test_can_decode.py`: 18 pytest cases across 5 classes — DIFF decode (normal/N-A/negative slip/all flags/zero+full lock/surface fallback/short frame), CONTEXT decode (normal/neutral/high speed/short frame), round-trip encode→decode, DiffState staleness detection, SurfaceState enum validation
 
-### Files Modified
-- `src/components/driver/KistiMode.tsx` — 250 idle lines (14 categories), scrolling log, 30ms typewriter, #C80A33 cursor, removed logo
-- `src/lib/zeusResponses.ts` — website references added to Boost Barn and ALDC Q&A entries
-- `src/components/driver/DriverSoftkeyBar.tsx` — logo 28px
-- `src/components/driver/DriverStatusBar.tsx` — removed KiSTI logo + mode text
-- `src/components/driver/DriverDisplay.tsx` — removed mode prop from StatusBar
-- `src/components/driver/TrackMode.tsx` — removed corner labels, updated cold color to #50B4FF
-- `src/components/chat/ZeusScanBar.tsx` — red gradient, bidirectional animation
-- `src/app/globals.css` — kittScan keyframes: bounce back-and-forth, 2.4s cycle
+### Modified Files
+- `ui/main_window.py`: DIFF as stack index 3, `DiffStateBridge` creation, `create_can_source()` wired into splash/close lifecycle, CAN listener start/stop
+- `ui/softkey_bar.py`: Added DIFF between TRACK and VIDEO in `_BUTTONS` list
 
-### Learnings
-- **useEffect callback identity**: Putting callback props in useEffect deps causes re-fires on parent re-render. Use useRef to store callbacks, depend only on stable values (IDs).
-- **Brand voice**: Never reference competing products negatively. Describe what you ARE, not what you're not relative to others.
-- **Zeus API URL**: Use `zeus.aldc.io`, not `zeus-api.analyticlabs.io` (no DNS records).
-- **Persona layering**: Volunteer the identity ("Knight Industries STI"), but layer details like "subsidiary of Analytic Labs" behind direct questions only.
-- **Logo assumptions**: Always check actual image dimensions before applying CSS crops. The plan assumed 1536x1024 with 65% padding, but the real file was 1332x329 (already tight). Wasted a commit.
-- **KITT scan bar**: CSS `translateX(-100%)` to `translateX(300%)` is one-way only. For back-and-forth, add a 50% keyframe and double the duration.
-- **Spec vs reality**: When implementing from a spec (ZMID 1ec8edc3), always cross-check asset files before assuming the spec's description of those assets is accurate.
-- **Chat Q&A website refs**: Always include partner/company website URLs in chat responses for lead generation (Boost Barn → www.boostbarnmotorsports.com, ALDC → www.aldc.io).
+### Architecture Decisions
+- **Separate data pipeline**: DIFF tab reads from CAN bus (or mock) via `DiffStateBridge`, independent of existing `MockDataGenerator` — no coupling between telemetry sources
+- **Thread-safe bridge pattern**: CAN listener thread writes via lock-protected `update_diff()`/`update_context()`; UI reads via `snapshot()` copy at 20Hz QTimer — no per-frame UI updates
+- **Graceful degradation**: Auto-detects `python-can` + `can0` availability; falls back to `MockCanGenerator` with simulated canyon driving (random walk + sinusoidal DCCD, correlated throttle/speed/gear, occasional slip spikes)
+- **Editable CAN constants**: All arbitration IDs, byte offsets, scaling factors, flag bitmasks in single `can/can_config.py` — ready for real Link G4X CAN config
+
+### Prompt
+The DIFF tab was built from a detailed Claude Code prompt specifying:
+- MapDCCD center diff telemetry for 2014 STI
+- CAN message layout (0x6A0 DIFF, 0x6A1 CONTEXT) with byte-level spec
+- QPainter sparklines (10s rolling, 200 samples @ 20Hz)
+- MARK segment marker → JSONL logging
+- python-can socketcan listener with mock fallback
+- WVGA 800x480 layout optimized for in-motion readability
+
+### Next Steps
+- Finalize Link G4X CAN publish bus IDs (currently placeholder 0x6A0/0x6A1)
+- Real CAN testing on bench with Link ECU + MapDCCD
+- Teledyne IR camera feed integration
+- LiDAR point cloud visualization
+- Voice integration (KiSTI spoken insights)
+- LOG mode page (session recording/playback)
+- Touch optimization for Excelon capacitive screen
+- Performance profiling on Jetson GPU
