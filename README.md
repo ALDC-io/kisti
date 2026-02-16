@@ -1,35 +1,93 @@
-# KiSTI — Edge Telemetry Platform
+# KiSTI
 
-Interactive demo of ALDC's edge telemetry platform built on a 2014 Subaru STI. Sensor nodes connect via CAN bus to a Link ECU G4X, which feeds an NVIDIA Jetson Orin for edge inference and cloud sync.
+Visual telemetry prototype for ALDC motorsport. Targets Kenwood Excelon head unit (800x480 HDMI) running on Jetson Orin.
 
-**Live**: [kisti.analyticlabs.io](https://kisti.analyticlabs.io)
-
-## Stack
-
-- **Next.js 15** (App Router, TypeScript)
-- **Tailwind CSS v4**
-- **SVG overlay** with percentage-based coordinates
-- **Mock telemetry** engine with Gaussian random walk
-- **Vercel** deployment
-
-## Features
-
-- Interactive SVG schematic with 10 sensor/compute nodes
-- Real-time telemetry with 6-7Hz update rate
-- Brake FR vs FL asymmetry "story" (FR runs 15-40°F hotter)
-- Zeus Findings with severity badges and clickable related-node chips
-- Cloud sync status indicator (ONLINE/QUEUED/OFFLINE)
-- Responsive design (375px-1440px)
-- Keyboard accessible with reduced-motion support
-
-## Development
+## Install
 
 ```bash
-npm install
-npm run dev    # http://localhost:3000
-npm run build  # Production build
+pip install PySide6
+sudo apt-get install libxcb-cursor0   # Required for X11 display
 ```
 
-## Deployment
+If you don't have sudo, the library is already installed to `~/.local/lib/` and `run.sh` handles it automatically.
 
-See [DEPLOY.md](./DEPLOY.md) for Vercel + Cloudflare configuration.
+## Run
+
+```bash
+./run.sh                    # Recommended - handles all env setup
+./run.sh --fullscreen       # Fullscreen mode
+```
+
+Or manually:
+
+```bash
+export DISPLAY=:0
+export LD_LIBRARY_PATH=$HOME/.local/lib:$LD_LIBRARY_PATH
+python3 main.py
+```
+
+### Options
+
+```
+--fullscreen         Start in fullscreen mode
+--display :0         Specify X11 display
+--platform eglfs     Use eglfs platform (alternative to xcb)
+```
+
+### Keyboard
+
+- **F11** - Toggle fullscreen
+
+## Display Setup (Kenwood Excelon)
+
+```bash
+xrandr --output HDMI-0 --mode 800x480
+```
+
+## Modes
+
+- **KiSTI** - Home / overview
+- **STREET** - Map + corner temps + alerts + pit summary
+- **TRACK** - Thermal quadrant with sparklines + track map + brake strip + findings + session timing
+- **DIFF** - Center differential telemetry (MapDCCD 2014 STI): DCCD lock/dial %, surface state, slip delta, event flags, 10s sparklines, segment marker
+- **VIDEO** - Camera feeds
+- **LOG** - (Coming soon)
+- **SETTINGS** - System info, sensor status, corporate branding
+
+## Architecture
+
+- `data/` - Dataclasses and mock data generator (replace with CAN/IR/GPS for production)
+- `model/` - Thread-safe state models (`DiffState`, `DiffStateBridge`)
+- `can/` - CAN bus config, decoder, listener thread, mock generator
+- `ui/` - PySide6 widgets, dark automotive theme
+- `ui/widgets/` - Reusable QPainter custom widgets
+- All rendering is QPainter-based (no external map APIs)
+
+## CAN Bus (DIFF Mode)
+
+The DIFF tab reads Link ECU CAN data via python-can (socketcan). Falls back to mock data automatically.
+
+```bash
+pip install python-can    # Optional — mock mode works without it
+sudo ip link set can0 up type can bitrate 500000   # Real CAN setup
+```
+
+CAN message layout (editable in `can/can_config.py`):
+- `0x6A0` @ 50Hz: DCCD command/dial %, surface state, flags, slip delta
+- `0x6A1` @ 20Hz: Gear, speed, throttle %
+
+## Mock Data
+
+The `MockDataGenerator` produces:
+- 10Hz: tire temps (80-110C), brake temps (200-450C), GPS position
+- 1Hz: session time, lap counting (~90s laps), KiSTI findings refresh
+
+The `MockCanGenerator` (DIFF mode fallback) produces:
+- 50Hz: simulated canyon driving — DCCD lock/dial with sinusoidal base + noise, random slip spikes, correlated brake/ABS/VDC flags
+- 20Hz: throttle random walk, speed correlated to throttle, gear mapped from speed
+
+## Tests
+
+```bash
+cd /path/to/project && python3 -m pytest tests/ -v
+```
