@@ -80,9 +80,23 @@ class DiffState:
     speed_kph: float = 0.0
     throttle_pct: float = 0.0
 
+    # Individual wheel speeds (km/h) — from ABS sensors via Link
+    wheel_speed_fl: float = 0.0
+    wheel_speed_fr: float = 0.0
+    wheel_speed_rl: float = 0.0
+    wheel_speed_rr: float = 0.0
+
+    # Vehicle dynamics — from VDC module via Link
+    steering_angle: float = 0.0      # degrees (negative = right)
+    yaw_rate: float = 0.0            # deg/s
+    lateral_g: float = 0.0           # g
+    brake_pressure: float = 0.0      # bar
+
     # Staleness tracking (monotonic timestamps)
     diff_frame_ts: float = 0.0
     context_frame_ts: float = 0.0
+    wheel_frame_ts: float = 0.0
+    dynamics_frame_ts: float = 0.0
 
     # CAN bus connection status
     can_connected: bool = False
@@ -100,6 +114,20 @@ class DiffState:
             return True
         t = now if now is not None else time.monotonic()
         return (t - self.context_frame_ts) > timeout
+
+    def is_wheel_stale(self, now: Optional[float] = None, timeout: float = 0.5) -> bool:
+        """True if no WHEEL_SPEED frame received within timeout seconds."""
+        if self.wheel_frame_ts == 0.0:
+            return True
+        t = now if now is not None else time.monotonic()
+        return (t - self.wheel_frame_ts) > timeout
+
+    def is_dynamics_stale(self, now: Optional[float] = None, timeout: float = 0.5) -> bool:
+        """True if no DYNAMICS frame received within timeout seconds."""
+        if self.dynamics_frame_ts == 0.0:
+            return True
+        t = now if now is not None else time.monotonic()
+        return (t - self.dynamics_frame_ts) > timeout
 
     def is_any_stale(self, now: Optional[float] = None, timeout: float = 0.5) -> bool:
         return self.is_diff_stale(now, timeout) or self.is_context_stale(now, timeout)
@@ -165,6 +193,40 @@ class DiffStateBridge(QObject):
             self._state.speed_kph = speed_kph
             self._state.throttle_pct = throttle_pct
             self._state.context_frame_ts = time.monotonic()
+            self._state.can_connected = True
+        self.state_changed.emit()
+
+    def update_wheel_speeds(
+        self,
+        fl: float,
+        fr: float,
+        rl: float,
+        rr: float,
+    ) -> None:
+        """Called from CAN listener thread with decoded WHEEL_SPEED frame."""
+        with self._lock:
+            self._state.wheel_speed_fl = fl
+            self._state.wheel_speed_fr = fr
+            self._state.wheel_speed_rl = rl
+            self._state.wheel_speed_rr = rr
+            self._state.wheel_frame_ts = time.monotonic()
+            self._state.can_connected = True
+        self.state_changed.emit()
+
+    def update_dynamics(
+        self,
+        steering_angle: float,
+        yaw_rate: float,
+        lateral_g: float,
+        brake_pressure: float,
+    ) -> None:
+        """Called from CAN listener thread with decoded DYNAMICS frame."""
+        with self._lock:
+            self._state.steering_angle = steering_angle
+            self._state.yaw_rate = yaw_rate
+            self._state.lateral_g = lateral_g
+            self._state.brake_pressure = brake_pressure
+            self._state.dynamics_frame_ts = time.monotonic()
             self._state.can_connected = True
         self.state_changed.emit()
 

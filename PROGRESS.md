@@ -69,9 +69,62 @@ The DIFF tab was built from a detailed Claude Code prompt specifying:
 - python-can socketcan listener with mock fallback
 - WVGA 800x480 layout optimized for in-motion readability
 
+## Session: 2026-02-16 (continued)
+
+### DIFF Tab Visual Redesign — Driver-Intuitive Layout
+
+Replaced the text-heavy engineer view (big % numbers, text rows, text pills) with a visual layout readable at speed. Inspired by MoTeC, GT-R ATTESA MFD, and McLaren F1 telemetry UX.
+
+### Changes
+
+**`ui/diff_mode.py` — Full internal rewrite**
+- **Removed**: `_HeaderBar`, `_BigNumericPanel`, `_ContextPanel`, `_StatusPills`
+- **Added `_SlimStatusBar`** (24px): Surface dot+word, CAN status dot, gear (18pt bold), speed (13pt)
+- **Added `_TorqueSilhouette`**: Top-down STI body (QPainterPath from `sti_heatmap_widget.py`), per-wheel torque glow (CYAN based on throttle × lock fraction), per-wheel speed data with individual intensity, L-R differential visualization on rear axle for LSD lock state, slip warning: >2 km/h = YELLOW wheels, >5 = RED + 4Hz pulse
+- **Added `_AxleBalanceBar`** (x2, stacked): Horizontal L-R balance bars showing signed wheel speed delta. Rear axle: GREEN (matched/locked) → YELLOW → RED (slipping). Front axle: CYAN informational. Bar deflects left/right to show which wheel is faster. White indicator dot at tip. Center tick = zero reference
+- **Added `_SplitBar`**: Vertical bar (30px wide) showing F:R torque distribution via DCCD lock. GREEN (open, 41:59) → CYAN → BLUE (locked, 50:50). Exaggerated scale: 41-50% real range remapped to 15-85% visual range
+- **Added `_EventDots`**: 4 colored circles for BRK (RED), HB (YELLOW), ABS (CYAN), VDC (HIGHLIGHT) — replaces text pills
+- **Added `_BottomStrip`**: 3 compact sparklines (LOCK/SLIP/THR) + event dots + MARK button
+
+**`ui/widgets/diff_sparkline.py` — Minor**
+- Added `compact: bool = False` param: label_w=36 (was 48), minHeight=22 (was 28), 8pt font (was 9)
+
+**`can/can_config.py` — New CAN frames**
+- `0x6A2` WHEEL_SPEED (50Hz): FL/FR/RL/RR uint16 BE × 100 = km/h
+- `0x6A3` DYNAMICS (50Hz): steering_angle×10 (int16), yaw_rate×100 (int16), lateral_g×1000 (int16), brake_pressure×10 (uint16)
+- Added MOCK_WHEEL_HZ=50, MOCK_DYNAMICS_HZ=50
+
+**`model/vehicle_state.py` — Extended DiffState**
+- Added: wheel_speed_fl/fr/rl/rr, steering_angle, yaw_rate, lateral_g, brake_pressure
+- Added: wheel_frame_ts, dynamics_frame_ts staleness tracking
+- Added: `is_wheel_stale()`, `is_dynamics_stale()` methods
+- Added: `update_wheel_speeds()`, `update_dynamics()` bridge methods
+
+**`can/kisti_can.py` — New decoders + mock data**
+- `decode_wheel_speed_frame(data)`: 4× uint16 BE → km/h
+- `decode_dynamics_frame(data)`: steering, yaw, lat-G, brake pressure
+- CAN listener handles 0x6A2 and 0x6A3
+- Mock generator: `_ws_tick()` simulates per-wheel speeds with steering-based L-R differential + DCCD lock effect on rear LSD. `_dyn_tick()` simulates sinusoidal canyon steering, yaw, lateral G, brake pressure
+
+### Design Decisions
+1. **Car silhouette with per-wheel glow** replaces big numeric — driver sees WHERE power goes spatially
+2. **Horizontal L-R balance bars** (not arc gauges) — show both magnitude AND direction of wheel speed differential, like a lateral G meter
+3. **Rear bar**: GREEN center (locked) → RED extremes (slipping) — driver wants LSD locked
+4. **Front bar**: CYAN informational — open diff shows understeer/cornering behavior
+5. **Vertical split bar** for center diff (F:R) — no duplication with L-R bars
+6. **Color = information**: CYAN=torque flow, GREEN=matched/locked, YELLOW=mild slip, RED=hard slip
+7. **STI torque split**: 41F:59R (open) → 50:50 (locked) — visualized in split bar with exaggerated scale
+
+### Research: 2014 STI CAN Bus Sensors
+- **CAN ID 0xD4 (212)**: Individual wheel speeds FL/FR/RL/RR from ABS sensors (Hall effect + reluctor ring), formula X × 0.05625 = km/h
+- **Link G4X WRX11X** can receive: brake pressure, all 4 wheel speeds, handbrake, traction mode, diff mode, steering wheel position
+- **VDC module**: Steering angle, yaw rate, lateral G — all available on OEM CAN bus
+- Link ECU re-encodes onto KiSTI publish bus (0x6A2, 0x6A3)
+
 ### Next Steps
-- Finalize Link G4X CAN publish bus IDs (currently placeholder 0x6A0/0x6A1)
+- Finalize Link G4X CAN publish bus IDs (currently placeholder 0x6A0-0x6A3)
 - Real CAN testing on bench with Link ECU + MapDCCD
+- Vehicle dynamics visualization (steering angle, yaw rate, lat-G overlay)
 - Teledyne IR camera feed integration
 - LiDAR point cloud visualization
 - Voice integration (KiSTI spoken insights)
