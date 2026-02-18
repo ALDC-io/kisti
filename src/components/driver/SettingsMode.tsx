@@ -1,5 +1,7 @@
 "use client";
 
+import { useTTS } from "@/lib/useTTS";
+
 const HIGHLIGHT = "#E60000";
 const WHITE = "#FFFFFF";
 const SILVER = "#D0D0D0";
@@ -15,6 +17,8 @@ interface SettingsModeProps {
 }
 
 export default function SettingsMode({ gpsFixed, networkConnected }: SettingsModeProps) {
+  const { muted, toggleMute } = useTTS();
+
   return (
     <div className="flex h-full w-full gap-3 p-3" style={{ backgroundColor: "#0A0A0A" }}>
       {/* Left: Branding column */}
@@ -109,6 +113,22 @@ export default function SettingsMode({ gpsFixed, networkConnected }: SettingsMod
 
           <span style={{ color: GRAY }}>Temp</span>
           <span style={{ color: GREEN }}>● 62°C (Jetson SoC)</span>
+
+          <span style={{ color: GRAY }}>Voice</span>
+          <button
+            onClick={toggleMute}
+            className="cursor-pointer text-left"
+            style={{
+              color: muted ? RED : GREEN,
+              background: "none",
+              border: "none",
+              padding: 0,
+              font: "inherit",
+              fontSize: "inherit",
+            }}
+          >
+            {muted ? "● Muted" : "● Enabled"}
+          </button>
         </div>
 
         <div className="flex-1" />

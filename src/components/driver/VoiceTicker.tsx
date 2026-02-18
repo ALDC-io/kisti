@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { ZeusFinding } from "@/lib/types";
+import { useTTS } from "@/lib/useTTS";
 
 const KISTI_RED = "#E60000";
 const KISTI_RED_DIM = "#4A0000";
@@ -35,6 +36,7 @@ export default function VoiceTicker({ findings }: VoiceTickerProps) {
   const [charIndex, setCharIndex] = useState(0);
   const seenRef = useRef<Set<string>>(new Set());
   const cooldownRef = useRef(0);
+  const { speak } = useTTS();
 
   // Detect new findings and queue ticker lines
   useEffect(() => {
@@ -47,13 +49,14 @@ export default function VoiceTicker({ findings }: VoiceTickerProps) {
       cooldownRef.current = now;
 
       const text = formatFinding(f);
+      speak(text);
       setLines((prev) => {
         const next: TickerLine[] = [{ id: f.id, text, complete: false }, ...prev];
         return next.slice(0, MAX_VISIBLE + 2);
       });
       setCharIndex(0);
     }
-  }, [findings]);
+  }, [findings, speak]);
 
   // Typewriter effect on the newest incomplete line
   useEffect(() => {
