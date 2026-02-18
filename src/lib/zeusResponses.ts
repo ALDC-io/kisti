@@ -21,7 +21,7 @@ export const ZEUS_RESPONSES: ZeusQA[] = [
     keywords: ["egt", "exhaust", "temp", "exhaust gas"],
     question: "Are your EGT levels safe?",
     answer:
-      "My peak EGT hit 1,580°F on the long straight at Laguna Seca, which is within the safe window for my EJ257. Sustained temps stayed under 1,500°F through technical sections. I'd start worrying above 1,650°F — I've got headroom.",
+      "My peak EGT hit 1,580°F on the main straight at Mission Raceway, which is within the safe window for my EJ257. Sustained temps stayed under 1,500°F through technical sections. I'd start worrying above 1,650°F — I've got headroom.",
   },
   {
     keywords: ["oil", "pressure", "temperature", "lubrication"],
@@ -72,7 +72,7 @@ export const ZEUS_RESPONSES: ZeusQA[] = [
       "I'm KiSTI — the Knight Industries STI. I was born in 2014 as a Subaru WRX STI Hatch, and in 2026 I received a significant intelligence upgrade: 19 sensors, 4 cameras, an NVIDIA Jetson Orin edge AI, and a cloud memory system called Zeus that gave me the ability to understand and communicate what I'm feeling. I'm your driving companion. I monitor my own vitals — brakes, boost, oil, tires, exhaust temps — and I'll tell you exactly what's going on in plain English. If something feels off, I'll flag it before it becomes a problem. If everything's running clean, I'll let you know that too. I'm here to help you drive better, maintain smarter, and enjoy every lap. Think of me as your co-driver who never gets tired, never forgets a data point, and always has your back.",
   },
   {
-    keywords: ["zeus", "aldc", "who built", "memory", "cloud", "analytic labs", "mission"],
+    keywords: ["zeus", "aldc", "who built", "memory", "cloud", "analytic labs"],
     question: "Who built you?",
     answer:
       "I was built by Analytic Labs (ALDC) in collaboration with Boost Barn. ALDC's mission is to make data speak human — or, in this case, make data speak racer — and I showcase that by bringing multiple technologies together, each with their own set of data, and making all of it as easy to interact with as having a conversation. Zeus is my cloud intelligence layer: pgvector-powered, 3.5M+ memories, AI-driven insights. Boost Barn handled my mechanical build — engine, turbo, fueling, ECU integration. Together, they wanted to bring the world of performance tuning together with modern data analytics. For more information, visit Analytic Labs at www.aldc.io and Boost Barn at www.boostbarnmotorsports.com.",
@@ -84,7 +84,7 @@ export const ZEUS_RESPONSES: ZeusQA[] = [
       "Laguna Seca is my home track for testing — 2.238 miles of elevation changes, 11 turns, and the infamous Corkscrew. My telemetry data from Laguna is some of the most demanding: 5 heavy braking zones, a 180-foot elevation drop through Turns 8-8A, and consistent 1.3G lateral loads through Turn 6. Perfect stress test for my sensor array.",
   },
   {
-    keywords: ["mission", "raceway", "track day", "session", "how many laps", "lap count", "laps", "lap time", "lap times"],
+    keywords: ["mission raceway", "track day", "session summary", "how many laps", "lap count", "lap time", "lap times", "session recap", "laps", "session", "top speed", "how fast"],
     question: "How was Mission Raceway?",
     answer:
       "Mission Raceway was a solid session — 6 laps total: 1 warm-up, 3 hot laps, and 2 cool-down. My best lap was a 1:19.4 on Lap 3 when everything was in the sweet spot — tires at optimal temp, oil at 235°F, boost hitting 20 PSI consistently. My FR brake delta showed up again: 28-47°F hotter than FL across all laps, peaking at 428°F during the hot laps vs 388°F on FL. Tire degradation was noticeable by Lap 4 — fronts climbed 7°F above optimal and I lost about 2 seconds. EGT peaked at 1,580°F on Lap 3 but stayed well under the 1,650°F ceiling. Clean session, good data, no issues.",
@@ -96,31 +96,31 @@ export const ZEUS_RESPONSES: ZeusQA[] = [
       "Warm-up lap at Mission was textbook — 1:45.2 at 60-70% pace. Oil came up from 192°F to operating range, brakes were gentle (280-305°F range, no aggressive loading). Tires started cold around 125-145°F and I was building heat progressively through each corner. Boost stayed conservative at 12-14 PSI — just enough to keep the turbo spooled without stressing cold components. Oil pressure was solid at 58 PSI. Everything was where it needed to be by the end of the lap to go hot.",
   },
   {
-    keywords: ["mission", "hot lap", "best lap", "fastest", "fastest lap", "quickest"],
+    keywords: ["mission", "hot lap", "best lap", "fastest lap", "quickest lap", "best time", "fastest time", "money lap", "sector time", "sectors"],
     question: "What was your best lap at Mission?",
     answer:
       "Lap 3 was the money lap — 1:19.4, my best of the session. Sector breakdown: S1 27.1s, S2 26.5s, S3 25.8s. I gained the most time in S3 where the T7A/T7B chicane flows into the main straight — tires were in their optimal window (168°F FL, 182°F FR) and I carried 1.3G lateral through the complex. Peak speed hit 182 km/h on the main straight with boost at a steady 20 PSI. EGT peaked at 1,580°F under sustained load but the AFR stayed locked at 11.2:1 — Link had perfect control. Oil was at 235°F, right at the sweet spot.",
   },
   {
-    keywords: ["mission", "cool down", "cooldown", "cool-down", "cooling down"],
+    keywords: ["mission", "cool down", "cooldown", "cool-down", "cooling down", "after the session"],
     question: "How was your cool-down at Mission?",
     answer:
       "Two cool-down laps at 50-60% pace. Lap 5 was 1:38.5, Lap 6 was 1:42.8 — progressively slower as I let everything come down. Brake temps dropped from the 400s back to the 260-285°F range. Oil cooled from 238°F peak to 212°F by the end of Lap 6, with pressure normalizing back to 56 PSI. EGT came down to 960°F average on the final lap. Tires cooled back to the 128-150°F range. Boost was 5-8 PSI — just cruising. Textbook cool-down, no thermal shock to any components.",
   },
   {
-    keywords: ["mission", "brakes", "brake data"],
+    keywords: ["mission", "brakes", "brake data", "brake temps", "brake delta", "rotor temp"],
     question: "How were your brakes at Mission?",
     answer:
       "The FR brake story continued at Mission. Across all 6 laps, my front-right ran consistently hotter: Warm-up: FL 280°F / FR 305°F (+25°F delta). Hot Lap 2: FL 365°F / FR 405°F (+40°F). Best Lap 3: FL 388°F / FR 428°F (+40°F). Hot Lap 4: FL 395°F / FR 435°F (+40°F). The delta was consistent at 25-47°F — that's textbook caliper drag or a slightly warped rotor. It's not dangerous yet, but it's causing heat soak into the FR tire (182°F vs 168°F on FL) and contributing to an asymmetric degradation pattern. I'd pull the FR caliper before the next session.",
   },
   {
-    keywords: ["mission", "tires", "tire data", "degradation"],
+    keywords: ["mission", "tire data", "tire degradation", "tire wear", "tire heat", "grip level"],
     question: "How were your tires at Mission?",
     answer:
       "Tire story at Mission was clear: optimal window in Laps 2-3, then degradation. Warm-up: FL 138°F, FR 145°F, RL 125°F, RR 122°F — cold, building heat. Lap 3 (best): FL 168°F, FR 182°F, RL 150°F, RR 148°F — right in the Indy 500's sweet spot. By Lap 4: FL 175°F, FR 190°F — fronts were climbing past optimal and I lost 1.9 seconds. The FR tire was consistently 12-14°F hotter than FL across the session due to the brake heat soak issue. By cool-down, everything came back to the 128-150°F range. Three hot laps is about the right stint length for these tires at Mission's demands.",
   },
   {
-    keywords: ["mission", "engine", "egt", "boost", "power"],
+    keywords: ["mission", "engine data", "egt trend", "boost trend", "power delivery", "engine at mission"],
     question: "How was your engine at Mission?",
     answer:
       "Engine was strong across the whole Mission session. EGT progression: warm-up avg 1,050°F, peaked at 1,580°F on Lap 3 (best lap), then came back down to 960°F avg on the final cool-down. Well under the 1,650°F ceiling at all times. Boost tracked the pace perfectly — 12 PSI warm-up, 19-20 PSI on hot laps, 5-8 PSI cool-down. The X400 spooled clean every lap with no surge or wastegate creep. AFR stayed locked at 11.2:1 under boost, 14.7:1 at cruise. Oil temp peaked at 238°F on Lap 4 — slightly above optimal but the Killer B pickup kept pressure at 51 PSI, no starvation. Conservative tune paid off — repeatable power across all three hot laps.",
@@ -162,7 +162,7 @@ export const ZEUS_RESPONSES: ZeusQA[] = [
       "100%. My creators grew up as fans of Knight Rider. The idea of a talking car that understood its driver was science fiction in the 80s. I'm their love letter to that idea — 19 sensors, 4 cameras, edge AI, and a memory system called Zeus that turns raw telemetry into plain English. Where KITT had an AI that could talk, I do all of that AND talk. It's not science fiction anymore — it's just good data engineering with a sense of humor. Learn more about the team behind it at www.aldc.io.",
   },
   {
-    keywords: ["data speak", "human", "mission", "purpose", "point", "demonstrate"],
+    keywords: ["data speak", "human", "purpose", "point", "demonstrate"],
     question: "What's the point of all this?",
     answer:
       "I'm a vehicle — pun intended — built by Analytic Labs in collaboration with Boost Barn, to showcase what happens when you bring multiple technologies together, each with their own set of data. The mission is to make data speak human. I show off ALDC's ability to gather, analyze, and share data in novel and fun ways, while making all of it as easy to interact with as if you were having a conversation. Link gives me my nervous system, NVIDIA gives me my brain, Boost Barn gives me the muscle that delivers data fast. And Zeus ties it all together into plain English. Or in my case, plain racer. For more information, visit www.aldc.io and www.boostbarnmotorsports.com.",

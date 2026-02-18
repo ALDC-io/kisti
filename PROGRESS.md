@@ -121,6 +121,27 @@ Replaced the text-heavy engineer view (big % numbers, text rows, text pills) wit
 - **VDC module**: Steering angle, yaw rate, lateral G — all available on OEM CAN bus
 - Link ECU re-encodes onto KiSTI publish bus (0x6A2, 0x6A3)
 
+## Session: 2026-02-17
+
+### Mission Raceway Session Data — Full Link ECU Telemetry
+
+Added complete Mission Raceway track day session with 6 laps (1 warm-up, 3 hot, 2 cool-down) and full Link G4X ECU telemetry across 19 sensor channels.
+
+### New Files
+- `src/lib/missionRacewayCircuit.ts`: 24-point CCW circuit path (9 turns, 2.25 km), turn labels T1-T9, `getCircuitPosition()` interpolation
+- `src/lib/missionRacewaySession.ts`: Complete 6-lap session dataset with per-lap ECU data (brake temps, tire temps, EGT, boost, oil, AFR, sector times, G-forces)
+
+### Modified Files
+- `src/lib/driverTelemetry.ts`: Swapped to Mission Raceway circuit, GPS to 49.1325°N/-122.3025°W, elevation 30m, lap duration 82s
+- `src/lib/mockTelemetry.ts`: Session-phase-aware baselines (warm-up 0-105s, hot 105-350s, cool-down 350s+)
+- `src/lib/zeusResponses.ts`: 7 Mission Raceway Q&As + standalone keywords for lap/session queries + starter chip
+- `src/lib/kistiGraph.ts`: Brake FR description references Mission Raceway data
+- `src/components/driver/TrackMode.tsx`: Updated circuit import
+
+### Learnings
+- **Keyword matcher scoring**: Standalone queries ("how many laps") must win against competing entries ("how many" → sensor count = 8 pts). Always add short standalone keywords, not just compound phrases requiring topic prefix
+- **Module swap grep**: When replacing a shared module import, always grep `src/` for ALL importers — `driverTelemetry.ts` was updated but `TrackMode.tsx` was missed until build failed
+
 ### Next Steps
 - Finalize Link G4X CAN publish bus IDs (currently placeholder 0x6A0-0x6A3)
 - Real CAN testing on bench with Link ECU + MapDCCD
