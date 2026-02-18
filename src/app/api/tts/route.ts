@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const KISTI_VOICE_INSTRUCTIONS =
-  "You are KiSTI, an intelligent vehicle AI modeled after KITT from Knight Rider. " +
-  "Speak with the refined, measured cadence of a distinguished older gentleman — " +
-  "precise enunciation, slightly formal phrasing, calm authority, and dry wit. " +
-  "Think of a cultured, composed AI with perfect diction who is genuinely protective " +
-  "of the driver. Slightly clipped consonants, deliberate pacing, never rushed. " +
-  "Warm but professional. The kind of voice that says 'I wouldn't recommend that, Michael' " +
-  "with subtle concern. No accent — pure, articulate American English.";
+  "You are KiSTI, an intelligent vehicle AI. " +
+  "Speak with precise enunciation, calm authority, and dry wit. " +
+  "Cultured and composed with perfect diction. Protective of the driver. " +
+  "Brisk, efficient pacing — not slow, not rushed. Like a sharp motorsport engineer " +
+  "on the radio during a session. Clipped consonants, no filler words. " +
+  "Speak with a neutral international English accent, not American.";
 
 export async function POST(req: NextRequest) {
   const key = process.env.OPENAI_API_KEY;
@@ -32,7 +31,7 @@ export async function POST(req: NextRequest) {
       input: text,
       instructions: KISTI_VOICE_INSTRUCTIONS,
       response_format: "pcm",
-      speed: 0.95,
+      speed: 1.1,
     }),
   });
 
