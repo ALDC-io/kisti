@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const KISTI_VOICE_INSTRUCTIONS =
-  "You are KiSTI, a young female AI co-driver with a subtle Japanese accent. " +
-  "Speak clearly and confidently, like a motorsport engineer briefing a driver. " +
-  "Keep a calm, professional tone with slight warmth.";
+  "You are KiSTI, an intelligent vehicle AI modeled after KITT from Knight Rider. " +
+  "Speak with the refined, measured cadence of a distinguished older gentleman — " +
+  "precise enunciation, slightly formal phrasing, calm authority, and dry wit. " +
+  "Think of a cultured, composed AI with perfect diction who is genuinely protective " +
+  "of the driver. Slightly clipped consonants, deliberate pacing, never rushed. " +
+  "Warm but professional. The kind of voice that says 'I wouldn't recommend that, Michael' " +
+  "with subtle concern. No accent — pure, articulate American English.";
 
 export async function POST(req: NextRequest) {
   const key = process.env.OPENAI_API_KEY;
@@ -24,11 +28,11 @@ export async function POST(req: NextRequest) {
     },
     body: JSON.stringify({
       model: "gpt-4o-mini-tts",
-      voice: "nova",
+      voice: "ash",
       input: text,
       instructions: KISTI_VOICE_INSTRUCTIONS,
       response_format: "pcm",
-      speed: 1.05,
+      speed: 0.95,
     }),
   });
 
