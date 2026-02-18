@@ -19,6 +19,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid text" }, { status: 400 });
   }
 
+  // Expand abbreviations for natural speech
+  const spoken = text
+    .replace(/\bFL\b/g, "Front-Left")
+    .replace(/\bFR\b/g, "Front-Right")
+    .replace(/\bRL\b/g, "Rear-Left")
+    .replace(/\bRR\b/g, "Rear-Right")
+    .replace(/\bEGT\b/g, "E.G.T.")
+    .replace(/\bAFR\b/g, "air-fuel ratio")
+    .replace(/\bPSI\b/g, "P.S.I.")
+    .replace(/\bFMIC\b/g, "front-mount intercooler")
+    .replace(/\bDCCD\b/g, "D.C.C.D.")
+    .replace(/\bAWD\b/g, "all-wheel drive")
+    .replace(/\bWHP\b/g, "wheel horsepower")
+    .replace(/\bMAF\b/g, "mass airflow sensor")
+    .replace(/\bECU\b/g, "E.C.U.")
+    .replace(/\bCAN\b/g, "can")
+    .replace(/°F/g, " degrees Fahrenheit")
+    .replace(/°C/g, " degrees Celsius")
+    .replace(/km\/h/g, "kilometers per hour")
+    .replace(/\bkm\b/g, "kilometers");
+
   const res = await fetch("https://api.openai.com/v1/audio/speech", {
     method: "POST",
     headers: {
@@ -28,7 +49,7 @@ export async function POST(req: NextRequest) {
     body: JSON.stringify({
       model: "gpt-4o-mini-tts",
       voice: "ash",
-      input: text,
+      input: spoken,
       instructions: KISTI_VOICE_INSTRUCTIONS,
       response_format: "pcm",
       speed: 1.1,
