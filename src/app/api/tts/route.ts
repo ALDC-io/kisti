@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
+const KISTI_VOICE_INSTRUCTIONS =
+  "You are KiSTI, a young female AI co-driver with a subtle Japanese accent. " +
+  "Speak clearly and confidently, like a motorsport engineer briefing a driver. " +
+  "Keep a calm, professional tone with slight warmth.";
+
 export async function POST(req: NextRequest) {
   const key = process.env.OPENAI_API_KEY;
   if (!key) {
@@ -18,9 +23,10 @@ export async function POST(req: NextRequest) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "tts-1",
+      model: "gpt-4o-mini-tts",
       voice: "nova",
       input: text,
+      instructions: KISTI_VOICE_INSTRUCTIONS,
       response_format: "mp3",
       speed: 1.05,
     }),
@@ -34,11 +40,22 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const audio = await res.arrayBuffer();
-  return new NextResponse(audio, {
+  // Stream the response to reduce time-to-first-byte
+  if (!res.body) {
+    const audio = await res.arrayBuffer();
+    return new NextResponse(audio, {
+      headers: {
+        "Content-Type": "audio/mpeg",
+        "Cache-Control": "public, max-age=3600",
+      },
+    });
+  }
+
+  return new NextResponse(res.body as ReadableStream, {
     headers: {
       "Content-Type": "audio/mpeg",
       "Cache-Control": "public, max-age=3600",
+      "Transfer-Encoding": "chunked",
     },
   });
 }
