@@ -40,22 +40,11 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Stream the response to reduce time-to-first-byte
-  if (!res.body) {
-    const audio = await res.arrayBuffer();
-    return new NextResponse(audio, {
-      headers: {
-        "Content-Type": "audio/mpeg",
-        "Cache-Control": "public, max-age=3600",
-      },
-    });
-  }
-
-  return new NextResponse(res.body as ReadableStream, {
+  const audio = await res.arrayBuffer();
+  return new NextResponse(audio, {
     headers: {
       "Content-Type": "audio/mpeg",
       "Cache-Control": "public, max-age=3600",
-      "Transfer-Encoding": "chunked",
     },
   });
 }

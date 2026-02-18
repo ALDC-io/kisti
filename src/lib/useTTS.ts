@@ -19,11 +19,18 @@ function notify() {
   listeners.forEach((cb) => cb());
 }
 
-/** Currently playing audio element (for OpenAI TTS) */
+/** Currently playing audio element */
 let activeAudio: HTMLAudioElement | null = null;
 
-/** Whether the OpenAI API route is available (cached after first check) */
-let apiAvailable: boolean | null = null;
+function stopAll() {
+  if (activeAudio) {
+    activeAudio.pause();
+    activeAudio = null;
+  }
+  if ("speechSynthesis" in window) {
+    speechSynthesis.cancel();
+  }
+}
 
 async function speakViaAPI(text: string): Promise<boolean> {
   try {
@@ -32,11 +39,11 @@ async function speakViaAPI(text: string): Promise<boolean> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
     });
-    if (!res.ok) {
-      apiAvailable = false;
-      return false;
-    }
+    if (!res.ok) return false;
+
     const blob = await res.blob();
+    if (blob.size < 100) return false;
+
     const url = URL.createObjectURL(blob);
 
     if (activeAudio) {
@@ -44,18 +51,22 @@ async function speakViaAPI(text: string): Promise<boolean> {
       activeAudio = null;
     }
 
-    const audio = new Audio(url);
-    activeAudio = audio;
-    audio.volume = 0.85;
-    audio.onended = () => {
-      URL.revokeObjectURL(url);
-      activeAudio = null;
-    };
-    await audio.play();
-    apiAvailable = true;
-    return true;
+    return new Promise((resolve) => {
+      const audio = new Audio(url);
+      activeAudio = audio;
+      audio.volume = 0.85;
+      audio.onended = () => {
+        URL.revokeObjectURL(url);
+        activeAudio = null;
+      };
+      audio.onerror = () => {
+        URL.revokeObjectURL(url);
+        activeAudio = null;
+        resolve(false);
+      };
+      audio.play().then(() => resolve(true)).catch(() => resolve(false));
+    });
   } catch {
-    apiAvailable = false;
     return false;
   }
 }
@@ -70,18 +81,8 @@ function speakViaBrowser(text: string) {
   speechSynthesis.speak(utter);
 }
 
-function stopAll() {
-  if (activeAudio) {
-    activeAudio.pause();
-    activeAudio = null;
-  }
-  if ("speechSynthesis" in window) {
-    speechSynthesis.cancel();
-  }
-}
-
 export function useTTS() {
-  const lastSpoken = useRef("");
+  const speakingRef = useRef(false);
 
   const muted = useSyncExternalStore(subscribe, getMuted, () => false);
 
@@ -96,17 +97,17 @@ export function useTTS() {
     (text: string) => {
       if (muted) return;
       if (typeof window === "undefined") return;
-      if (text === lastSpoken.current) return;
-      lastSpoken.current = text;
-
-      // Try OpenAI API first, fall back to browser SpeechSynthesis
-      if (apiAvailable === false) {
-        speakViaBrowser(text);
-        return;
+      if (!text || text.length < 5) return;
+      if (speakingRef.current) {
+        stopAll();
       }
 
+      speakingRef.current = true;
+
+      // Always try API first, fall back to browser
       speakViaAPI(text).then((ok) => {
         if (!ok) speakViaBrowser(text);
+        speakingRef.current = false;
       });
     },
     [muted]
