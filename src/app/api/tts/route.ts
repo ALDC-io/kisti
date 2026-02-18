@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
       voice: "nova",
       input: text,
       instructions: KISTI_VOICE_INSTRUCTIONS,
-      response_format: "mp3",
+      response_format: "pcm",
       speed: 1.05,
     }),
   });
@@ -40,11 +40,11 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const audio = await res.arrayBuffer();
-  return new NextResponse(audio, {
+  // Stream raw PCM (24kHz, 16-bit, mono) to the client for immediate playback
+  return new NextResponse(res.body as ReadableStream, {
     headers: {
-      "Content-Type": "audio/mpeg",
-      "Cache-Control": "public, max-age=3600",
+      "Content-Type": "application/octet-stream",
+      "X-Audio-Format": "pcm-24000-16bit-mono",
     },
   });
 }

@@ -2,10 +2,9 @@
 
 import { useCallback, useRef, useSyncExternalStore } from "react";
 
-/** localStorage key for TTS mute preference */
 const MUTE_KEY = "kisti-tts-muted";
+const SAMPLE_RATE = 24000;
 
-/** Simple external store for mute state so all consumers stay in sync */
 const listeners = new Set<() => void>();
 function getMuted(): boolean {
   if (typeof window === "undefined") return false;
@@ -19,54 +18,93 @@ function notify() {
   listeners.forEach((cb) => cb());
 }
 
-/** Currently playing audio element */
-let activeAudio: HTMLAudioElement | null = null;
+let audioCtx: AudioContext | null = null;
+let scheduledEnd = 0;
+let abortController: AbortController | null = null;
+
+function getAudioCtx(): AudioContext {
+  if (!audioCtx) {
+    audioCtx = new AudioContext({ sampleRate: SAMPLE_RATE });
+  }
+  return audioCtx;
+}
 
 function stopAll() {
-  if (activeAudio) {
-    activeAudio.pause();
-    activeAudio = null;
+  if (abortController) {
+    abortController.abort();
+    abortController = null;
   }
+  if (audioCtx) {
+    audioCtx.close().catch(() => {});
+    audioCtx = null;
+  }
+  scheduledEnd = 0;
   if ("speechSynthesis" in window) {
     speechSynthesis.cancel();
   }
 }
 
+/**
+ * Stream PCM from /api/tts and play chunks in real-time via Web Audio API.
+ * PCM format: 24kHz, 16-bit signed LE, mono.
+ */
 async function speakViaAPI(text: string): Promise<boolean> {
   try {
+    abortController = new AbortController();
+
     const res = await fetch("/api/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
+      signal: abortController.signal,
     });
-    if (!res.ok) return false;
 
-    const blob = await res.blob();
-    if (blob.size < 100) return false;
+    if (!res.ok || !res.body) return false;
 
-    const url = URL.createObjectURL(blob);
+    const ctx = getAudioCtx();
+    if (ctx.state === "suspended") await ctx.resume();
+    scheduledEnd = ctx.currentTime;
 
-    if (activeAudio) {
-      activeAudio.pause();
-      activeAudio = null;
+    const reader = res.body.getReader();
+    let leftover = new Uint8Array(0);
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      // Combine leftover bytes from previous chunk with new data
+      const combined = new Uint8Array(leftover.length + value.length);
+      combined.set(leftover);
+      combined.set(value, leftover.length);
+
+      // PCM is 16-bit (2 bytes per sample) — ensure even byte count
+      const usableBytes = combined.length - (combined.length % 2);
+      leftover = combined.slice(usableBytes);
+
+      if (usableBytes === 0) continue;
+
+      const samples = usableBytes / 2;
+      const buffer = ctx.createBuffer(1, samples, SAMPLE_RATE);
+      const channel = buffer.getChannelData(0);
+      const view = new DataView(combined.buffer, combined.byteOffset, usableBytes);
+
+      for (let i = 0; i < samples; i++) {
+        // 16-bit signed LE → float [-1, 1]
+        channel[i] = view.getInt16(i * 2, true) / 32768;
+      }
+
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(ctx.destination);
+
+      const startTime = Math.max(ctx.currentTime, scheduledEnd);
+      source.start(startTime);
+      scheduledEnd = startTime + buffer.duration;
     }
 
-    return new Promise((resolve) => {
-      const audio = new Audio(url);
-      activeAudio = audio;
-      audio.volume = 0.85;
-      audio.onended = () => {
-        URL.revokeObjectURL(url);
-        activeAudio = null;
-      };
-      audio.onerror = () => {
-        URL.revokeObjectURL(url);
-        activeAudio = null;
-        resolve(false);
-      };
-      audio.play().then(() => resolve(true)).catch(() => resolve(false));
-    });
-  } catch {
+    return true;
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "AbortError") return false;
     return false;
   }
 }
@@ -98,13 +136,10 @@ export function useTTS() {
       if (muted) return;
       if (typeof window === "undefined") return;
       if (!text || text.length < 5) return;
-      if (speakingRef.current) {
-        stopAll();
-      }
 
+      if (speakingRef.current) stopAll();
       speakingRef.current = true;
 
-      // Always try API first, fall back to browser
       speakViaAPI(text).then((ok) => {
         if (!ok) speakViaBrowser(text);
         speakingRef.current = false;
