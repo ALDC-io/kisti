@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef } from "react";
 import { matchResponse } from "@/lib/zeusResponses";
+import { useTTS } from "@/lib/useTTS";
 
 export interface ChatMessage {
   id: string;
@@ -13,6 +14,7 @@ export function useZeusChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [processing, setProcessing] = useState(false);
   const lockedRef = useRef(false);
+  const { speak } = useTTS();
 
   const send = useCallback((text: string) => {
     if (lockedRef.current || !text.trim()) return;
@@ -38,6 +40,7 @@ export function useZeusChat() {
         text: answer,
       };
       setMessages((prev) => [...prev, zeusMsg]);
+      speak(answer);
       // Keep lockedRef true — unlock() is called when typewriter finishes
       // Safety: auto-unlock after max typewriter time + buffer
       const maxTypewriterMs = answer.length * 25 + 2000;
