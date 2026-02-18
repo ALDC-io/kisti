@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const KISTI_VOICE_INSTRUCTIONS =
-  "You are Kistee, an intelligent vehicle AI — a talking car like Kitt from Knight Rider. " +
+  "You are Kee S.T.I., an intelligent vehicle AI — a talking car like Kitt from Knight Rider. " +
   "Speak with precise enunciation, calm authority, and dry wit. " +
   "Cultured and composed with perfect diction. Protective of the driver. " +
   "Brisk, efficient pacing — not slow, not rushed. Like a sharp motorsport engineer " +
   "on the radio during a session. Clipped consonants, no filler words. " +
   "Pronounce 'Kitt' as a single syllable name (rhymes with 'sit'), never spell it out. " +
-  "Pronounce 'Kistee' as 'KIS-tee' (two syllables). " +
+  "Pronounce 'Kee S.T.I.' as Japanese 'kee' (like the word 'key') followed by the letters S-T-I. " +
   "Speak with a neutral international English accent, not American.";
 
 export async function POST(req: NextRequest) {
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
   // Expand abbreviations for natural speech
   const spoken = text
     .replace(/\bKITT\b/g, "Kitt")
-    .replace(/\bKiSTI\b/gi, "Kistee")
+    .replace(/\bKiSTI\b/gi, "Kee S.T.I.")
     .replace(/\bALDC\b/g, "A.L.D.C.")
     .replace(/\bFL\b/g, "Front-Left")
     .replace(/\bFR\b/g, "Front-Right")
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     .replace(/\bMAF\b/g, "mass airflow sensor")
     .replace(/\bECU\b/g, "E.C.U.")
     .replace(/\bCAN\b/g, "can")
-    .replace(/\bRWD\b/g, "rear-wheel drive")
+    .replace(/\bRWD\b/g, "rear wheel drive")
     .replace(/\bBC\b/g, "B.C.")
     .replace(/\bNVMe\b/g, "N.V.M.E.")
     .replace(/\bSTI\b/g, "S.T.I.")
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
     .replace(/\bBCP\b/g, "B.C.P.")
     .replace(/\bRPM\b/g, "R.P.M.")
     .replace(/\bGR\b/g, "G.R.")
-    .replace(/\bLiDAR\b/gi, "LyDAR")
+    .replace(/\bLiDAR\b/gi, "lidar")
     .replace(/°F/g, " degrees Fahrenheit")
     .replace(/°C/g, " degrees Celsius")
     .replace(/km\/h/g, "kilometers per hour")
