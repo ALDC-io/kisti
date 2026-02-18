@@ -84,6 +84,48 @@ export const ZEUS_RESPONSES: ZeusQA[] = [
       "Laguna Seca is my home track for testing — 2.238 miles of elevation changes, 11 turns, and the infamous Corkscrew. My telemetry data from Laguna is some of the most demanding: 5 heavy braking zones, a 180-foot elevation drop through Turns 8-8A, and consistent 1.3G lateral loads through Turn 6. Perfect stress test for my sensor array.",
   },
   {
+    keywords: ["mission", "raceway", "track day", "session"],
+    question: "How was Mission Raceway?",
+    answer:
+      "Mission Raceway was a solid session — 6 laps total: 1 warm-up, 3 hot laps, and 2 cool-down. My best lap was a 1:19.4 on Lap 3 when everything was in the sweet spot — tires at optimal temp, oil at 235°F, boost hitting 20 PSI consistently. My FR brake delta showed up again: 28-47°F hotter than FL across all laps, peaking at 428°F during the hot laps vs 388°F on FL. Tire degradation was noticeable by Lap 4 — fronts climbed 7°F above optimal and I lost about 2 seconds. EGT peaked at 1,580°F on Lap 3 but stayed well under the 1,650°F ceiling. Clean session, good data, no issues.",
+  },
+  {
+    keywords: ["mission", "warm up", "warmup", "warm-up"],
+    question: "How was your warm-up at Mission?",
+    answer:
+      "Warm-up lap at Mission was textbook — 1:45.2 at 60-70% pace. Oil came up from 192°F to operating range, brakes were gentle (280-305°F range, no aggressive loading). Tires started cold around 125-145°F and I was building heat progressively through each corner. Boost stayed conservative at 12-14 PSI — just enough to keep the turbo spooled without stressing cold components. Oil pressure was solid at 58 PSI. Everything was where it needed to be by the end of the lap to go hot.",
+  },
+  {
+    keywords: ["mission", "hot lap", "best lap", "fastest"],
+    question: "What was your best lap at Mission?",
+    answer:
+      "Lap 3 was the money lap — 1:19.4, my best of the session. Sector breakdown: S1 27.1s, S2 26.5s, S3 25.8s. I gained the most time in S3 where the T7A/T7B chicane flows into the main straight — tires were in their optimal window (168°F FL, 182°F FR) and I carried 1.3G lateral through the complex. Peak speed hit 182 km/h on the main straight with boost at a steady 20 PSI. EGT peaked at 1,580°F under sustained load but the AFR stayed locked at 11.2:1 — Link had perfect control. Oil was at 235°F, right at the sweet spot.",
+  },
+  {
+    keywords: ["mission", "cool down", "cooldown"],
+    question: "How was your cool-down at Mission?",
+    answer:
+      "Two cool-down laps at 50-60% pace. Lap 5 was 1:38.5, Lap 6 was 1:42.8 — progressively slower as I let everything come down. Brake temps dropped from the 400s back to the 260-285°F range. Oil cooled from 238°F peak to 212°F by the end of Lap 6, with pressure normalizing back to 56 PSI. EGT came down to 960°F average on the final lap. Tires cooled back to the 128-150°F range. Boost was 5-8 PSI — just cruising. Textbook cool-down, no thermal shock to any components.",
+  },
+  {
+    keywords: ["mission", "brakes", "brake data"],
+    question: "How were your brakes at Mission?",
+    answer:
+      "The FR brake story continued at Mission. Across all 6 laps, my front-right ran consistently hotter: Warm-up: FL 280°F / FR 305°F (+25°F delta). Hot Lap 2: FL 365°F / FR 405°F (+40°F). Best Lap 3: FL 388°F / FR 428°F (+40°F). Hot Lap 4: FL 395°F / FR 435°F (+40°F). The delta was consistent at 25-47°F — that's textbook caliper drag or a slightly warped rotor. It's not dangerous yet, but it's causing heat soak into the FR tire (182°F vs 168°F on FL) and contributing to an asymmetric degradation pattern. I'd pull the FR caliper before the next session.",
+  },
+  {
+    keywords: ["mission", "tires", "tire data", "degradation"],
+    question: "How were your tires at Mission?",
+    answer:
+      "Tire story at Mission was clear: optimal window in Laps 2-3, then degradation. Warm-up: FL 138°F, FR 145°F, RL 125°F, RR 122°F — cold, building heat. Lap 3 (best): FL 168°F, FR 182°F, RL 150°F, RR 148°F — right in the Indy 500's sweet spot. By Lap 4: FL 175°F, FR 190°F — fronts were climbing past optimal and I lost 1.9 seconds. The FR tire was consistently 12-14°F hotter than FL across the session due to the brake heat soak issue. By cool-down, everything came back to the 128-150°F range. Three hot laps is about the right stint length for these tires at Mission's demands.",
+  },
+  {
+    keywords: ["mission", "engine", "egt", "boost", "power"],
+    question: "How was your engine at Mission?",
+    answer:
+      "Engine was strong across the whole Mission session. EGT progression: warm-up avg 1,050°F, peaked at 1,580°F on Lap 3 (best lap), then came back down to 960°F avg on the final cool-down. Well under the 1,650°F ceiling at all times. Boost tracked the pace perfectly — 12 PSI warm-up, 19-20 PSI on hot laps, 5-8 PSI cool-down. The X400 spooled clean every lap with no surge or wastegate creep. AFR stayed locked at 11.2:1 under boost, 14.7:1 at cruise. Oil temp peaked at 238°F on Lap 4 — slightly above optimal but the Killer B pickup kept pressure at 51 PSI, no starvation. Conservative tune paid off — repeatable power across all three hot laps.",
+  },
+  {
     keywords: ["weather", "rain", "conditions", "ambient"],
     question: "Do you monitor weather?",
     answer:
@@ -214,8 +256,8 @@ export const ZEUS_RESPONSES: ZeusQA[] = [
 export const STARTER_CHIPS = [
   "How much power do you make?",
   "Who are you?",
+  "How was Mission Raceway?",
   "How are your brakes feeling?",
-  "What does your name mean?",
 ];
 
 const FALLBACK_RESPONSE =

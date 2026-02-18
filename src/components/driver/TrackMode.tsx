@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useCallback } from "react";
 import { CornerTelemetry, DriverDisplayState, gt7TireColor } from "@/lib/driverTelemetry";
-import { CIRCUIT, TURNS, getCircuitPosition } from "@/lib/lagunaSecaCircuit";
+import { CIRCUIT, TURNS, getCircuitPosition } from "@/lib/missionRacewayCircuit";
 import VoiceTicker from "./VoiceTicker";
 
 const BG_DARK = "#0A0A0A";

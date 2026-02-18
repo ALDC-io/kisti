@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useTelemetryStream } from "./mockTelemetry";
 import { TelemetryStream, ZeusFinding, CloudSync } from "./types";
-import { getCircuitPosition, CircuitPoint } from "./lagunaSecaCircuit";
+import { getCircuitPosition, CircuitPoint } from "./missionRacewayCircuit";
 
 // --- Types ---
 
@@ -97,7 +97,7 @@ function getStatusFromC(tempC: number, warnC: number, hotC: number): "ok" | "war
 
 // --- Hook ---
 
-const LAP_DURATION_S = 92;
+const LAP_DURATION_S = 82;
 const CIRCUIT_SPEED = 1 / (LAP_DURATION_S * (1000 / 150)); // per tick at 150ms
 
 export function useDriverTelemetry(): DriverDisplayState {
@@ -117,12 +117,12 @@ export function useDriverTelemetry(): DriverDisplayState {
     lapTimes: [],
   });
   const [gps, setGps] = useState<GPSPosition>({
-    lat: 36.5725,
-    lon: -121.9486,
+    lat: 49.1325,
+    lon: -122.3025,
     speedKph: 0,
     heading: 0,
     circuitProgress: 0,
-    position: { x: 0.85, y: 0.75 },
+    position: { x: 0.82, y: 0.60 },
   });
 
   const sessionRef = useRef(session);
@@ -139,8 +139,8 @@ export function useDriverTelemetry(): DriverDisplayState {
       const speed = speedBase + (Math.random() - 0.5) * 10;
 
       setGps({
-        lat: 36.5725 + (pos.y - 0.5) * 0.005,
-        lon: -121.9486 + (pos.x - 0.5) * 0.005,
+        lat: 49.1325 + (pos.y - 0.5) * 0.005,
+        lon: -122.3025 + (pos.x - 0.5) * 0.005,
         speedKph: Math.max(40, speed),
         heading: Math.atan2(pos.y - 0.5, pos.x - 0.5) * (180 / Math.PI),
         circuitProgress: progressRef.current,
@@ -218,10 +218,10 @@ export function useDriverTelemetry(): DriverDisplayState {
   const weather: WeatherData = {
     tempC: 8 + Math.sin(Date.now() / 60000) * 0.5,
     windDir: "NW",
-    windKph: 15 + Math.sin(Date.now() / 30000) * 3,
+    windKph: 12 + Math.sin(Date.now() / 30000) * 3,
     humidity: 72 + Math.sin(Date.now() / 45000) * 5,
     condition: "Overcast",
-    elevation: 1147,
+    elevation: 30,
   };
 
   const cameras: CameraInfo[] = [

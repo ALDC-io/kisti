@@ -31,7 +31,7 @@ export const NODES: NodeDef[] = [
     max: 800,
     warnThreshold: 450,
     hotThreshold: 600,
-    description: "Front-right brake rotor temperature — running hotter than FL",
+    description: "Front-right brake rotor temperature — running 28-40°F hotter than FL across Mission Raceway session",
   },
   {
     id: "brake-rl",

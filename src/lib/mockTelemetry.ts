@@ -13,21 +13,28 @@ import { NODES } from "./kistiGraph";
 
 const HISTORY_LENGTH = 30;
 
-/** Baseline values for each sensor's random walk */
-const BASELINES: Record<string, number> = {
-  "brake-fl": 380,
-  "brake-fr": 420, // +40°F bias — the "story"
-  "brake-rl": 280,
-  "brake-rr": 275,
-  "tire-fl": 165,
-  "tire-fr": 178, // Hotter from brake heat soak
-  "tire-rl": 148,
-  "tire-rr": 145,
-  egt: 1350,
-  boost: 18,
-  "oil-temp": 215,
-  "oil-pressure": 55,
-  wideband: 14.2,
+/**
+ * Session-phase baselines for Mission Raceway simulation.
+ * Warm-up (~0-105s): 60-70% pace, building temps
+ * Hot laps (~105-350s): full pace, peak telemetry
+ * Cool-down (~350s+): 50-60% pace, temps dropping
+ */
+type PhaseBaselines = Record<string, number>;
+
+const WARM_UP_BASELINES: PhaseBaselines = {
+  "brake-fl": 280,
+  "brake-fr": 305,
+  "brake-rl": 210,
+  "brake-rr": 205,
+  "tire-fl": 138,
+  "tire-fr": 145,
+  "tire-rl": 125,
+  "tire-rr": 122,
+  egt: 1050,
+  boost: 12,
+  "oil-temp": 192,
+  "oil-pressure": 58,
+  wideband: 14.5,
   "teledyne-ir": 30,
   lidar: 20,
   "rgb-cam": 60,
@@ -35,6 +42,65 @@ const BASELINES: Record<string, number> = {
   ecu: 45,
   jetson: 62,
 };
+
+const HOT_LAP_BASELINES: PhaseBaselines = {
+  "brake-fl": 388,
+  "brake-fr": 428, // +40°F bias — the "story"
+  "brake-rl": 275,
+  "brake-rr": 270,
+  "tire-fl": 168,
+  "tire-fr": 182, // Hotter from brake heat soak
+  "tire-rl": 150,
+  "tire-rr": 148,
+  egt: 1420,
+  boost: 19,
+  "oil-temp": 235,
+  "oil-pressure": 52,
+  wideband: 14.0,
+  "teledyne-ir": 30,
+  lidar: 20,
+  "rgb-cam": 60,
+  "weather-cam": 15,
+  ecu: 45,
+  jetson: 62,
+};
+
+const COOL_DOWN_BASELINES: PhaseBaselines = {
+  "brake-fl": 285,
+  "brake-fr": 312,
+  "brake-rl": 222,
+  "brake-rr": 218,
+  "tire-fl": 148,
+  "tire-fr": 157,
+  "tire-rl": 135,
+  "tire-rr": 132,
+  egt: 1020,
+  boost: 9,
+  "oil-temp": 218,
+  "oil-pressure": 55,
+  wideband: 14.6,
+  "teledyne-ir": 30,
+  lidar: 20,
+  "rgb-cam": 60,
+  "weather-cam": 15,
+  ecu: 45,
+  jetson: 62,
+};
+
+/** Session start timestamp — set on first tick */
+let sessionStartMs: number | null = null;
+
+/** Get session-phase-aware baselines based on elapsed time */
+function getPhaseBaselines(): PhaseBaselines {
+  if (sessionStartMs === null) {
+    sessionStartMs = Date.now();
+    return WARM_UP_BASELINES;
+  }
+  const elapsedS = (Date.now() - sessionStartMs) / 1000;
+  if (elapsedS < 105) return WARM_UP_BASELINES;   // Warm-up lap
+  if (elapsedS < 350) return HOT_LAP_BASELINES;    // 3 hot laps
+  return COOL_DOWN_BASELINES;                        // Cool-down laps
+}
 
 /** Noise magnitude per sensor */
 const NOISE: Record<string, number> = {
@@ -90,7 +156,8 @@ function generatePoint(
   const node = NODES.find((n) => n.id === nodeId);
   if (!node) return { value: 0, timestamp: Date.now(), status: "ok" };
 
-  const baseline = BASELINES[nodeId] ?? (node.min + node.max) / 2;
+  const baselines = getPhaseBaselines();
+  const baseline = baselines[nodeId] ?? (node.min + node.max) / 2;
   const noise = NOISE[nodeId] ?? 5;
 
   let value: number;
@@ -107,19 +174,19 @@ function generatePoint(
 
   // Brake FR: add extra bias to ensure it's consistently hotter
   if (nodeId === "brake-fr") {
-    const flBaseline = BASELINES["brake-fl"];
+    const flBase = baselines["brake-fl"];
     const minDelta = 15;
-    if (value < flBaseline + minDelta) {
-      value = flBaseline + minDelta + Math.random() * 25;
+    if (value < flBase + minDelta) {
+      value = flBase + minDelta + Math.random() * 25;
     }
   }
 
   // Tire FR: heat soak from hot FR brake
   if (nodeId === "tire-fr") {
-    const flBaseline = BASELINES["tire-fl"];
+    const flBase = baselines["tire-fl"];
     const minDelta = 10;
-    if (value < flBaseline + minDelta) {
-      value = flBaseline + minDelta + Math.random() * 5;
+    if (value < flBase + minDelta) {
+      value = flBase + minDelta + Math.random() * 5;
     }
   }
 
