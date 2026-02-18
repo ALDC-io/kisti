@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const KISTI_VOICE_INSTRUCTIONS =
-  "You are KiSTI, an intelligent vehicle AI. " +
+  "You are Kistee, an intelligent vehicle AI — a talking car like Kitt from Knight Rider. " +
   "Speak with precise enunciation, calm authority, and dry wit. " +
   "Cultured and composed with perfect diction. Protective of the driver. " +
   "Brisk, efficient pacing — not slow, not rushed. Like a sharp motorsport engineer " +
   "on the radio during a session. Clipped consonants, no filler words. " +
+  "Pronounce 'Kitt' as a single syllable name (rhymes with 'sit'), never spell it out. " +
+  "Pronounce 'Kistee' as 'KIS-tee' (two syllables). " +
   "Speak with a neutral international English accent, not American.";
 
 export async function POST(req: NextRequest) {
@@ -21,6 +23,9 @@ export async function POST(req: NextRequest) {
 
   // Expand abbreviations for natural speech
   const spoken = text
+    .replace(/\bKITT\b/g, "Kitt")
+    .replace(/\bKiSTI\b/gi, "Kistee")
+    .replace(/\bALDC\b/g, "A.L.D.C.")
     .replace(/\bFL\b/g, "Front-Left")
     .replace(/\bFR\b/g, "Front-Right")
     .replace(/\bRL\b/g, "Rear-Left")
@@ -35,10 +40,21 @@ export async function POST(req: NextRequest) {
     .replace(/\bMAF\b/g, "mass airflow sensor")
     .replace(/\bECU\b/g, "E.C.U.")
     .replace(/\bCAN\b/g, "can")
+    .replace(/\bRWD\b/g, "rear-wheel drive")
+    .replace(/\bBC\b/g, "B.C.")
+    .replace(/\bNVMe\b/g, "N.V.M.E.")
+    .replace(/\bSTI\b/g, "S.T.I.")
+    .replace(/\bIAG\b/g, "I.A.G.")
+    .replace(/\bBCP\b/g, "B.C.P.")
+    .replace(/\bRPM\b/g, "R.P.M.")
+    .replace(/\bGR\b/g, "G.R.")
+    .replace(/\bLiDAR\b/gi, "LyDAR")
     .replace(/°F/g, " degrees Fahrenheit")
     .replace(/°C/g, " degrees Celsius")
     .replace(/km\/h/g, "kilometers per hour")
-    .replace(/\bkm\b/g, "kilometers");
+    .replace(/\bkm\b/g, "kilometers")
+    .replace(/\bO₂\b/g, "O-2")
+    .replace(/\bKbps\b/g, "kilobits per second");
 
   const res = await fetch("https://api.openai.com/v1/audio/speech", {
     method: "POST",
