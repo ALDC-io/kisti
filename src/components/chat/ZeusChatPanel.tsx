@@ -6,6 +6,7 @@ import ZeusChatMessage from "./ZeusChatMessage";
 import ZeusScanBar from "./ZeusScanBar";
 import ZeusVoiceWave from "./ZeusVoiceWave";
 import { STARTER_CHIPS } from "@/lib/zeusResponses";
+import { useVoiceInput } from "@/lib/useVoiceInput";
 
 interface ZeusChatPanelProps {
   messages: ChatMessage[];
@@ -26,6 +27,14 @@ export default function ZeusChatPanel({
   const [speaking, setSpeaking] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleTranscript = useCallback((text: string) => {
+    if (text.trim() && !processing) {
+      onSend(text.trim());
+    }
+  }, [onSend, processing]);
+
+  const { recording, toggle: toggleMic } = useVoiceInput(handleTranscript);
 
   const handleSpeaking = useCallback((active: boolean) => {
     setSpeaking(active);
@@ -143,6 +152,22 @@ export default function ZeusChatPanel({
           disabled={processing}
           className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground placeholder-foreground/30 outline-none transition-colors focus:border-kisti-accent/40"
         />
+        <button
+          type="button"
+          onClick={toggleMic}
+          disabled={processing}
+          className={`rounded-lg px-3 py-2 text-sm transition-colors ${
+            recording
+              ? "animate-pulse bg-red-600 text-white"
+              : "bg-white/5 text-foreground/60 hover:bg-white/10 hover:text-foreground disabled:opacity-40"
+          }`}
+          aria-label={recording ? "Stop recording" : "Voice input"}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 1a2 2 0 00-2 2v5a2 2 0 004 0V3a2 2 0 00-2-2z" />
+            <path d="M4.5 7a.5.5 0 00-1 0A4.5 4.5 0 007.5 11.45v1.55h-2a.5.5 0 000 1h5a.5.5 0 000-1h-2v-1.55A4.5 4.5 0 0012.5 7a.5.5 0 00-1 0 3.5 3.5 0 01-7 0z" />
+          </svg>
+        </button>
         <button
           type="submit"
           disabled={processing || !input.trim()}
