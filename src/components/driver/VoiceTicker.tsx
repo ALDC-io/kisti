@@ -7,7 +7,6 @@ import { useTTS } from "@/lib/useTTS";
 const KISTI_RED = "#E60000";
 const KISTI_RED_DIM = "#4A0000";
 const TYPE_INTERVAL_MS = 30;
-const COOLDOWN_MS = 4000;
 const MAX_VISIBLE = 3;
 
 interface TickerLine {
@@ -35,8 +34,7 @@ export default function VoiceTicker({ findings }: VoiceTickerProps) {
   const [lines, setLines] = useState<TickerLine[]>([]);
   const [charIndex, setCharIndex] = useState(0);
   const seenRef = useRef<Set<string>>(new Set());
-  const cooldownRef = useRef(0);
-  const { speak } = useTTS();
+  const { enqueue } = useTTS();
 
   // Detect new findings and queue ticker lines
   useEffect(() => {
@@ -44,19 +42,15 @@ export default function VoiceTicker({ findings }: VoiceTickerProps) {
       if (seenRef.current.has(f.id)) continue;
       seenRef.current.add(f.id);
 
-      const now = Date.now();
-      if (now - cooldownRef.current < COOLDOWN_MS) continue;
-      cooldownRef.current = now;
-
       const text = formatFinding(f);
-      speak(text);
+      enqueue(text);
       setLines((prev) => {
         const next: TickerLine[] = [{ id: f.id, text, complete: false }, ...prev];
         return next.slice(0, MAX_VISIBLE + 2);
       });
       setCharIndex(0);
     }
-  }, [findings, speak]);
+  }, [findings, enqueue]);
 
   // Typewriter effect on the newest incomplete line
   useEffect(() => {

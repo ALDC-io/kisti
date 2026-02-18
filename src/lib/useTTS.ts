@@ -39,6 +39,8 @@ function stopAll() {
     audioCtx = null;
   }
   scheduledEnd = 0;
+  speechQueue.length = 0;
+  processing = false;
   if ("speechSynthesis" in window) {
     speechSynthesis.cancel();
   }
@@ -102,6 +104,12 @@ async function speakViaAPI(text: string): Promise<boolean> {
       scheduledEnd = startTime + buffer.duration;
     }
 
+    // Wait for all scheduled audio to finish playing
+    const remaining = scheduledEnd - getAudioCtx().currentTime;
+    if (remaining > 0) {
+      await new Promise((r) => setTimeout(r, remaining * 1000));
+    }
+
     return true;
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") return false;
@@ -109,14 +117,39 @@ async function speakViaAPI(text: string): Promise<boolean> {
   }
 }
 
-function speakViaBrowser(text: string) {
-  if (!("speechSynthesis" in window)) return;
-  speechSynthesis.cancel();
-  const utter = new SpeechSynthesisUtterance(text);
-  utter.rate = 1.05;
-  utter.pitch = 0.9;
-  utter.volume = 0.8;
-  speechSynthesis.speak(utter);
+function speakViaBrowser(text: string): Promise<void> {
+  return new Promise((resolve) => {
+    if (!("speechSynthesis" in window)) { resolve(); return; }
+    speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.rate = 1.05;
+    utter.pitch = 0.9;
+    utter.volume = 0.8;
+    utter.onend = () => resolve();
+    utter.onerror = () => resolve();
+    speechSynthesis.speak(utter);
+  });
+}
+
+// --- Speech queue: process items sequentially ---
+const speechQueue: string[] = [];
+let processing = false;
+
+async function processQueue() {
+  if (processing) return;
+  processing = true;
+
+  while (speechQueue.length > 0) {
+    if (getMuted()) {
+      speechQueue.length = 0;
+      break;
+    }
+    const text = speechQueue.shift()!;
+    const ok = await speakViaAPI(text);
+    if (!ok) await speakViaBrowser(text);
+  }
+
+  processing = false;
 }
 
 export function useTTS() {
@@ -137,6 +170,7 @@ export function useTTS() {
       if (typeof window === "undefined") return;
       if (!text || text.length < 5) return;
 
+      // Chat responses interrupt the queue and speak immediately
       if (speakingRef.current) stopAll();
       speakingRef.current = true;
 
@@ -148,5 +182,18 @@ export function useTTS() {
     [muted]
   );
 
-  return { speak, muted, toggleMute };
+  /** Queue text to be spoken sequentially — does not interrupt current speech */
+  const enqueue = useCallback(
+    (text: string) => {
+      if (muted) return;
+      if (typeof window === "undefined") return;
+      if (!text || text.length < 5) return;
+
+      speechQueue.push(text);
+      processQueue();
+    },
+    [muted]
+  );
+
+  return { speak, enqueue, muted, toggleMute };
 }
