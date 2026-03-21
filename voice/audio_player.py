@@ -109,8 +109,12 @@ class AudioPlayer(QObject):
             wav_path = "/tmp/kisti_speech.wav"
             self._write_wav(audio_pcm, PIPER_SAMPLE_RATE, wav_path)
 
-            # Start playback
+            # Signal ready — waveform should start NOW
             self.playback_started.emit()
+
+            # Prepend 300ms silence to prevent first-word cutoff from audio device wake
+            silence = b"\x00\x00" * int(PIPER_SAMPLE_RATE * 0.3)
+            audio_pcm = silence + audio_pcm
 
             play_proc = subprocess.Popen(
                 ["aplay", wav_path],

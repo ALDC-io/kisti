@@ -446,13 +446,14 @@ class KistiModeWidget(QWidget):
             from voice.audio_player import AudioPlayer
             self._audio_player = AudioPlayer(self)
             self._audio_player.amplitude_update.connect(self._on_amplitude)
+            self._audio_player.playback_started.connect(self._on_audio_started)
             self._audio_player.playback_finished.connect(self._on_audio_finished)
             if self._audio_player.is_available:
                 self._waveform._use_real_amplitude = True
         except Exception:
             pass  # No voice module available — pure typewriter mode
 
-        # Queue intro dialogue
+        # Startup intro — always plays once
         self._queue_lines(_INTRO_LINES)
 
     def _queue_lines(self, lines):
@@ -463,6 +464,11 @@ class KistiModeWidget(QWidget):
     def _on_amplitude(self, amplitude: float):
         """Receive real-time amplitude from audio player."""
         self._waveform.set_amplitude(amplitude)
+
+    def _on_audio_started(self):
+        """Audio playback has begun — activate waveform and release typewriter."""
+        self._waveform.set_active(True)
+        self._pause_ticks = 0  # Release typewriter now that audio is playing
 
     def _on_audio_finished(self):
         """Audio playback has ended."""
@@ -477,7 +483,6 @@ class KistiModeWidget(QWidget):
         self._speaking = True
         self._char_queue = list(text)
         self._current_line = ""
-        self._waveform.set_active(True)
 
         # Trigger real audio playback if Piper is available
         if self._voice_enabled and self._audio_player and self._audio_player.is_available:
@@ -486,6 +491,12 @@ class KistiModeWidget(QWidget):
                 # Adjust typewriter speed to roughly match audio duration
                 target_ms = int(audio_duration * 1000 / max(1, len(text)))
                 self._type_timer.setInterval(max(15, min(60, target_ms)))
+            # Delay waveform + typewriter start until audio is actually playing
+            # Piper synthesis takes ~0.5-1s, then 0.15s device wake
+            self._pause_ticks = int(1200 / _CHAR_MS)  # ~1.2s pause for Piper to synthesize
+        else:
+            # No audio — start waveform immediately with random fallback
+            self._waveform.set_active(True)
 
     def _stop_speaking(self):
         """End speech — commit line to transcript. Scanner keeps sweeping."""
