@@ -539,11 +539,25 @@ class KistiModeWidget(QWidget):
         # Waveform starts in idle KITT sweep immediately (visual first)
         self._scan_bar.set_active(True)
 
-        # Delay intro: let splash screen + UI fully render first (4 seconds),
-        # warm up Piper in background during this delay, then play intro synced
+        # File watcher for external speech/questions (must be on main thread)
+        self._say_file = "/tmp/kisti_say.txt"
+        self._say_timer = QTimer(self)
+        self._say_timer.setInterval(500)
+        self._say_timer.timeout.connect(self._check_say_file)
+        self._say_timer.start()
+
+        # USB device monitor (must be on main thread)
+        self._known_usb = set()
+        self._usb_timer = QTimer(self)
+        self._usb_timer.setInterval(3000)
+        self._usb_timer.timeout.connect(self._check_usb_devices)
+        self._usb_timer.start()
+        self._init_usb_baseline()
+
+        # Delay intro: let splash screen + UI fully render first (4 seconds)
         self._boot_timer = QTimer(self)
         self._boot_timer.setSingleShot(True)
-        self._boot_timer.setInterval(4000)  # 4 seconds for page to fully load
+        self._boot_timer.setInterval(4000)
         self._boot_timer.timeout.connect(self._on_boot_ready)
         self._boot_timer.start()
 
@@ -747,21 +761,6 @@ class KistiModeWidget(QWidget):
         if not ecu_ok:
             if cpu_temp is not None:
                 self._queue_lines([f"No ECU detected. Jetson CPU at {cpu_temp:.0f} degrees."])
-
-        # Start file watcher for external speech injection
-        self._say_file = "/tmp/kisti_say.txt"
-        self._say_timer = QTimer(self)
-        self._say_timer.setInterval(500)
-        self._say_timer.timeout.connect(self._check_say_file)
-        self._say_timer.start()
-
-        # USB device monitor — detect new connections/disconnections
-        self._known_usb = set()
-        self._usb_timer = QTimer(self)
-        self._usb_timer.setInterval(3000)  # Check every 3 seconds
-        self._usb_timer.timeout.connect(self._check_usb_devices)
-        self._usb_timer.start()
-        self._init_usb_baseline()
 
     def _check_say_file(self):
         """Check for externally injected speech or questions.
