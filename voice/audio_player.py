@@ -175,6 +175,15 @@ class AudioPlayer(QObject):
         while envelope and envelope[-1] < 0.02:
             envelope.pop()
 
+        # Pad with ~200ms of decay to cover aplay's output buffer drain
+        # This keeps the waveform alive until the speaker actually goes silent
+        if envelope:
+            last_amp = envelope[-1]
+            decay_frames = 6  # ~200ms at 30 FPS
+            for i in range(decay_frames):
+                fade = last_amp * (1.0 - (i + 1) / decay_frames)
+                envelope.append(max(0.0, fade))
+
         return envelope
 
     @staticmethod
