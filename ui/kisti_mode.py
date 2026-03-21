@@ -442,10 +442,19 @@ class KistiModeWidget(QWidget):
 
         # Audio player for Piper TTS (real voice output + waveform sync)
         self._audio_player = None
+        # Envelope playback state (driven by _envelope_timer on main thread)
+        self._envelope = []           # Pre-computed amplitude envelope
+        self._envelope_idx = 0        # Current frame index
+        self._envelope_playing = False
+
+        self._envelope_timer = QTimer(self)
+        self._envelope_timer.setInterval(33)  # ~30 Hz to match envelope FPS
+        self._envelope_timer.timeout.connect(self._envelope_tick)
+
         try:
             from voice.audio_player import AudioPlayer
             self._audio_player = AudioPlayer(self)
-            self._audio_player.amplitude_update.connect(self._on_amplitude)
+            self._audio_player.ready.connect(self._on_audio_ready)
             self._audio_player.playback_started.connect(self._on_audio_started)
             self._audio_player.playback_finished.connect(self._on_audio_finished)
             if self._audio_player.is_available:
@@ -461,18 +470,44 @@ class KistiModeWidget(QWidget):
         for line in lines:
             self._line_queue.append(line)
 
-    def _on_amplitude(self, amplitude: float):
-        """Receive real-time amplitude from audio player."""
-        self._waveform.set_amplitude(amplitude)
+    def _on_audio_ready(self, envelope: list, duration_s: float):
+        """Envelope pre-computed — store it and wait for playback_started."""
+        self._envelope = envelope
+        self._envelope_idx = 0
+        self._envelope_playing = False
 
     def _on_audio_started(self):
-        """Audio playback has begun — activate waveform and release typewriter."""
+        """Audio is NOW playing — start envelope timer and release typewriter."""
+        self._envelope_idx = 0
+        self._envelope_playing = True
         self._waveform.set_active(True)
-        self._pause_ticks = 0  # Release typewriter now that audio is playing
+        self._envelope_timer.start()
+        self._pause_ticks = 0  # Release typewriter in sync with audio
+
+        # Adjust typewriter speed so text finishes near when audio finishes
+        if self._envelope and self._char_queue:
+            audio_duration_ms = len(self._envelope) * 33  # ~33ms per frame
+            char_interval = max(15, min(60, audio_duration_ms // max(1, len(self._char_queue))))
+            self._type_timer.setInterval(char_interval)
 
     def _on_audio_finished(self):
-        """Audio playback has ended."""
+        """Audio playback ended — stop envelope and waveform."""
+        self._envelope_playing = False
+        self._envelope_timer.stop()
         self._waveform.set_amplitude(0.0)
+        self._waveform.set_active(False)
+        self._envelope = []
+
+    def _envelope_tick(self):
+        """Advance one frame in the pre-computed envelope (main thread, 30 Hz)."""
+        if not self._envelope_playing or self._envelope_idx >= len(self._envelope):
+            self._envelope_timer.stop()
+            self._waveform.set_amplitude(0.0)
+            return
+
+        amp = self._envelope[self._envelope_idx]
+        self._waveform.set_amplitude(amp)
+        self._envelope_idx += 1
 
     def set_demo_mode(self, enabled: bool):
         """Enable/disable idle demo chatter."""
@@ -486,14 +521,9 @@ class KistiModeWidget(QWidget):
 
         # Trigger real audio playback if Piper is available
         if self._voice_enabled and self._audio_player and self._audio_player.is_available:
-            audio_duration = self._audio_player.speak(text)
-            if audio_duration and len(text) > 0:
-                # Adjust typewriter speed to roughly match audio duration
-                target_ms = int(audio_duration * 1000 / max(1, len(text)))
-                self._type_timer.setInterval(max(15, min(60, target_ms)))
-            # Delay waveform + typewriter start until audio is actually playing
-            # Piper synthesis takes ~0.5-1s, then 0.15s device wake
-            self._pause_ticks = int(1200 / _CHAR_MS)  # ~1.2s pause for Piper to synthesize
+            self._audio_player.speak(text)
+            # Hold typewriter until playback_started signal fires (see _on_audio_started)
+            self._pause_ticks = 9999  # Will be released by _on_audio_started
         else:
             # No audio — start waveform immediately with random fallback
             self._waveform.set_active(True)
