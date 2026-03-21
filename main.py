@@ -50,6 +50,7 @@ def main():
     parser.add_argument("--no-voice", action="store_true", help="Disable voice pipeline")
     parser.add_argument("--no-sync", action="store_true", help="Disable cloud sync")
     parser.add_argument("--no-duckdb", action="store_true", help="Disable DuckDB recording")
+    parser.add_argument("--demo", action="store_true", help="Enable demo mode (idle chatter)")
     args = parser.parse_args()
 
     setup_logging()
