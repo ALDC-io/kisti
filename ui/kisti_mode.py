@@ -288,15 +288,27 @@ class _KittWaveform(QWidget):
             col_x = col_gap + col_idx * (total_col_width + col_gap)
 
             for seg in range(num_segments):
-                dist = seg
+                dist = seg  # 0 = closest to center, 6 = furthest
                 lit = seg < level
-                opacity = max(0.4, 1.0 - dist * 0.08) if lit else 0.08
 
-                seg_color = QColor(base_color)
+                # Color intensity: strongest at center, fades with distance
+                # Segment 0 (center) = full red, segment 6 (edge) = dim red
+                if lit:
+                    fade = 1.0 - (dist / num_segments) * 0.75  # 1.0 → 0.25
+                    r = int(200 * fade)
+                    g = int(10 * max(0, 0.3 - dist * 0.05))
+                    b = int(51 * max(0, 0.5 - dist * 0.08))
+                    opacity = max(0.3, fade)
+                else:
+                    r, g, b = 30, 0, 5
+                    opacity = 0.08
+
+                seg_color = QColor(r, g, b)
                 seg_color.setAlphaF(opacity)
 
+                # Glow on inner segments when lit
                 if lit and dist < 3:
-                    glow_alpha = max(0.0, 0.3 - dist * 0.1)
+                    glow_alpha = max(0.0, 0.35 - dist * 0.12)
                     glow_color = QColor(base_color)
                     glow_color.setAlphaF(glow_alpha)
                     glow_expand = 2
