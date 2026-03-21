@@ -646,121 +646,78 @@ class KistiModeWidget(QWidget):
         ).start()
 
     def _detect_hardware(self):
-        """Detect real connected hardware and build startup sequence."""
+        """Quick startup health check — lean, not verbose."""
         import subprocess
         import os
         from pathlib import Path
-
-        systems_online = 0
-        systems_total = 0
+        import time
 
         # Line 1: audible
         self._queue_lines(["Initializing KiSTI subsystems..."])
-        import time
-        time.sleep(3)  # Let line 1 play before visual checks
+        time.sleep(3)
 
-        # Lines 2-5: visual only (no voice) — add directly to transcript
-        checks = []
-
-        # Check Link ECU (CAN bus)
-        systems_total += 1
-        try:
-            import can as python_can
-            bus = python_can.Bus(interface="socketcan", channel="can0", receive_own_messages=False)
-            bus.shutdown()
-            checks.append(("Link ECU", True, "CAN bus connected"))
-            systems_online += 1
-        except Exception:
-            checks.append(("Link ECU", False, "No ECU detected"))
-
-        # Check Ollama (local AI)
-        systems_total += 1
-        try:
-            import urllib.request
-            import json
-            req = urllib.request.Request("http://localhost:11434/api/tags")
-            with urllib.request.urlopen(req, timeout=3) as resp:
-                data = json.loads(resp.read())
-                models = [m["name"] for m in data.get("models", [])]
-            if models:
-                checks.append(("Local AI", True, f"Ollama online — {models[0]}"))
-                systems_online += 1
-            else:
-                checks.append(("Local AI", False, "Ollama — no models loaded"))
-        except Exception:
-            checks.append(("Local AI", False, "Ollama not available"))
-
-        # Check Piper TTS
-        systems_total += 1
-        if Path("/data/piper/piper").exists() and Path("/data/piper/en_GB-alba-medium.onnx").exists():
-            checks.append(("Voice", True, "Piper TTS online"))
-            systems_online += 1
-        else:
-            checks.append(("Voice", False, "Piper TTS not found"))
-
-        # Check Zeus / WiFi connectivity
-        systems_total += 1
-        try:
-            result = subprocess.run(
-                ["ping", "-c", "1", "-W", "2", "cloud.aldc.io"],
-                capture_output=True, timeout=5,
-            )
-            if result.returncode == 0:
-                checks.append(("Zeus Cloud", True, "Zeus Memory available"))
-                systems_online += 1
-            else:
-                checks.append(("Zeus Cloud", False, "Offline mode"))
-        except Exception:
-            checks.append(("Zeus Cloud", False, "Offline mode"))
-
-        # Check Jetson GPU
-        systems_total += 1
-        try:
-            result = subprocess.run(
-                ["nvidia-smi"], capture_output=True, text=True, timeout=5,
-            )
-            if result.returncode == 0:
-                checks.append(("GPU", True, "NVIDIA CUDA available"))
-                systems_online += 1
-            else:
-                checks.append(("GPU", False, "GPU not detected"))
-        except Exception:
-            checks.append(("GPU", False, "GPU not detected"))
-
-        # Read Jetson CPU temperature
+        # Quick health check
+        healthy = True
         cpu_temp = None
         try:
             for tz in sorted(Path("/sys/class/thermal/").glob("thermal_zone*")):
                 temp_file = tz / "temp"
-                type_file = tz / "type"
                 if temp_file.exists():
-                    raw = temp_file.read_text().strip()
-                    cpu_temp = int(raw) / 1000.0
+                    cpu_temp = int(temp_file.read_text().strip()) / 1000.0
                     break
         except Exception:
             pass
 
-        # Add visual-only check results to transcript (no voice)
-        for name, ok, detail in checks:
-            status = "OK" if ok else "---"
-            self._transcript.append(f"  [{status}] {name}: {detail}")
-        if cpu_temp is not None:
-            self._transcript.append(f"  Jetson CPU: {cpu_temp:.1f}°C")
-        self._update_display()
+        # Check if ECU is connected
+        ecu_ok = False
+        try:
+            import can as python_can
+            bus = python_can.Bus(interface="socketcan", channel="can0", receive_own_messages=False)
+            bus.shutdown()
+            ecu_ok = True
+        except Exception:
+            pass
 
-        time.sleep(1)
+        # Check GPU
+        gpu_ok = False
+        try:
+            result = subprocess.run(["nvidia-smi"], capture_output=True, timeout=5)
+            gpu_ok = result.returncode == 0
+        except Exception:
+            pass
 
-        # Line 6: audible summary
-        summary = f"{systems_online} of {systems_total} systems online."
-        self._queue_lines([summary])
+        if gpu_ok and cpu_temp is not None and cpu_temp < 80:
+            self._queue_lines(["NVIDIA Jetson Orin healthy."])
+        else:
+            healthy = False
+            if cpu_temp and cpu_temp >= 80:
+                self._queue_lines([f"Warning. Jetson CPU at {cpu_temp:.0f} degrees."], urgency="alert")
+            elif not gpu_ok:
+                self._queue_lines(["Warning. GPU not detected."], urgency="alert")
 
         time.sleep(4)
 
-        # If no ECU, say so audibly
-        ecu_ok = any(name == "Link ECU" and ok for name, ok, _ in checks)
-        if not ecu_ok:
-            if cpu_temp is not None:
-                self._queue_lines([f"No ECU detected. Jetson CPU at {cpu_temp:.0f} degrees."])
+        # List USB devices (spoken)
+        usb_devices = []
+        try:
+            result = subprocess.run(["lsusb"], capture_output=True, text=True, timeout=5)
+            for line in result.stdout.strip().split("\n"):
+                if "ID " in line:
+                    name = line.split("ID ", 1)[1].split(" ", 1)
+                    if len(name) > 1 and "hub" not in name[1].lower():
+                        usb_devices.append(name[1].strip())
+        except Exception:
+            pass
+
+        if usb_devices:
+            self._queue_lines([f"{len(usb_devices)} USB devices connected."])
+        time.sleep(3)
+
+        # ECU status
+        if ecu_ok:
+            self._queue_lines(["Link ECU connected."])
+        else:
+            self._queue_lines(["No ECU detected."])
 
     def _check_say_file(self):
         """Check for externally injected speech or questions.
