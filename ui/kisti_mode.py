@@ -251,9 +251,10 @@ class _KittWaveform(QWidget):
                 # Drive from real audio amplitude
                 amp = self._real_amplitude
                 center = max(1, int(amp * 7))
-                # Outer bars follow center tightly with slight asymmetry
-                left = max(0, int(center * 0.6 + random.randint(0, 1)))
-                right = max(0, int(center * 0.6 + random.randint(0, 1)))
+                # Outer bars in lockstep — same height, variation only vertical
+                outer = max(0, int(center * 0.6))
+                left = outer
+                right = outer
             else:
                 # Fallback: random levels
                 center = random.randint(2, 7)
