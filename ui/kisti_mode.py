@@ -465,17 +465,22 @@ class KistiModeWidget(QWidget):
         # Waveform starts in idle KITT sweep immediately (visual first)
         self._scan_bar.set_active(True)
 
-        # Warm up Piper in background, then play intro with synced voice
+        # Delay intro: let splash screen + UI fully render first (4 seconds),
+        # warm up Piper in background during this delay, then play intro synced
+        self._boot_timer = QTimer(self)
+        self._boot_timer.setSingleShot(True)
+        self._boot_timer.setInterval(4000)  # 4 seconds for page to fully load
+        self._boot_timer.timeout.connect(self._on_boot_ready)
+        self._boot_timer.start()
+
+        # Start Piper warm-up immediately (runs in parallel with UI load)
         if self._audio_player and self._audio_player.is_available:
             import threading
             threading.Thread(
-                target=self._warmup_and_intro,
+                target=self._warmup_piper,
                 daemon=True,
                 name="kisti-warmup",
             ).start()
-        else:
-            # No Piper — just queue intro lines as typewriter
-            self._queue_lines(_INTRO_LINES)
 
     def _queue_lines(self, lines):
         """Queue a list of lines to be spoken sequentially."""
@@ -521,23 +526,25 @@ class KistiModeWidget(QWidget):
         self._waveform.set_amplitude(amp)
         self._envelope_idx += 1
 
-    def _warmup_and_intro(self):
-        """Background: warm up Piper with a silent synthesis, then queue intro."""
+    def _warmup_piper(self):
+        """Background: warm up Piper model by synthesizing a discarded phrase."""
         import subprocess
         from pathlib import Path
         piper_bin = Path("/data/piper/piper")
         piper_voice = Path("/data/piper/en_US-lessac-medium.onnx")
         try:
-            # Warm up Piper by synthesizing a short phrase (discarded)
             subprocess.run(
                 [str(piper_bin), "--model", str(piper_voice), "--output_raw"],
                 input=b"Ready.",
                 capture_output=True,
                 timeout=10,
             )
+            self._piper_warm = True
         except Exception:
-            pass
-        # Now Piper is warm — queue intro lines
+            self._piper_warm = False
+
+    def _on_boot_ready(self):
+        """Called 4 seconds after startup — UI is fully rendered, start intro."""
         self._queue_lines(_INTRO_LINES)
 
     def set_demo_mode(self, enabled: bool):
