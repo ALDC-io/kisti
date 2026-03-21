@@ -85,10 +85,11 @@ class AudioPlayer(QObject):
         thread.start()
 
     # Speech speed by urgency: lower = faster
+    # Danny sounds best at 1.0x natural — slowing distorts his voice
     _URGENCY_SCALES = {
-        "normal": "1.1",     # Composed, slightly slow
-        "alert": "0.7",      # Quick, clipped, purposeful
-        "critical": "0.6",   # Fast, sharp, urgent
+        "normal": "1.0",     # Natural speed
+        "alert": "0.8",      # Firm, quicker
+        "critical": "0.7",   # Fast, urgent
     }
 
     def _generate_and_play(self, text: str, urgency: str = "normal") -> None:
