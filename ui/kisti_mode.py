@@ -722,6 +722,11 @@ class KistiModeWidget(QWidget):
                 self._queue_lines([msg], urgency=urgency)
                 time.sleep(3)
 
+            # Easter egg: 1 in 4 chance after "No ECU detected"
+            if not ecu_ok and random.randint(1, 4) == 1:
+                time.sleep(4)
+                self._queue_lines(["Just when I thought I was out... they pull me back in."])
+
     def _check_say_file(self):
         """Check for externally injected speech or questions.
 
