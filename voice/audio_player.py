@@ -26,7 +26,9 @@ log = logging.getLogger("kisti.voice.player")
 
 PIPER_BINARY = Path("/data/piper/piper")
 PIPER_VOICE = Path("/data/piper/en_US-danny-low.onnx")
-PIPER_SAMPLE_RATE = 22050
+# Sample rate is voice-dependent — read from Piper's JSON config at runtime
+# Danny-low = 16000 Hz, most medium voices = 22050 Hz
+PIPER_SAMPLE_RATE_DEFAULT = 22050
 ENVELOPE_FPS = 40  # Higher resolution to capture syllable-level cadence
 
 
@@ -48,8 +50,21 @@ class AudioPlayer(QObject):
         super().__init__(parent)
         self._playing = False
         self._piper_available = PIPER_BINARY.exists() and PIPER_VOICE.exists()
+        self._sample_rate = PIPER_SAMPLE_RATE_DEFAULT
+
         if self._piper_available:
-            log.info("AudioPlayer: Piper TTS available")
+            # Read actual sample rate from voice config JSON
+            config_path = Path(str(PIPER_VOICE) + ".json")
+            if config_path.exists():
+                try:
+                    import json
+                    cfg = json.loads(config_path.read_text())
+                    self._sample_rate = cfg.get("audio", {}).get("sample_rate", PIPER_SAMPLE_RATE_DEFAULT)
+                    log.info("AudioPlayer: Piper TTS available, sample rate %d Hz", self._sample_rate)
+                except Exception:
+                    log.info("AudioPlayer: Piper TTS available (default %d Hz)", self._sample_rate)
+            else:
+                log.info("AudioPlayer: Piper TTS available (no config, assuming %d Hz)", self._sample_rate)
         else:
             log.info("AudioPlayer: Piper not found, waveform will use typewriter timing")
 
@@ -115,17 +130,17 @@ class AudioPlayer(QObject):
             audio_pcm = proc.stdout
 
             # Prepend 250ms silence to prevent ALSA device wake cutoff
-            silence = b"\x00\x00" * int(PIPER_SAMPLE_RATE * 0.25)
+            silence = b"\x00\x00" * int(self._sample_rate * 0.25)
             audio_pcm = silence + audio_pcm
 
-            duration_s = len(audio_pcm) / (PIPER_SAMPLE_RATE * 2)
+            duration_s = len(audio_pcm) / (self._sample_rate * 2)
 
             # Step 2: Pre-compute full amplitude envelope
-            envelope = self._compute_envelope(audio_pcm, PIPER_SAMPLE_RATE, ENVELOPE_FPS)
+            envelope = self._compute_envelope(audio_pcm, self._sample_rate, ENVELOPE_FPS)
 
             # Step 3: Write WAV
             wav_path = "/tmp/kisti_speech.wav"
-            self._write_wav(audio_pcm, PIPER_SAMPLE_RATE, wav_path)
+            self._write_wav(audio_pcm, self._sample_rate, wav_path)
 
             # Step 4: Signal ready with envelope — UI prepares waveform
             log.info("Audio ready: %.1fs, %d envelope frames", duration_s, len(envelope))
