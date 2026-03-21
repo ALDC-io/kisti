@@ -926,16 +926,15 @@ class KistiModeWidget(QWidget):
         self._char_queue = list(text)
         self._current_line = ""
 
-        # Trigger real audio playback if Piper is available and not already playing
-        if (self._voice_enabled and self._audio_player
-                and self._audio_player.is_available and not self._audio_player.is_playing):
+        # Trigger real audio playback if Piper is available
+        # AudioPlayer queues internally if busy — speech is never dropped
+        if self._voice_enabled and self._audio_player and self._audio_player.is_available:
             klog.info("_start_speaking [%s]: %s", urgency, text[:50])
             self._audio_player.speak(text, urgency=urgency)
             # Hold typewriter until playback_started signal fires (see _on_audio_started)
             self._pause_ticks = 9999  # Will be released by _on_audio_started
         else:
-            # AudioPlayer busy or unavailable — typewriter only, NO waveform
-            # Waveform should only animate when real audio is playing
+            # No audio available — typewriter only, no waveform
             pass
 
     def _stop_speaking(self):
