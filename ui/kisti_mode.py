@@ -322,19 +322,19 @@ class _KittWaveform(QWidget):
                 # Cherry blossom gradient matching STI logo coloring
                 if lit:
                     t = dist / max(1, num_segments - 1)  # 0.0 → 1.0
-                    # Sakura (255,183,197) → Rose (232,80,122) → KiSTI Red (200,10,51) → Dark (80,0,20)
+                    # Deep rose core → crimson → KiSTI Red → Dark
                     if t < 0.3:
-                        # Core: soft sakura pink
+                        # Core: warm rose (not pastel — deeper, richer)
                         f = t / 0.3
-                        fr = 255
-                        fg = int(183 - 103 * f)  # 183 → 80
-                        fb = int(197 - 75 * f)   # 197 → 122
+                        fr = 240
+                        fg = int(100 - 60 * f)   # 100 → 40
+                        fb = int(120 - 50 * f)   # 120 → 70
                     elif t < 0.6:
-                        # Mid: rose pink to KiSTI red
+                        # Mid: crimson rose to KiSTI red
                         f = (t - 0.3) / 0.3
-                        fr = int(232 - 32 * f)   # 232 → 200
-                        fg = int(80 - 70 * f)    # 80 → 10
-                        fb = int(122 - 71 * f)   # 122 → 51
+                        fr = int(230 - 30 * f)   # 230 → 200
+                        fg = int(40 - 30 * f)    # 40 → 10
+                        fb = int(70 - 19 * f)    # 70 → 51
                     else:
                         # Outer: KiSTI red to dark
                         f = (t - 0.6) / 0.4
