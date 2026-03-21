@@ -647,7 +647,11 @@ class KistiModeWidget(QWidget):
         self._say_timer.start()
 
     def _check_say_file(self):
-        """Check for externally injected speech via /tmp/kisti_say.txt."""
+        """Check for externally injected speech via /tmp/kisti_say.txt.
+
+        Prefix with ALERT_ or CRITICAL_ to set urgency:
+            echo "CRITICAL_Oil pressure low! Shut down!" > /tmp/kisti_say.txt
+        """
         import os
         try:
             if os.path.exists(self._say_file):
@@ -655,7 +659,14 @@ class KistiModeWidget(QWidget):
                     text = f.read().strip()
                 os.remove(self._say_file)
                 if text:
-                    self._queue_lines([text])
+                    urgency = "normal"
+                    if text.startswith("CRITICAL_"):
+                        urgency = "critical"
+                        text = text[9:]
+                    elif text.startswith("ALERT_"):
+                        urgency = "alert"
+                        text = text[6:]
+                    self._queue_lines([text], urgency=urgency)
         except Exception:
             pass
 
