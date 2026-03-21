@@ -263,12 +263,12 @@ class _KittWaveform(QWidget):
 
             # Decay: during pauses, step down 1 level per tick instead of snapping
             if center < self._prev_center:
-                center = max(1, self._prev_center - 1)  # Gentle step-down
+                center = self._prev_center - 1  # Gentle step-down, can reach 0
+            # Minimum 1 segment while active (but decay can bring it to 1)
+            center = max(1, center)
             self._prev_center = center
 
-            # Style: center always has at least 1 segment while speaking.
             # Outer bars: only show when center >= 2, capped at 65% of center.
-            center = max(1, center)
             if center < 2:
                 left = 0
                 right = 0
@@ -290,8 +290,9 @@ class _KittWaveform(QWidget):
 
         num_segments = 7
         num_cols = 3
-        seg_gap = 3
-        col_gap = 8
+        seg_gap = 4           # Increased gap between segments for clarity
+        col_gap = 10          # Wider column spacing
+        outer_seg_shrink = 1  # Outer columns: segments 1px shorter for crispness
 
         total_col_width = (w - (num_cols + 1) * col_gap) / num_cols
         seg_h = max(3, (h / 2 - num_segments * seg_gap) / num_segments)
@@ -345,12 +346,18 @@ class _KittWaveform(QWidget):
                                total_col_width + 2 * glow_expand,
                                seg_h + 2 * glow_expand), 2, 2)
 
+                # Outer columns: slightly thinner segments for crispness
+                is_outer = (col_idx != 1)
+                sh = seg_h - outer_seg_shrink if is_outer else seg_h
+                sw = total_col_width - (2 if is_outer else 0)
+                sx = col_x + (1 if is_outer else 0)
+
                 p.setPen(Qt.NoPen)
                 p.setBrush(seg_color)
                 y_top = center_y - (seg + 1) * (seg_h + seg_gap)
-                p.drawRoundedRect(QRectF(col_x, y_top, total_col_width, seg_h), 1, 1)
+                p.drawRoundedRect(QRectF(sx, y_top, sw, sh), 1, 1)
                 y_bot = center_y + seg * (seg_h + seg_gap)
-                p.drawRoundedRect(QRectF(col_x, y_bot, total_col_width, seg_h), 1, 1)
+                p.drawRoundedRect(QRectF(sx, y_bot, sw, sh), 1, 1)
 
         p.end()
 
