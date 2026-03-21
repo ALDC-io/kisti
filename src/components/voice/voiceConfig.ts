@@ -25,9 +25,18 @@ export interface VoiceOption {
 export const VOICES: VoiceOption[] = [
   // Piper voices (server-side)
   {
+    id: "danny",
+    name: "Danny",
+    description: "KiSTI default — American male",
+    gender: "male",
+    accent: "American",
+    engine: "piper",
+    piperModel: "en_US-danny-low.onnx",
+  },
+  {
     id: "alba",
     name: "Alba",
-    description: "Refined British female",
+    description: "Refined British female (backup)",
     gender: "female",
     accent: "British",
     engine: "piper",
@@ -43,13 +52,22 @@ export const VOICES: VoiceOption[] = [
     piperModel: "en_US-amy-medium.onnx",
   },
   {
-    id: "lessac",
-    name: "Lessac",
-    description: "Professional American male",
+    id: "cori",
+    name: "Cori",
+    description: "British female",
+    gender: "female",
+    accent: "British",
+    engine: "piper",
+    piperModel: "en_GB-cori-medium.onnx",
+  },
+  {
+    id: "joe",
+    name: "Joe",
+    description: "American male",
     gender: "male",
     accent: "American",
     engine: "piper",
-    piperModel: "en_US-lessac-medium.onnx",
+    piperModel: "en_US-joe-medium.onnx",
   },
   // Browser fallback voices
   {
@@ -72,7 +90,7 @@ export const VOICES: VoiceOption[] = [
   },
 ];
 
-export const DEFAULT_VOICE_ID = "alba";
+export const DEFAULT_VOICE_ID = "danny";
 
 /**
  * Find the best matching browser SpeechSynthesis voice.
