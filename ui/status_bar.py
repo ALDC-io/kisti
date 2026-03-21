@@ -6,7 +6,7 @@ Shows mode, clock, GPS, logging, network status, and corporate logos.
 
 from datetime import datetime
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Slot
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QLabel
 
 from ui.theme import GREEN, RED, GRAY, BG_PANEL, CHROME_DARK, WHITE, HIGHLIGHT, FONT_HEADER
@@ -84,29 +84,65 @@ class TopStatusBar(QWidget):
         self._nvidia_logo.setFixedHeight(30)
         layout.addWidget(self._nvidia_logo)
 
-        # Clock tick
+        # Clock tick + real hardware status check
         self._clock_timer = QTimer(self)
         self._clock_timer.setInterval(1000)
         self._clock_timer.timeout.connect(self._update_clock)
         self._clock_timer.start()
         self._update_clock()
 
+        # Real hardware status check every 10 seconds
+        self._hw_timer = QTimer(self)
+        self._hw_timer.setInterval(10000)
+        self._hw_timer.timeout.connect(self._check_real_hardware)
+        self._hw_timer.start()
+        # Initial check after 2 seconds (let system settle)
+        QTimer.singleShot(2000, self._check_real_hardware)
+
     def _update_clock(self):
         self._clock_label.setText(datetime.now().strftime("%H:%M:%S"))
 
+    def _check_real_hardware(self):
+        """Check real hardware status and update dots."""
+        import subprocess
+        import os
+
+        # NET — real network connectivity
+        try:
+            result = subprocess.run(
+                ["ping", "-c", "1", "-W", "2", "8.8.8.8"],
+                capture_output=True, timeout=4,
+            )
+            net_ok = result.returncode == 0
+        except Exception:
+            net_ok = False
+        self._net_dot.setStyleSheet(f"color: {GREEN if net_ok else GRAY};")
+
+        # GPS — check for GPS device (gpsd or /dev/ttyUSB* or /dev/ttyACM*)
+        gps_ok = False
+        for dev in ["/dev/ttyUSB0", "/dev/ttyACM0", "/dev/ttyUSB1"]:
+            if os.path.exists(dev):
+                gps_ok = True
+                break
+        self._gps_dot.setStyleSheet(f"color: {GREEN if gps_ok else GRAY};")
+
+        # LOG — check if a DuckDB session is actively recording
+        log_ok = os.path.exists("/tmp/kisti_session_active")
+        self._log_dot.setStyleSheet(f"color: {GREEN if log_ok else GRAY};")
+
+        # V1 — Valentine One BLE (check if bluetoothctl sees a V1 device)
+        v1_ok = False
+        try:
+            result = subprocess.run(
+                ["bluetoothctl", "devices", "Connected"],
+                capture_output=True, text=True, timeout=3,
+            )
+            if "V1" in result.stdout or "Valentine" in result.stdout:
+                v1_ok = True
+        except Exception:
+            pass
+        self._v1_dot.setStyleSheet(f"color: {GREEN if v1_ok else GRAY};")
+
     def update_state(self, system_state, mode_str):
-        """Update all status indicators."""
-        # Don't show "KiSTI" text — the logo already covers it
+        """Update mode label from vehicle state (if mock data is active)."""
         self._mode_label.setText("" if mode_str == "KiSTI" else mode_str)
-        self._gps_dot.setStyleSheet(
-            f"color: {GREEN if system_state.gps_fix else RED};"
-        )
-        self._log_dot.setStyleSheet(
-            f"color: {GREEN if system_state.logging else GRAY};"
-        )
-        self._net_dot.setStyleSheet(
-            f"color: {GREEN if system_state.network else RED};"
-        )
-        self._v1_dot.setStyleSheet(
-            f"color: {GREEN if system_state.v1_connected else GRAY};"
-        )
