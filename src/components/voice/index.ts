@@ -42,4 +42,6 @@
 
 export { default as VoiceWaveform } from "./VoiceWaveform";
 export { useVoicePlayback } from "./useVoicePlayback";
+export { VOICES, DEFAULT_VOICE_ID, getAvailableVoices } from "./voiceConfig";
 export type { WaveformPalette } from "./VoiceWaveform";
+export type { VoiceOption } from "./voiceConfig";

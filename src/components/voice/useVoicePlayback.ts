@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
+import { VOICES, DEFAULT_VOICE_ID, findBrowserVoice } from "./voiceConfig";
+import type { VoiceOption } from "./voiceConfig";
 
 /**
  * Zeus Voice Playback Hook — TTS audio + amplitude envelope.
@@ -21,8 +23,8 @@ interface UseVoicePlaybackOptions {
   ttsEndpoint?: string;
   /** Frames per second for envelope computation */
   fps?: number;
-  /** Speech rate multiplier (lower = faster, for urgency) */
-  rate?: number;
+  /** Initial voice ID (from voiceConfig.ts) */
+  voiceId?: string;
 }
 
 interface VoicePlaybackResult {
@@ -34,6 +36,12 @@ interface VoicePlaybackResult {
   envelope: number[];
   /** Stop current playback */
   stop: () => void;
+  /** Current voice */
+  voice: VoiceOption;
+  /** Change voice */
+  setVoice: (voiceId: string) => void;
+  /** All available voices */
+  voices: VoiceOption[];
 }
 
 const URGENCY_RATES: Record<string, number> = {
@@ -100,11 +108,19 @@ function computeEnvelope(buffer: AudioBuffer, fps: number): number[] {
 export function useVoicePlayback(
   options: UseVoicePlaybackOptions = {},
 ): VoicePlaybackResult {
-  const { ttsEndpoint = "/api/tts", fps = 40 } = options;
+  const { ttsEndpoint = "/api/tts", fps = 40, voiceId: initialVoiceId } = options;
   const [isPlaying, setIsPlaying] = useState(false);
   const [envelope, setEnvelope] = useState<number[]>([]);
+  const [currentVoiceId, setCurrentVoiceId] = useState(initialVoiceId || DEFAULT_VOICE_ID);
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
+
+  const voice = VOICES.find((v) => v.id === currentVoiceId) || VOICES[0];
+
+  const setVoice = useCallback((id: string) => {
+    const found = VOICES.find((v) => v.id === id);
+    if (found) setCurrentVoiceId(id);
+  }, []);
 
   const stop = useCallback(() => {
     if (sourceRef.current) {
@@ -127,11 +143,27 @@ export function useVoicePlayback(
       const rate = URGENCY_RATES[urgency] || 1.1;
 
       try {
-        // Fetch TTS audio from server
+        // Browser voice mode — no server needed
+        if (voice.engine === "browser") {
+          const utterance = new SpeechSynthesisUtterance(expanded);
+          utterance.rate = 1 / rate;
+          const bv = findBrowserVoice(voice.browserVoiceHint || "female");
+          if (bv) utterance.voice = bv;
+          setIsPlaying(true);
+          utterance.onend = () => setIsPlaying(false);
+          speechSynthesis.speak(utterance);
+          return;
+        }
+
+        // Piper server mode — fetch TTS audio
         const res = await fetch(ttsEndpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: expanded, rate }),
+          body: JSON.stringify({
+            text: expanded,
+            rate,
+            voice: voice.piperModel,
+          }),
         });
 
         if (!res.ok) {
@@ -178,5 +210,5 @@ export function useVoicePlayback(
     [isPlaying, ttsEndpoint, fps],
   );
 
-  return { speak, isPlaying, envelope, stop };
+  return { speak, isPlaying, envelope, stop, voice, setVoice, voices: VOICES };
 }
