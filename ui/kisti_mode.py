@@ -17,8 +17,12 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea,
 )
 
+import logging
+
 from data.models import RadarBand, AlertDirection
 from ui.theme import BG_DARK, BG_PANEL, HIGHLIGHT, GRAY, WHITE, CHROME_DARK, DIM
+
+klog = logging.getLogger("kisti.ui.kisti_mode")
 
 # KiSTI logo red (sampled from actual logo)
 KISTI_RED = "#C80A33"
@@ -486,6 +490,7 @@ class KistiModeWidget(QWidget):
         """Queue a list of lines to be spoken sequentially."""
         for line in lines:
             self._line_queue.append(line)
+        klog.info("Queued %d lines, first: %s", len(lines), (lines[0] if lines else "")[:50])
 
     def _on_audio_ready(self, envelope: list, duration_s: float):
         """Envelope pre-computed — store it and wait for playback_started."""
@@ -580,6 +585,7 @@ class KistiModeWidget(QWidget):
 
         # Trigger real audio playback if Piper is available
         if self._voice_enabled and self._audio_player and self._audio_player.is_available:
+            klog.info("_start_speaking: sending to AudioPlayer: %s", text[:50])
             self._audio_player.speak(text)
             # Hold typewriter until playback_started signal fires (see _on_audio_started)
             self._pause_ticks = 9999  # Will be released by _on_audio_started

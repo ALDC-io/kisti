@@ -59,9 +59,17 @@ class AudioPlayer(QObject):
         Emits ready() with the envelope before playback, then
         playback_started() when audio begins, playback_finished() when done.
         """
-        if not text.strip() or self._playing or not self._piper_available:
+        if not text.strip():
+            log.debug("speak(): empty text, skipping")
+            return
+        if self._playing:
+            log.debug("speak(): already playing, skipping: %s", text[:30])
+            return
+        if not self._piper_available:
+            log.debug("speak(): Piper not available")
             return
 
+        log.info("speak(): generating audio for: %s", text[:50])
         self._playing = True
         thread = threading.Thread(
             target=self._generate_and_play,
@@ -102,19 +110,26 @@ class AudioPlayer(QObject):
             self._write_wav(audio_pcm, PIPER_SAMPLE_RATE, wav_path)
 
             # Step 4: Signal ready with envelope — UI prepares waveform
+            log.info("Audio ready: %.1fs, %d envelope frames", duration_s, len(envelope))
             self.ready.emit(envelope, duration_s)
 
             # Step 5: Start playback — signal the exact moment audio begins
+            log.info("Starting aplay...")
             play_proc = subprocess.Popen(
                 ["aplay", wav_path],
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
             )
             self.playback_started.emit()
+            log.info("playback_started emitted")
 
             # Step 6: Wait for playback to finish
             play_proc.wait(timeout=60)
+            stderr = play_proc.stderr.read().decode() if play_proc.stderr else ""
+            if stderr:
+                log.warning("aplay stderr: %s", stderr[:200])
 
+            log.info("Playback finished")
             self.playback_finished.emit()
 
         except Exception as exc:
