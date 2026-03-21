@@ -594,9 +594,9 @@ class KistiModeWidget(QWidget):
             # Hold typewriter until playback_started signal fires (see _on_audio_started)
             self._pause_ticks = 9999  # Will be released by _on_audio_started
         else:
-            # AudioPlayer busy or unavailable — typewriter only, no audio
-            self._waveform.set_active(True)
-            self._waveform._use_real_amplitude = False  # Random fallback
+            # AudioPlayer busy or unavailable — typewriter only, NO waveform
+            # Waveform should only animate when real audio is playing
+            pass
 
     def _stop_speaking(self):
         """End speech — commit line to transcript. Scanner keeps sweeping."""
