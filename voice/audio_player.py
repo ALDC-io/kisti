@@ -73,6 +73,7 @@ class AudioPlayer(QObject):
             log.debug("speak(): Piper not available")
             return
 
+        text = self._expand_abbreviations(text)
         log.info("speak(): generating audio [%s]: %s", urgency, text[:50])
         self._playing = True
         thread = threading.Thread(
@@ -199,6 +200,36 @@ class AudioPlayer(QObject):
             wf.setsampwidth(2)
             wf.setframerate(sample_rate)
             wf.writeframes(pcm)
+
+    @staticmethod
+    def _expand_abbreviations(text: str) -> str:
+        """Expand abbreviations so Piper pronounces them naturally."""
+        import re
+        # Numbers + M/K/B → million/thousand/billion
+        text = re.sub(r'(\d+\.?\d*)\s*M\b', r'\1 million', text)
+        text = re.sub(r'(\d+\.?\d*)\s*K\b', r'\1 thousand', text)
+        text = re.sub(r'(\d+\.?\d*)\s*B\b', r'\1 billion', text)
+        # Common units
+        text = re.sub(r'\bkph\b', 'kilometres per hour', text, flags=re.IGNORECASE)
+        text = re.sub(r'\bkm/h\b', 'kilometres per hour', text, flags=re.IGNORECASE)
+        text = re.sub(r'\bmph\b', 'miles per hour', text, flags=re.IGNORECASE)
+        text = re.sub(r'\bPSI\b', 'P S I', text)
+        text = re.sub(r'\bRPM\b', 'R P M', text)
+        text = re.sub(r'\bGHz\b', 'gigahertz', text)
+        text = re.sub(r'\bHz\b', 'hertz', text)
+        text = re.sub(r'\bAFR\b', 'A F R', text)
+        text = re.sub(r'\bEGT\b', 'E G T', text)
+        text = re.sub(r'\bECU\b', 'E C U', text)
+        text = re.sub(r'\bAWD\b', 'all wheel drive', text)
+        text = re.sub(r'\bDCCD\b', 'D C C D', text)
+        text = re.sub(r'\bFLIR\b', 'fleer', text)
+        text = re.sub(r'\bLiDAR\b', 'lie-dar', text)
+        text = re.sub(r'\bNVMe\b', 'N V M E', text)
+        text = re.sub(r'\bKa\b', 'K A', text)
+        text = re.sub(r'°F\b', ' degrees fahrenheit', text)
+        text = re.sub(r'°C\b', ' degrees celsius', text)
+        text = re.sub(r'°\b', ' degrees', text)
+        return text
 
     @property
     def is_playing(self) -> bool:
