@@ -788,7 +788,7 @@ class KistiModeWidget(QWidget):
             urgency = "critical"
         elif signal <= 2:
             line = f"Heads up — weak {band} detected, {direction}."
-            urgency = "normal"
+            urgency = "alert"
         elif signal <= 4:
             ghz = alert.frequency_mhz / 1000.0
             line = f"I'm picking up {band} at {ghz:.1f} GHz, {direction}. Signal is building."
