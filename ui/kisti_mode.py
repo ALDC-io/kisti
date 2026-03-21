@@ -244,10 +244,35 @@ _IDLE_LINES = [
     "Welcome to the real world.",
     # The Godfather
     "I am gonna make him an offer he cannot refuse.",
-
     "Look how they massacred my boy.",
-
     "Just when I thought I was out... they pull me back in.",
+    # All-time classics
+    "Frankly my dear, I do not give a damn.",
+    "Here is looking at you, kid.",
+    "You talking to me? You talking to me?",
+    "Houston, we have a problem.",
+    "To infinity, and beyond!",
+    "After all, tomorrow is another day.",
+    "My mama always said, life is like a box of chocolates. You never know what you are gonna get.",
+    "I see dead people.",
+    # Batman / Dark Knight
+    "It is not who I am underneath, but what I do, that defines me.",
+    "Why do we fall? So we can learn to pick ourselves up.",
+    # Iron Man
+    "Sometimes you gotta run before you can walk.",
+    "I am Iron Man.",
+    # Spider-Man
+    "With great power comes great responsibility.",
+    # Interstellar
+    "It is not possible. No. It is necessary.",
+    # Top Gun
+    "I feel the need. The need for speed.",
+    # Back to the Future
+    "Roads? Where we are going, we do not need roads.",
+    # Jurassic Park
+    "Life finds a way.",
+    # Terminator
+    "I will be back.",
 ]
 
 # Typewriter speed (ms per character)
