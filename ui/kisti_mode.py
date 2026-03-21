@@ -229,7 +229,7 @@ class _KittWaveform(QWidget):
         self._use_real_amplitude = False
 
         self._timer = QTimer(self)
-        self._timer.setInterval(80)
+        self._timer.setInterval(50)  # 20 Hz waveform update (was 80ms/12.5Hz)
         self._timer.timeout.connect(self._update_levels)
         self._timer.start()
 
@@ -251,11 +251,9 @@ class _KittWaveform(QWidget):
                 # Drive from real audio amplitude
                 amp = self._real_amplitude
                 center = max(1, int(amp * 7))
-                left = max(0, int(center * (0.5 + amp * 0.4)))
-                right = max(0, int(center * (0.5 + amp * 0.4)))
-                # Add slight randomness for natural feel
-                left = max(0, min(7, left + random.randint(-1, 1)))
-                right = max(0, min(7, right + random.randint(-1, 1)))
+                # Outer bars follow center tightly with slight asymmetry
+                left = max(0, int(center * 0.6 + random.randint(0, 1)))
+                right = max(0, int(center * 0.6 + random.randint(0, 1)))
             else:
                 # Fallback: random levels
                 center = random.randint(2, 7)
@@ -486,7 +484,7 @@ class KistiModeWidget(QWidget):
         self._envelope_playing = False
 
         self._envelope_timer = QTimer(self)
-        self._envelope_timer.setInterval(33)  # 30 Hz to match envelope computation rate
+        self._envelope_timer.setInterval(50)  # 20 Hz to match envelope computation rate
         self._envelope_timer.timeout.connect(self._envelope_tick)
 
         try:
@@ -543,7 +541,7 @@ class KistiModeWidget(QWidget):
 
         # Adjust typewriter speed so text finishes near when audio finishes
         if self._envelope and self._char_queue:
-            audio_duration_ms = len(self._envelope) * 37  # 37ms per frame
+            audio_duration_ms = len(self._envelope) * 50  # 50ms per frame at 20 Hz
             char_interval = max(15, min(60, audio_duration_ms // max(1, len(self._char_queue))))
             self._type_timer.setInterval(char_interval)
 

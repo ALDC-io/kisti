@@ -27,7 +27,7 @@ log = logging.getLogger("kisti.voice.player")
 PIPER_BINARY = Path("/data/piper/piper")
 PIPER_VOICE = Path("/data/piper/en_US-lessac-medium.onnx")
 PIPER_SAMPLE_RATE = 22050
-ENVELOPE_FPS = 30
+ENVELOPE_FPS = 20  # Match waveform widget update rate
 
 
 class AudioPlayer(QObject):
@@ -82,9 +82,11 @@ class AudioPlayer(QObject):
     def _generate_and_play(self, text: str) -> None:
         """Background: Piper → envelope → signal ready → play → signal done."""
         try:
-            # Step 1: Synthesize audio via Piper
+            # Step 1: Synthesize audio via Piper (slightly slower for waveform sync)
             proc = subprocess.run(
-                [str(PIPER_BINARY), "--model", str(PIPER_VOICE), "--output_raw"],
+                [str(PIPER_BINARY), "--model", str(PIPER_VOICE),
+                 "--length_scale", "1.1",  # 10% slower speech for cleaner waveform tracking
+                 "--output_raw"],
                 input=text.encode("utf-8"),
                 capture_output=True,
                 timeout=30,
