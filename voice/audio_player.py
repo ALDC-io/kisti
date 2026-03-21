@@ -171,6 +171,10 @@ class AudioPlayer(QObject):
         if max_amp > 0:
             envelope = [v / max_amp for v in envelope]
 
+        # Trim trailing silence (frames below 0.02 at the end)
+        while envelope and envelope[-1] < 0.02:
+            envelope.pop()
+
         return envelope
 
     @staticmethod

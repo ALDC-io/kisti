@@ -452,7 +452,7 @@ class KistiModeWidget(QWidget):
         self._envelope_playing = False
 
         self._envelope_timer = QTimer(self)
-        self._envelope_timer.setInterval(33)  # ~30 Hz to match envelope FPS
+        self._envelope_timer.setInterval(37)  # Slightly slower than 30 Hz to account for aplay buffer latency
         self._envelope_timer.timeout.connect(self._envelope_tick)
 
         try:
@@ -513,12 +513,15 @@ class KistiModeWidget(QWidget):
             self._type_timer.setInterval(char_interval)
 
     def _on_audio_finished(self):
-        """Audio playback ended — stop envelope and waveform."""
+        """Audio playback ended — immediately kill envelope and waveform."""
         self._envelope_playing = False
         self._envelope_timer.stop()
-        self._waveform.set_amplitude(0.0)
-        self._waveform.set_active(False)
         self._envelope = []
+        self._envelope_idx = 0
+        self._waveform._real_amplitude = 0.0
+        self._waveform._levels = [0, 0, 0]
+        self._waveform.set_active(False)
+        self._waveform.update()  # Force immediate repaint to zero
 
     def _envelope_tick(self):
         """Advance one frame in the pre-computed envelope (main thread, 30 Hz)."""
