@@ -68,7 +68,7 @@ KISTI_CAN_OUTPUT_IDS: set[int] = {LED_OUTPUT_FRAME_ID, LED_OUTPUT_FRAME_2_ID}
 
 CAN_INTERFACE: str = "can0"
 CAN_BUSTYPE: str = "socketcan"
-CAN_BITRATE: int = 500_000  # 500 kbps — standard Link ECU CAN speed
+CAN_BITRATE: int = 1_000_000  # 1 Mbps — required by AiM MXG Strada dash
 
 # ---------------------------------------------------------------------------
 # 0x6A0 — DIFF frame layout (8 bytes)
@@ -165,6 +165,10 @@ DYN_BRAKE_SCALE: float = 0.1  # raw / 10 → bar
 # ---------------------------------------------------------------------------
 # Link G5 Neo 4 Generic Dash output. 4 channels per frame, uint16 BE.
 #
+# NOTE: Link's native Generic Dash uses LITTLE-endian. Our User CAN stream
+# re-encodes as BIG-endian for consistency with the DIFF/CONTEXT frames.
+# Verify byte order in PCLink G5 CAN stream configuration before first use.
+#
 # Byte0-1: RPM              uint16 BE  raw RPM (no scaling)
 # Byte2-3: MAP_kPa_x10      uint16 BE  kPa × 10
 # Byte4-5: TPS_x10          uint16 BE  % × 10
@@ -230,6 +234,10 @@ GD3_INJ_DUTY_SCALE: float = 0.1  # %
 #
 # Byte0:   SI_Drive_Mode     uint8    0=Intelligent, 1=Sport, 2=Sport Sharp
 # Byte1-7: reserved
+#
+# NOTE: Link ECU OEM CAN reads SI Drive as: 1=Sport Sharp, 2=Intelligent,
+# 3=Sport. These values are RE-MAPPED in the Link User CAN stream to our
+# simpler 0/1/2 encoding. Verify mapping in PCLink G5 User CAN config.
 
 SI_DRIVE_MODE_OFFSET: int = 0
 
@@ -283,8 +291,15 @@ KEYPAD_K8: int = 0x80  # Reserved
 # ---------------------------------------------------------------------------
 # 0x6C0-0x6C1 — LED Waveform Output (2 × 8 bytes)
 # ---------------------------------------------------------------------------
-# KiSTI → Arduino/ESP32 LED controller via CAN.
+# KiSTI → external LED controller (Arduino/ESP32) via CAN.
 # 10 RGB LEDs controlled via brightness + base color.
+#
+# NOTE: AiM MXG Strada shift lights are NOT directly addressable via CAN.
+# AiM uses internal firmware thresholds configured in Race Studio 3.
+# These LED output frames drive a SEPARATE controller for the voice
+# waveform visualizer, independent of the AiM dash shift lights.
+# AiM shift lights should be configured in RS3 to respond to RPM from
+# the Link ECU Generic Dash stream (or a Jetson-published virtual channel).
 #
 # Frame 0x6C0:
 #   Byte0:   LED_Mode         uint8   0=off, 1=waveform, 2=rpm, 3=kitt, 4=warmup
