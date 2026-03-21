@@ -18,6 +18,7 @@ import threading
 import time
 import wave
 from pathlib import Path
+from collections import deque
 from typing import Optional
 
 from PySide6.QtCore import QObject, Signal
@@ -49,6 +50,8 @@ class AudioPlayer(QObject):
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
         self._playing = False
+        self._play_start_time: float = 0.0
+        self._queue: deque[tuple[str, str]] = deque(maxlen=5)
         self._piper_available = PIPER_BINARY.exists() and PIPER_VOICE.exists()
         self._sample_rate = PIPER_SAMPLE_RATE_DEFAULT
 
@@ -82,8 +85,14 @@ class AudioPlayer(QObject):
             log.debug("speak(): empty text, skipping")
             return
         if self._playing:
-            log.debug("speak(): already playing, skipping: %s", text[:30])
-            return
+            # Check stale guard: if playing for > 30s, force-reset
+            if time.monotonic() - self._play_start_time > 30.0:
+                log.warning("speak(): _playing stuck for >30s, force-resetting")
+                self._playing = False
+            else:
+                log.info("speak(): busy, queuing: %s", text[:30])
+                self._queue.append((text, urgency))
+                return
         if not self._piper_available:
             log.debug("speak(): Piper not available")
             return
@@ -91,6 +100,7 @@ class AudioPlayer(QObject):
         text = self._expand_abbreviations(text)
         log.info("speak(): generating audio [%s]: %s", urgency, text[:50])
         self._playing = True
+        self._play_start_time = time.monotonic()
         thread = threading.Thread(
             target=self._generate_and_play,
             args=(text, urgency),
@@ -166,10 +176,22 @@ class AudioPlayer(QObject):
             log.info("Playback finished")
             self.playback_finished.emit()
 
+            # Drain queue: if more speech is pending, start next
+            self._drain_queue()
+
         except Exception as exc:
             log.warning("Audio playback error: %s", exc)
             self._playing = False
             self.playback_finished.emit()
+            self._drain_queue()
+
+    def _drain_queue(self) -> None:
+        """If speech is queued, start the next one."""
+        if self._queue and not self._playing:
+            text, urgency = self._queue.popleft()
+            log.info("Draining queue: [%s] %s", urgency, text[:40])
+            # Call speak() which will set _playing and start a new thread
+            self.speak(text, urgency)
 
     @staticmethod
     def _compute_envelope(
