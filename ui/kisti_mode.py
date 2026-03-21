@@ -205,6 +205,19 @@ _IDLE_LINES = [
     "The Porsche 917 was so fast it was effectively banned from Le Mans.",
     "A Formula 1 engine revs to 15,000 RPM. Ours peaks at 7,200. Different worlds.",
     "Rain tires can disperse 65 liters of water per second at 186 mph.",
+    # Fast and the Furious
+    "I live my life a quarter mile at a time. For those ten seconds, I'm free.",
+    "It doesn't matter if you win by an inch or a mile. Winning's winning.",
+    "I don't have friends. I got family.",
+    "You almost had me? You never had me. You never had your car.",
+    "Ask any racer. Any real racer. It don't matter if you win by an inch or a mile.",
+    "Ride or die, remember?",
+    "The most important thing in life will always be the people in this room. Right here, right now.",
+    "Money will come and go. We all know that. The most important thing in life will always be family.",
+    "I used to say I live my life a quarter mile at a time. I think that's why we were brothers.",
+    "Whether it's an inch or a mile, winning's winning.",
+    "You break her heart, I'll break your neck.",
+    "I am groot. Wait, wrong franchise.",
 ]
 
 # Typewriter speed (ms per character)
