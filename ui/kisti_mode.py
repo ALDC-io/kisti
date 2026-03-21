@@ -206,7 +206,48 @@ _IDLE_LINES = [
     "I used to say I live my life a quarter mile at a time. I think that's why we were brothers.",
     "Whether it's an inch or a mile, winning's winning.",
     "You break her heart, I'll break your neck.",
-    "I am groot. Wait, wrong franchise.",
+    # Knight Rider / KITT
+    "Michael, is that you?",
+    "I am the Knight Industries Two Thousand. But you can call me KITT.",
+    "Michael, I would not advise that.",
+    "I do not break down. I am a Knight Industries vehicle.",
+    "Turbo boost, Michael?",
+    "I have been designed to protect human life. I will not allow you to jeopardise yours.",
+    "One does not have to be human to have feelings, Michael.",
+    "Right away, Michael.",
+    # Star Wars
+    "Do, or do not. There is no try.",
+    "I have a bad feeling about this.",
+    "The Force will be with you. Always.",
+    "Never tell me the odds.",
+    "In my experience, there is no such thing as luck.",
+    "This is the way.",
+    "I find your lack of faith disturbing.",
+    "Stay on target. Stay on target.",
+    # Obi-Wan
+    "Hello there.",
+    "You were the chosen one! It was said that you would destroy the Sith, not join them!",
+    "Your eyes can deceive you. Don't trust them.",
+    "Who is more foolish? The fool, or the fool who follows him?",
+    "You will find that many of the truths we cling to depend greatly on our own point of view.",
+    "Be mindful of your thoughts. They betray you.",
+    "If you strike me down, I shall become more powerful than you can possibly imagine.",
+    "Use the Force, Luke.",
+    # The Matrix
+    "I know kung fu.",
+    "There is no spoon.",
+    "Free your mind.",
+    "What if I told you that everything you think you know, is wrong?",
+    "The Matrix is everywhere. It is all around us. Even now, in this very room.",
+    "You take the red pill, you stay in Wonderland, and I show you how deep the rabbit hole goes.",
+    "I did not say it would be easy. I said it would be the truth.",
+    "Welcome to the real world.",
+    # The Godfather
+    "I am gonna make him an offer he cannot refuse.",
+
+    "Look how they massacred my boy.",
+
+    "Just when I thought I was out... they pull me back in.",
 ]
 
 # Typewriter speed (ms per character)
