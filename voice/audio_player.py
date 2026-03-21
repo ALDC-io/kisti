@@ -95,7 +95,7 @@ class AudioPlayer(QObject):
     def _generate_and_play(self, text: str, urgency: str = "normal") -> None:
         """Background: Piper → envelope → signal ready → play → signal done."""
         try:
-            length_scale = self._URGENCY_SCALES.get(urgency, "1.1")
+            length_scale = self._URGENCY_SCALES.get(urgency, "1.0")
 
             # Step 1: Synthesize audio via Piper
             proc = subprocess.run(
