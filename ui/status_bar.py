@@ -59,16 +59,17 @@ class TopStatusBar(QWidget):
         self._clock_label.setStyleSheet(f"color: {WHITE}; font-weight: bold;")
         layout.addWidget(self._clock_label)
 
+        # Status dots — all start dark, only light when hardware confirmed
         self._gps_dot = QLabel("\u25cf GPS")
-        self._gps_dot.setStyleSheet(f"color: {GREEN};")
+        self._gps_dot.setStyleSheet(f"color: {GRAY};")
         layout.addWidget(self._gps_dot)
 
         self._log_dot = QLabel("\u25cf LOG")
-        self._log_dot.setStyleSheet(f"color: {GREEN};")
+        self._log_dot.setStyleSheet(f"color: {GRAY};")
         layout.addWidget(self._log_dot)
 
         self._net_dot = QLabel("\u25cf NET")
-        self._net_dot.setStyleSheet(f"color: {GREEN};")
+        self._net_dot.setStyleSheet(f"color: {GRAY};")
         layout.addWidget(self._net_dot)
 
         self._v1_dot = QLabel("\u25cf V1")

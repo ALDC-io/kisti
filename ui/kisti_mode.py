@@ -749,21 +749,29 @@ class KistiModeWidget(QWidget):
                 self._queue_lines([f"No ECU detected. Jetson CPU at {cpu_temp:.0f} degrees."])
 
         # Start file watcher for external speech injection
-        # Write text to /tmp/kisti_say.txt and the app will speak it
         self._say_file = "/tmp/kisti_say.txt"
         self._say_timer = QTimer(self)
-        self._say_timer.setInterval(500)  # Check every 500ms
+        self._say_timer.setInterval(500)
         self._say_timer.timeout.connect(self._check_say_file)
         self._say_timer.start()
 
-    def _check_say_file(self):
-        """Check for externally injected speech via /tmp/kisti_say.txt.
+        # USB device monitor — detect new connections/disconnections
+        self._known_usb = set()
+        self._usb_timer = QTimer(self)
+        self._usb_timer.setInterval(3000)  # Check every 3 seconds
+        self._usb_timer.timeout.connect(self._check_usb_devices)
+        self._usb_timer.start()
+        self._init_usb_baseline()
 
-        Prefix with ALERT_ or CRITICAL_ to set urgency:
-            echo "CRITICAL_Oil pressure low! Shut down!" > /tmp/kisti_say.txt
+    def _check_say_file(self):
+        """Check for externally injected speech or questions.
+
+        /tmp/kisti_say.txt — speak this text directly (prefix ALERT_/CRITICAL_ for urgency)
+        /tmp/kisti_ask.txt — ask KiSTI a question, she thinks via Ollama and responds
         """
         import os
         try:
+            # Direct speech
             if os.path.exists(self._say_file):
                 with open(self._say_file, "r") as f:
                     text = f.read().strip()
@@ -777,8 +785,106 @@ class KistiModeWidget(QWidget):
                         urgency = "alert"
                         text = text[6:]
                     self._queue_lines([text], urgency=urgency)
+
+            # Question → LLM → response
+            ask_file = "/tmp/kisti_ask.txt"
+            if os.path.exists(ask_file):
+                with open(ask_file, "r") as f:
+                    question = f.read().strip()
+                os.remove(ask_file)
+                if question:
+                    # Show the question in transcript
+                    self._transcript.append(f"> {question}")
+                    self._update_display()
+                    # Process through LLM in background
+                    import threading
+                    threading.Thread(
+                        target=self._process_question,
+                        args=(question,),
+                        daemon=True,
+                    ).start()
         except Exception:
             pass
+
+    def _init_usb_baseline(self):
+        """Capture initial USB devices so we only announce changes."""
+        self._known_usb = self._scan_usb_devices()
+
+    def _scan_usb_devices(self) -> set:
+        """Scan connected USB devices, return set of (vendor, product) names."""
+        import subprocess
+        devices = set()
+        try:
+            result = subprocess.run(
+                ["lsusb"], capture_output=True, text=True, timeout=5,
+            )
+            for line in result.stdout.strip().split("\n"):
+                if "ID " in line:
+                    # e.g. "Bus 001 Device 003: ID 1234:5678 Some Device Name"
+                    parts = line.split("ID ", 1)
+                    if len(parts) > 1:
+                        dev_info = parts[1].strip()
+                        # Skip hubs and root hubs
+                        if "hub" not in dev_info.lower():
+                            devices.add(dev_info)
+        except Exception:
+            pass
+        return devices
+
+    def _check_usb_devices(self):
+        """Detect USB device changes and announce them."""
+        current = self._scan_usb_devices()
+        added = current - self._known_usb
+        removed = self._known_usb - current
+
+        for dev in added:
+            name = dev.split(" ", 1)[1] if " " in dev else dev
+            self._transcript.append(f"  [USB+] {name}")
+            self._queue_lines([f"New device detected: {name}"])
+            klog.info("USB connected: %s", name)
+
+        for dev in removed:
+            name = dev.split(" ", 1)[1] if " " in dev else dev
+            self._transcript.append(f"  [USB-] {name}")
+            self._queue_lines([f"Device disconnected: {name}"], urgency="alert")
+            klog.info("USB disconnected: %s", name)
+
+        if added or removed:
+            self._update_display()
+
+        self._known_usb = current
+
+    def _process_question(self, question: str):
+        """Background: send question to Ollama LLM, queue the response."""
+        try:
+            from voice.llm_engine import LLMEngine
+            if not hasattr(self, '_llm'):
+                self._llm = LLMEngine()
+                self._llm.start()
+
+            # Build telemetry context from Jetson CPU temp
+            context = ""
+            try:
+                from pathlib import Path
+                for tz in sorted(Path("/sys/class/thermal/").glob("thermal_zone*")):
+                    temp_file = tz / "temp"
+                    if temp_file.exists():
+                        cpu_temp = int(temp_file.read_text().strip()) / 1000.0
+                        context = f"Jetson CPU: {cpu_temp:.1f}°C. No ECU connected."
+                        break
+            except Exception:
+                context = "No ECU connected. Running on Jetson Orin Nano."
+
+            response = self._llm.query(
+                user_message=question,
+                telemetry_context=context,
+                si_drive_mode="Intelligent",
+            )
+            klog.info("LLM response [%s]: %s", response.tier, response.text[:80])
+            self._queue_lines([response.text])
+        except Exception as exc:
+            klog.warning("LLM query failed: %s", exc)
+            self._queue_lines(["I couldn't process that. Try again."])
 
     def set_demo_mode(self, enabled: bool):
         """Enable/disable idle demo chatter."""
@@ -888,10 +994,15 @@ class KistiModeWidget(QWidget):
             sb.setValue(sb.minimum())
 
     def update_data(self, vehicle_state):
-        """Process radar state and trigger KiSTI persona speech on alerts."""
-        if self._radar_cooldown > 0:
-            return
-        self._handle_radar_alert(vehicle_state.radar)
+        """Process vehicle state — only act on real connected hardware."""
+        # Radar alerts only if Valentine One is actually connected
+        if (hasattr(vehicle_state, 'radar') and vehicle_state.radar
+                and hasattr(vehicle_state.radar, 'connected')
+                and vehicle_state.radar.connected):
+            if self._radar_cooldown > 0:
+                return
+            self._handle_radar_alert(vehicle_state.radar)
+        # Otherwise: no radar, no fake alerts
 
     def _handle_radar_alert(self, radar_state):
         """Generate escalating first-person speech based on radar threat level."""
