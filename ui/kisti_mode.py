@@ -261,11 +261,15 @@ class _KittWaveform(QWidget):
                 left = max(0, int(center * random.uniform(0.4, 1.0)))
                 right = max(0, int(center * random.uniform(0.4, 1.0)))
 
-            # Style: center always has at least 1 segment while speaking
-            # (never goes full dark mid-sentence). Outer bars capped to center.
+            # Style: center always has at least 1 segment while speaking.
+            # Outer bars: only show when center >= 2, capped at 65% of center.
             center = max(1, center)  # Minimum 1 segment while active
-            left = min(left, center)
-            right = min(right, center)
+            if center < 2:
+                left = 0
+                right = 0
+            else:
+                left = max(0, min(int(center * 0.65), left))
+                right = max(0, min(int(center * 0.65), right))
 
             self._levels = [left, center, right]
         else:
@@ -289,25 +293,30 @@ class _KittWaveform(QWidget):
         center_y = h / 2
         base_color = QColor(KISTI_RED)
 
+        # Horizontal gradient: center column = 1.0, outer columns = 0.6
+        col_fade = [0.6, 1.0, 0.6]
+
         for col_idx in range(num_cols):
             level = self._levels[col_idx]
             col_x = col_gap + col_idx * (total_col_width + col_gap)
+            h_fade = col_fade[col_idx]  # Horizontal fade factor
 
             for seg in range(num_segments):
                 dist = seg  # 0 = closest to center, 6 = furthest
                 lit = seg < level
 
                 # Color intensity: strongest at center, fades with distance
-                # Segment 0 (center) = full red, segment 6 (edge) = dim red
+                # Both vertical (segment distance) and horizontal (column position)
                 if lit:
-                    fade = 1.0 - (dist / num_segments) * 0.75  # 1.0 → 0.25
-                    r = int(200 * fade)
-                    g = int(10 * max(0, 0.3 - dist * 0.05))
-                    b = int(51 * max(0, 0.5 - dist * 0.08))
-                    opacity = max(0.3, fade)
+                    v_fade = 1.0 - (dist / num_segments) * 0.75  # Vertical: 1.0 → 0.25
+                    combined = v_fade * h_fade  # Apply horizontal gradient
+                    r = int(200 * combined)
+                    g = int(10 * max(0, (0.3 - dist * 0.05) * h_fade))
+                    b = int(51 * max(0, (0.5 - dist * 0.08) * h_fade))
+                    opacity = max(0.25, combined)
                 else:
                     r, g, b = 30, 0, 5
-                    opacity = 0.08
+                    opacity = 0.06
 
                 seg_color = QColor(r, g, b)
                 seg_color.setAlphaF(opacity)
