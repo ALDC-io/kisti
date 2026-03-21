@@ -583,15 +583,17 @@ class KistiModeWidget(QWidget):
         self._char_queue = list(text)
         self._current_line = ""
 
-        # Trigger real audio playback if Piper is available
-        if self._voice_enabled and self._audio_player and self._audio_player.is_available:
+        # Trigger real audio playback if Piper is available and not already playing
+        if (self._voice_enabled and self._audio_player
+                and self._audio_player.is_available and not self._audio_player.is_playing):
             klog.info("_start_speaking: sending to AudioPlayer: %s", text[:50])
             self._audio_player.speak(text)
             # Hold typewriter until playback_started signal fires (see _on_audio_started)
             self._pause_ticks = 9999  # Will be released by _on_audio_started
         else:
-            # No audio — start waveform immediately with random fallback
+            # AudioPlayer busy or unavailable — typewriter only, no audio
             self._waveform.set_active(True)
+            self._waveform._use_real_amplitude = False  # Random fallback
 
     def _stop_speaking(self):
         """End speech — commit line to transcript. Scanner keeps sweeping."""

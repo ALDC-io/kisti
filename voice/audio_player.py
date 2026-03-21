@@ -129,14 +129,14 @@ class AudioPlayer(QObject):
             if stderr:
                 log.warning("aplay stderr: %s", stderr[:200])
 
+            self._playing = False  # Reset BEFORE emitting signal
             log.info("Playback finished")
             self.playback_finished.emit()
 
         except Exception as exc:
             log.warning("Audio playback error: %s", exc)
-            self.playback_finished.emit()
-        finally:
             self._playing = False
+            self.playback_finished.emit()
 
     @staticmethod
     def _compute_envelope(
