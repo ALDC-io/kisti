@@ -224,6 +224,7 @@ class _KittWaveform(QWidget):
         self.setMinimumSize(120, 100)
         self._active = False
         self._levels = [0, 0, 0]
+        self._prev_center = 0       # Track previous center for decay
         self._real_amplitude = 0.0  # 0.0-1.0 from audio player
         self._use_real_amplitude = False
 
@@ -261,9 +262,14 @@ class _KittWaveform(QWidget):
                 left = max(0, int(center * random.uniform(0.4, 1.0)))
                 right = max(0, int(center * random.uniform(0.4, 1.0)))
 
+            # Decay: during pauses, step down 1 level per tick instead of snapping
+            if center < self._prev_center:
+                center = max(1, self._prev_center - 1)  # Gentle step-down
+            self._prev_center = center
+
             # Style: center always has at least 1 segment while speaking.
             # Outer bars: only show when center >= 2, capped at 65% of center.
-            center = max(1, center)  # Minimum 1 segment while active
+            center = max(1, center)
             if center < 2:
                 left = 0
                 right = 0
