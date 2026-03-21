@@ -27,7 +27,7 @@ log = logging.getLogger("kisti.voice.player")
 PIPER_BINARY = Path("/data/piper/piper")
 PIPER_VOICE = Path("/data/piper/en_US-lessac-medium.onnx")
 PIPER_SAMPLE_RATE = 22050
-ENVELOPE_FPS = 20  # Match waveform widget update rate
+ENVELOPE_FPS = 40  # Higher resolution to capture syllable-level cadence
 
 
 class AudioPlayer(QObject):
