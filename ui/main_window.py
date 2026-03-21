@@ -90,9 +90,10 @@ class MainWindow(QMainWindow):
         shortcut = QShortcut(QKeySequence(Qt.Key_F11), self)
         shortcut.activated.connect(self._toggle_fullscreen)
 
-        # Mock data generator
-        self._generator = MockDataGenerator(self)
-        self._generator.data_updated.connect(self._on_data_updated)
+        # Mock data generator — disabled, only real hardware
+        self._generator = None
+        # self._generator = MockDataGenerator(self)
+        # self._generator.data_updated.connect(self._on_data_updated)
 
         # Radar manager — only started if real V1 hardware is detected
         # (mock radar disabled — no fake alerts)
@@ -110,7 +111,7 @@ class MainWindow(QMainWindow):
 
     def _on_splash_done(self):
         """Called when splash screen closes."""
-        self._generator.start()
+        # self._generator.start()  # Disabled — no mock data
         # Radar: only start if real V1 hardware detected (mock disabled)
         if self._radar_manager is not None:
             self._radar_manager.start()
@@ -163,8 +164,10 @@ class MainWindow(QMainWindow):
             self.showFullScreen()
 
     def closeEvent(self, event):
-        self._generator.stop()
-        self._radar_manager.stop()
+        if self._generator:
+            self._generator.stop()
+        if self._radar_manager:
+            self._radar_manager.stop()
         if self._can_listener is not None:
             self._can_listener.stop()
         if self._mock_can is not None:
