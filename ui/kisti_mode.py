@@ -554,11 +554,11 @@ class KistiModeWidget(QWidget):
                 name="kisti-warmup",
             ).start()
 
-    def _queue_lines(self, lines):
+    def _queue_lines(self, lines, urgency: str = "normal"):
         """Queue a list of lines to be spoken sequentially."""
         for line in lines:
-            self._line_queue.append(line)
-        klog.info("Queued %d lines, first: %s", len(lines), (lines[0] if lines else "")[:50])
+            self._line_queue.append((line, urgency))
+        klog.info("Queued %d lines [%s], first: %s", len(lines), urgency, (lines[0] if lines else "")[:50])
 
     def _on_audio_ready(self, envelope: list, duration_s: float):
         """Envelope pre-computed — store it and wait for playback_started."""
@@ -650,7 +650,7 @@ class KistiModeWidget(QWidget):
         """Enable/disable idle demo chatter."""
         self._demo_mode = enabled
 
-    def _start_speaking(self, text):
+    def _start_speaking(self, text, urgency: str = "normal"):
         """Begin typewriter output of a line + audio playback if available."""
         self._speaking = True
         self._char_queue = list(text)
@@ -659,8 +659,8 @@ class KistiModeWidget(QWidget):
         # Trigger real audio playback if Piper is available and not already playing
         if (self._voice_enabled and self._audio_player
                 and self._audio_player.is_available and not self._audio_player.is_playing):
-            klog.info("_start_speaking: sending to AudioPlayer: %s", text[:50])
-            self._audio_player.speak(text)
+            klog.info("_start_speaking [%s]: %s", urgency, text[:50])
+            self._audio_player.speak(text, urgency=urgency)
             # Hold typewriter until playback_started signal fires (see _on_audio_started)
             self._pause_ticks = 9999  # Will be released by _on_audio_started
         else:
@@ -700,9 +700,13 @@ class KistiModeWidget(QWidget):
             self._pause_ticks = int(500 / _CHAR_MS)
         elif not self._speaking and not self._audio_playing and self._line_queue:
             # Both idle — start next queued line
-            next_line = self._line_queue.pop(0)
+            item = self._line_queue.pop(0)
+            if isinstance(item, tuple):
+                next_line, urgency = item
+            else:
+                next_line, urgency = item, "normal"
             if next_line.strip():
-                self._start_speaking(next_line)
+                self._start_speaking(next_line, urgency)
             else:
                 # Empty line = pause (~1s)
                 self._transcript.append("")
@@ -781,16 +785,21 @@ class KistiModeWidget(QWidget):
 
         if alert.band == RadarBand.LASER:
             line = f"LASER! {direction.upper()}! You're being painted right now."
+            urgency = "critical"
         elif signal <= 2:
             line = f"Heads up — weak {band} detected, {direction}."
+            urgency = "normal"
         elif signal <= 4:
             ghz = alert.frequency_mhz / 1000.0
             line = f"I'm picking up {band} at {ghz:.1f} GHz, {direction}. Signal is building."
+            urgency = "alert"
         elif signal <= 6:
             ghz = alert.frequency_mhz / 1000.0
             line = f"Strong {band} {direction}, {ghz:.1f} GHz. Slow it down."
+            urgency = "alert"
         else:
             ghz = alert.frequency_mhz / 1000.0
             line = f"Very strong {band} signal, {ghz:.1f} GHz! Brake check."
+            urgency = "critical"
 
-        self._queue_lines([line])
+        self._queue_lines([line], urgency=urgency)
