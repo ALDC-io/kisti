@@ -53,8 +53,12 @@ class AudioPlayer(QObject):
         else:
             log.info("AudioPlayer: Piper not found, waveform will use typewriter timing")
 
-    def speak(self, text: str) -> None:
+    def speak(self, text: str, urgency: str = "normal") -> None:
         """Generate and play speech in a background thread.
+
+        Args:
+            text: Text to speak.
+            urgency: "normal" (composed), "alert" (firm), "critical" (fast, sharp).
 
         Emits ready() with the envelope before playback, then
         playback_started() when audio begins, playback_finished() when done.
@@ -69,23 +73,33 @@ class AudioPlayer(QObject):
             log.debug("speak(): Piper not available")
             return
 
-        log.info("speak(): generating audio for: %s", text[:50])
+        log.info("speak(): generating audio [%s]: %s", urgency, text[:50])
         self._playing = True
         thread = threading.Thread(
             target=self._generate_and_play,
-            args=(text,),
+            args=(text, urgency),
             daemon=True,
             name="kisti-audio-player",
         )
         thread.start()
 
-    def _generate_and_play(self, text: str) -> None:
+    # Speech speed by urgency: lower = faster
+    _URGENCY_SCALES = {
+        "normal": "1.1",     # Composed, slightly slow
+        "alert": "0.9",      # Firm, quicker pace
+        "critical": "0.75",  # Fast, sharp, urgent
+    }
+
+    def _generate_and_play(self, text: str, urgency: str = "normal") -> None:
         """Background: Piper → envelope → signal ready → play → signal done."""
         try:
-            # Step 1: Synthesize audio via Piper (slightly slower for waveform sync)
+            length_scale = self._URGENCY_SCALES.get(urgency, "1.1")
+
+            # Step 1: Synthesize audio via Piper
             proc = subprocess.run(
                 [str(PIPER_BINARY), "--model", str(PIPER_VOICE),
-                 "--length_scale", "1.1",  # 10% slower speech for cleaner waveform tracking
+                 "--length_scale", length_scale,
+                 "--sentence_silence", "0.1" if urgency != "normal" else "0.3",
                  "--output_raw"],
                 input=text.encode("utf-8"),
                 capture_output=True,
