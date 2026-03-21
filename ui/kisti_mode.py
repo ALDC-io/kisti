@@ -453,7 +453,7 @@ class KistiModeWidget(QWidget):
         self._envelope_playing = False
 
         self._envelope_timer = QTimer(self)
-        self._envelope_timer.setInterval(37)  # Slightly slower than 30 Hz to account for aplay buffer latency
+        self._envelope_timer.setInterval(33)  # 30 Hz to match envelope computation rate
         self._envelope_timer.timeout.connect(self._envelope_tick)
 
         try:
