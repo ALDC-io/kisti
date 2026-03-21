@@ -646,18 +646,18 @@ class KistiModeWidget(QWidget):
         ).start()
 
     def _detect_hardware(self):
-        """Quick startup health check — lean, not verbose."""
+        """Startup: scan hardware, only speak problems. Visual log for details."""
         import subprocess
         import os
         from pathlib import Path
         import time
 
-        # Line 1: audible
         self._queue_lines(["Initializing KiSTI subsystems..."])
         time.sleep(3)
 
-        # Quick health check
-        healthy = True
+        issues = []
+
+        # CPU temp
         cpu_temp = None
         try:
             for tz in sorted(Path("/sys/class/thermal/").glob("thermal_zone*")):
@@ -667,8 +667,20 @@ class KistiModeWidget(QWidget):
                     break
         except Exception:
             pass
+        if cpu_temp and cpu_temp >= 80:
+            issues.append(("critical", f"CPU overheating. {cpu_temp:.0f} degrees."))
 
-        # Check if ECU is connected
+        # GPU
+        gpu_ok = False
+        try:
+            result = subprocess.run(["nvidia-smi"], capture_output=True, timeout=5)
+            gpu_ok = result.returncode == 0
+        except Exception:
+            pass
+        if not gpu_ok:
+            issues.append(("alert", "GPU not detected."))
+
+        # ECU
         ecu_ok = False
         try:
             import can as python_can
@@ -677,47 +689,38 @@ class KistiModeWidget(QWidget):
             ecu_ok = True
         except Exception:
             pass
+        if not ecu_ok:
+            issues.append(("normal", "No ECU detected."))
 
-        # Check GPU
-        gpu_ok = False
+        # Ollama
+        ollama_ok = False
         try:
-            result = subprocess.run(["nvidia-smi"], capture_output=True, timeout=5)
-            gpu_ok = result.returncode == 0
+            import urllib.request
+            import json
+            with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=3) as resp:
+                models = json.loads(resp.read()).get("models", [])
+                ollama_ok = len(models) > 0
         except Exception:
             pass
+        if not ollama_ok:
+            issues.append(("alert", "Local AI not responding."))
 
-        if gpu_ok and cpu_temp is not None and cpu_temp < 80:
-            self._queue_lines(["NVIDIA Jetson Orin healthy."])
+        # Visual-only: log all status silently
+        self._transcript.append(f"  CPU: {cpu_temp:.0f}°C" if cpu_temp else "  CPU: ---")
+        self._transcript.append(f"  GPU: {'OK' if gpu_ok else '---'}")
+        self._transcript.append(f"  ECU: {'OK' if ecu_ok else '---'}")
+        self._transcript.append(f"  AI: {'OK' if ollama_ok else '---'}")
+        self._update_display()
+
+        time.sleep(1)
+
+        # Speak only issues, or confirm all clear
+        if not issues:
+            self._queue_lines(["All systems online."])
         else:
-            healthy = False
-            if cpu_temp and cpu_temp >= 80:
-                self._queue_lines([f"Warning. Jetson CPU at {cpu_temp:.0f} degrees."], urgency="alert")
-            elif not gpu_ok:
-                self._queue_lines(["Warning. GPU not detected."], urgency="alert")
-
-        time.sleep(4)
-
-        # List USB devices (spoken)
-        usb_devices = []
-        try:
-            result = subprocess.run(["lsusb"], capture_output=True, text=True, timeout=5)
-            for line in result.stdout.strip().split("\n"):
-                if "ID " in line:
-                    name = line.split("ID ", 1)[1].split(" ", 1)
-                    if len(name) > 1 and "hub" not in name[1].lower():
-                        usb_devices.append(name[1].strip())
-        except Exception:
-            pass
-
-        if usb_devices:
-            self._queue_lines([f"{len(usb_devices)} USB devices connected."])
-        time.sleep(3)
-
-        # ECU status
-        if ecu_ok:
-            self._queue_lines(["Link ECU connected."])
-        else:
-            self._queue_lines(["No ECU detected."])
+            for urgency, msg in issues:
+                self._queue_lines([msg], urgency=urgency)
+                time.sleep(3)
 
     def _check_say_file(self):
         """Check for externally injected speech or questions.
