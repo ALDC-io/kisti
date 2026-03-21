@@ -227,6 +227,7 @@ class _KittWaveform(QWidget):
         self._prev_center = 0       # Track previous center for decay
         self._real_amplitude = 0.0  # 0.0-1.0 from audio player
         self._use_real_amplitude = False
+        self._intensity = 1.0       # 0.0-1.0 brightness multiplier (dims during pauses)
 
         self._timer = QTimer(self)
         self._timer.setInterval(50)  # 20 Hz waveform update (was 80ms/12.5Hz)
@@ -244,14 +245,20 @@ class _KittWaveform(QWidget):
         """Set real amplitude from audio playback (0.0-1.0)."""
         self._real_amplitude = max(0.0, min(1.0, amplitude))
         self._use_real_amplitude = True
+        # Intensity tracks amplitude — dims during pauses (floor at 0.3)
+        if amplitude > 0.1:
+            self._intensity = min(1.0, self._intensity + 0.15)  # Ramp up
+        else:
+            self._intensity = max(0.3, self._intensity - 0.08)  # Fade down
 
     def _update_levels(self):
         if self._active:
             if self._use_real_amplitude:
-                # Drive from real audio amplitude
+                # Drive directly from real audio amplitude — no smoothing
+                # This lets syllable-level cadence come through
                 amp = self._real_amplitude
-                center = max(1, int(amp * 7))
-                # Outer bars in lockstep — same height, variation only vertical
+                center = int(amp * 7)  # Direct map, no minimum here (decay handles it)
+                # Outer bars in lockstep
                 outer = max(0, int(center * 0.6))
                 left = outer
                 right = outer
@@ -312,14 +319,14 @@ class _KittWaveform(QWidget):
                 lit = seg < level
 
                 # Color intensity: strongest at center, fades with distance
-                # Both vertical (segment distance) and horizontal (column position)
+                # Vertical (segment) × horizontal (column) × intensity (pause dimming)
                 if lit:
                     v_fade = 1.0 - (dist / num_segments) * 0.75  # Vertical: 1.0 → 0.25
-                    combined = v_fade * h_fade  # Apply horizontal gradient
+                    combined = v_fade * h_fade * self._intensity
                     r = int(200 * combined)
-                    g = int(10 * max(0, (0.3 - dist * 0.05) * h_fade))
-                    b = int(51 * max(0, (0.5 - dist * 0.08) * h_fade))
-                    opacity = max(0.25, combined)
+                    g = int(10 * max(0, (0.3 - dist * 0.05) * h_fade * self._intensity))
+                    b = int(51 * max(0, (0.5 - dist * 0.08) * h_fade * self._intensity))
+                    opacity = max(0.15, combined)
                 else:
                     r, g, b = 30, 0, 5
                     opacity = 0.06
@@ -492,7 +499,7 @@ class KistiModeWidget(QWidget):
         self._envelope_playing = False
 
         self._envelope_timer = QTimer(self)
-        self._envelope_timer.setInterval(50)  # 20 Hz to match envelope computation rate
+        self._envelope_timer.setInterval(25)  # 40 Hz to match envelope — captures syllable cadence
         self._envelope_timer.timeout.connect(self._envelope_tick)
 
         try:
@@ -549,7 +556,7 @@ class KistiModeWidget(QWidget):
 
         # Adjust typewriter speed so text finishes near when audio finishes
         if self._envelope and self._char_queue:
-            audio_duration_ms = len(self._envelope) * 50  # 50ms per frame at 20 Hz
+            audio_duration_ms = len(self._envelope) * 25  # 25ms per frame at 40 Hz
             char_interval = max(15, min(60, audio_duration_ms // max(1, len(self._char_queue))))
             self._type_timer.setInterval(char_interval)
 
