@@ -1,32 +1,59 @@
 #!/usr/bin/env python3
-"""KiSTI
+"""KiSTI — Edge AI Co-Driver
 
-Visual telemetry prototype for Kenwood Excelon head unit (800x480).
-Runs on Jetson Orin with X11 display.
+Visual telemetry + voice intelligence for Kenwood Excelon head unit (800x480).
+Runs on Jetson Orin Nano with X11/eglfs display.
+
+Subsystems:
+  - CAN bus listener (Link G5 Neo 4 telemetry, SI Drive, keypad)
+  - Voice pipeline (WhisperTRT STT → Ollama LLM → Piper TTS → USB audio)
+  - Mode manager (Intelligent / Sport / Sport Sharp via SI Drive)
+  - Alert engine (deterministic Tier 1 threshold monitoring)
+  - DuckDB semantic layer (local session storage)
+  - LED waveform output (MXG Strada dash shift lights via CAN)
+  - Nextcloud sync (WiFi-based cloud sync to Zeus Memory)
 
 Usage:
     python3 main.py                  # Windowed 800x480
     python3 main.py --fullscreen     # Fullscreen
     python3 main.py --display :0     # Specify X display
     python3 main.py --platform eglfs # Use eglfs instead of xcb
+    python3 main.py --no-voice       # Disable voice pipeline
+    python3 main.py --no-sync        # Disable cloud sync
 
 Prerequisites:
-    pip install PySide6
+    pip install PySide6 duckdb python-can sounddevice numpy
     sudo apt-get install libxcb-cursor0  # Required for xcb platform
 """
 
 import argparse
+import logging
 import os
 import sys
 
 
+def setup_logging() -> None:
+    """Configure logging for KiSTI."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+
 def main():
-    parser = argparse.ArgumentParser(description="KiSTI")
+    parser = argparse.ArgumentParser(description="KiSTI — Edge AI Co-Driver")
     parser.add_argument("--fullscreen", action="store_true", help="Start in fullscreen mode")
     parser.add_argument("--display", type=str, default=None, help="X11 display (e.g. :0)")
     parser.add_argument("--platform", type=str, default=None,
                         help="Qt platform plugin (xcb, eglfs, linuxfb, offscreen)")
+    parser.add_argument("--no-voice", action="store_true", help="Disable voice pipeline")
+    parser.add_argument("--no-sync", action="store_true", help="Disable cloud sync")
+    parser.add_argument("--no-duckdb", action="store_true", help="Disable DuckDB recording")
     args = parser.parse_args()
+
+    setup_logging()
+    log = logging.getLogger("kisti")
 
     if args.display:
         os.environ["DISPLAY"] = args.display
@@ -45,14 +72,122 @@ def main():
     # Import Qt after environment is configured
     from PySide6.QtWidgets import QApplication
 
+    from can.kisti_can import create_can_source
+    from model.vehicle_state import DiffStateBridge
+    from modes.mode_manager import ModeManager
+    from alerts.alert_engine import AlertEngine
     from ui.main_window import MainWindow
 
     app = QApplication(sys.argv)
 
+    # Core: CAN bus bridge
+    bridge = DiffStateBridge()
+    listener, mock = create_can_source(bridge)
+
+    # Mode manager: SI Drive → subsystem control
+    mode_mgr = ModeManager(bridge)
+    mode_mgr.start()
+
+    # Alert engine: deterministic Tier 1 threshold monitoring
+    alert_eng = AlertEngine(bridge)
+    alert_eng.start()
+
+    # Voice pipeline (optional)
+    voice_mgr = None
+    if not args.no_voice:
+        try:
+            from voice.voice_manager import VoiceManager
+            voice_mgr = VoiceManager()
+            voice_mgr.start()
+
+            # Wire mode changes to voice manager
+            mode_mgr.si_drive_changed.connect(
+                lambda m: voice_mgr.set_si_drive_mode(
+                    __import__("model.vehicle_state", fromlist=["SIDriveMode"]).SIDriveMode(m)
+                )
+            )
+            mode_mgr.voice_toggle.connect(voice_mgr.toggle_voice)
+
+            # Wire alerts to voice
+            alert_eng.alert_fired.connect(
+                lambda a: voice_mgr.speak_alert(a.message, a.severity.label)
+            )
+
+            # Wire analyze run (K3) to voice query
+            mode_mgr.analyze_run.connect(
+                lambda: voice_mgr.handle_voice_query("Analyze that run")
+            )
+
+            log.info("Voice pipeline enabled")
+        except Exception as exc:
+            log.warning("Voice pipeline failed to start: %s", exc)
+
+    # DuckDB session recording (optional)
+    db_store = None
+    if not args.no_duckdb:
+        try:
+            from data.duckdb_store import DuckDBStore
+            db_store = DuckDBStore()
+            db_store.open()
+            log.info("DuckDB session store ready")
+        except Exception as exc:
+            log.warning("DuckDB failed to initialize: %s", exc)
+
+    # Cloud sync (optional)
+    sync_mgr = None
+    if not args.no_sync and db_store is not None:
+        try:
+            from sync.sync_manager import SyncManager
+            sync_mgr = SyncManager(db_store=db_store)
+            sync_mgr.start()
+
+            # Announce sync completion via voice
+            if voice_mgr:
+                sync_mgr.sync_complete.connect(
+                    lambda n: voice_mgr.speak(f"Session upload complete. {n} session{'s' if n > 1 else ''} synced.")
+                )
+
+            log.info("Cloud sync enabled")
+        except Exception as exc:
+            log.warning("Cloud sync failed to start: %s", exc)
+
+    # Start CAN source (real or mock)
+    if listener:
+        listener.start()
+        log.info("CAN listener started")
+    elif mock:
+        mock.start()
+        log.info("Mock CAN generator started")
+
+    # UI
     window = MainWindow(fullscreen=args.fullscreen)
     window.show()
 
-    sys.exit(app.exec())
+    log.info("KiSTI running — SI Drive: %s, Voice: %s, DuckDB: %s, Sync: %s",
+             mode_mgr.si_drive_mode.label,
+             "ON" if voice_mgr else "OFF",
+             "ON" if db_store else "OFF",
+             "ON" if sync_mgr else "OFF")
+
+    # Run Qt event loop
+    exit_code = app.exec()
+
+    # Cleanup
+    log.info("Shutting down...")
+    if listener:
+        listener.stop()
+    if mock:
+        mock.stop()
+    if voice_mgr:
+        voice_mgr.stop()
+    if sync_mgr:
+        sync_mgr.stop()
+    if db_store:
+        db_store.close()
+    mode_mgr.stop()
+    alert_eng.stop()
+
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

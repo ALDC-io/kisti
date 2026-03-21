@@ -1,0 +1,287 @@
+"""Tests for voice pipeline — STT, TTS, LLM, LED waveform, voice manager.
+
+All tests use mocks (no Ollama, no WhisperTRT, no Piper, no audio hardware).
+"""
+
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import pytest
+
+from voice.stt_engine import STTEngine, TranscriptionResult, SAMPLE_RATE
+from voice.tts_engine import TTSEngine, TTSResult, compute_amplitude_envelope
+from voice.llm_engine import LLMEngine, LLMResponse, _match_persona, FALLBACK_RESPONSE
+from voice.led_waveform import LEDWaveformGenerator, LEDFrame
+from can.can_config import (
+    LED_COUNT, LED_MODE_KITT, LED_MODE_OFF, LED_MODE_RPM,
+    LED_MODE_WARMUP, LED_MODE_WAVEFORM,
+)
+
+
+# ========================================================================
+# STT Engine tests
+# ========================================================================
+
+class TestSTTEngine:
+    def test_start_stop(self):
+        engine = STTEngine()
+        engine.start()
+        assert engine.is_running
+        engine.stop()
+        assert not engine.is_running
+
+    def test_mock_transcription(self):
+        """Without WhisperTRT, returns mock result."""
+        engine = STTEngine()
+        engine.start()
+        assert not engine.is_real
+
+        # 1 second of silence at 16kHz
+        audio = b"\x00\x00" * SAMPLE_RATE
+        result = engine.transcribe(audio)
+
+        assert isinstance(result, TranscriptionResult)
+        assert result.text == "[mock transcription]"
+        assert result.duration_s == pytest.approx(1.0, abs=0.01)
+        assert result.is_final
+        assert result.confidence == 0.0
+        engine.stop()
+
+    def test_transcribe_empty(self):
+        engine = STTEngine()
+        engine.start()
+        result = engine.transcribe(b"")
+        assert result.duration_s == 0.0
+        engine.stop()
+
+
+# ========================================================================
+# TTS Engine tests
+# ========================================================================
+
+class TestTTSEngine:
+    def test_start_stop(self):
+        engine = TTSEngine()
+        engine.start()
+        assert engine.is_running
+        assert not engine.is_real  # Piper not at /data/piper/
+        engine.stop()
+        assert not engine.is_running
+
+    def test_mock_speak(self):
+        """Without Piper, returns mock audio with envelope."""
+        engine = TTSEngine()
+        engine.start()
+        result = engine.speak("Hello, I'm KiSTI.")
+
+        assert isinstance(result, TTSResult)
+        assert len(result.audio_pcm) > 0
+        assert result.sample_rate == 22050
+        assert result.duration_s > 0
+        assert len(result.amplitude_envelope) > 0
+        # Envelope values should be normalized 0-1
+        assert all(0.0 <= v <= 1.0 for v in result.amplitude_envelope)
+        engine.stop()
+
+    def test_mock_speak_short_text(self):
+        engine = TTSEngine()
+        engine.start()
+        result = engine.speak("Hi")
+        assert result.duration_s >= 0.5  # Minimum duration
+        engine.stop()
+
+
+class TestAmplitudeEnvelope:
+    def test_empty_audio(self):
+        assert compute_amplitude_envelope(b"", 16000) == []
+
+    def test_silence(self):
+        """Silence produces zero envelope."""
+        audio = b"\x00\x00" * 16000  # 1s silence at 16kHz
+        envelope = compute_amplitude_envelope(audio, 16000, fps=10)
+        assert len(envelope) > 0
+        assert all(v == 0.0 for v in envelope)
+
+    def test_loud_signal(self):
+        """Loud signal produces non-zero envelope."""
+        import struct
+        # Generate 1s of max-amplitude sine-ish signal
+        samples = []
+        for i in range(16000):
+            val = int(32000 * (1 if i % 100 < 50 else -1))  # square wave
+            samples.append(struct.pack("<h", val))
+        audio = b"".join(samples)
+
+        envelope = compute_amplitude_envelope(audio, 16000, fps=10)
+        assert len(envelope) > 0
+        assert max(envelope) > 0.9  # Should be nearly 1.0 after normalization
+
+
+# ========================================================================
+# LLM Engine tests
+# ========================================================================
+
+class TestLLMEngine:
+    def test_start_stop(self):
+        engine = LLMEngine()
+        engine.start()
+        assert engine.is_running
+        assert not engine.is_real  # No Ollama running
+        engine.stop()
+        assert not engine.is_running
+
+    def test_persona_fallback_brakes(self):
+        """Without Ollama, uses persona keyword matching."""
+        engine = LLMEngine()
+        engine.start()
+        response = engine.query("How are the brakes?")
+
+        assert isinstance(response, LLMResponse)
+        assert response.tier == "persona_match"
+        assert "caliper" in response.text.lower() or "front-right" in response.text.lower()
+        engine.stop()
+
+    def test_persona_fallback_oil(self):
+        engine = LLMEngine()
+        engine.start()
+        response = engine.query("How's the oil pressure?")
+        assert response.tier == "persona_match"
+        assert "psi" in response.text.lower()
+        engine.stop()
+
+    def test_persona_fallback_identity(self):
+        engine = LLMEngine()
+        engine.start()
+        response = engine.query("Who are you?")
+        assert response.tier == "persona_match"
+        assert "kisti" in response.text.lower()
+        engine.stop()
+
+    def test_fallback_unknown(self):
+        """Unknown query returns fallback response."""
+        engine = LLMEngine()
+        engine.start()
+        response = engine.query("What's the airspeed velocity of an unladen swallow?")
+        assert response.tier == "fallback"
+        assert response.text == FALLBACK_RESPONSE
+        engine.stop()
+
+
+class TestPersonaMatching:
+    def test_brake_keywords(self):
+        assert _match_persona("How are the brakes?") is not None
+
+    def test_turbo_keywords(self):
+        assert _match_persona("How's the boost?") is not None
+
+    def test_identity_keywords(self):
+        result = _match_persona("Who are you?")
+        assert result is not None
+        assert "kisti" in result.lower()
+
+    def test_no_match(self):
+        assert _match_persona("xyzzy random words") is None
+
+
+# ========================================================================
+# LED Waveform tests
+# ========================================================================
+
+class TestLEDWaveform:
+    def test_waveform_frame(self):
+        gen = LEDWaveformGenerator()
+        frame = gen.waveform_frame(0.8)
+
+        assert isinstance(frame, LEDFrame)
+        assert frame.mode == LED_MODE_WAVEFORM
+        assert len(frame.brightnesses) == LED_COUNT
+        assert frame.color_r == 230  # KiSTI red
+        assert all(0 <= b <= 255 for b in frame.brightnesses)
+        # Center should be brighter than edges
+        assert frame.brightnesses[5] >= frame.brightnesses[0]
+
+    def test_waveform_zero_amplitude(self):
+        gen = LEDWaveformGenerator()
+        frame = gen.waveform_frame(0.0)
+        assert all(b == 0 for b in frame.brightnesses)
+
+    def test_waveform_full_amplitude(self):
+        gen = LEDWaveformGenerator()
+        frame = gen.waveform_frame(1.0)
+        # Center-out pattern: max brightness ~93% due to falloff from center
+        assert max(frame.brightnesses) >= 230
+
+    def test_waveform_from_envelope(self):
+        gen = LEDWaveformGenerator()
+        envelope = [0.0, 0.5, 1.0, 0.5, 0.0]
+        frames = gen.waveform_from_envelope(envelope)
+        assert len(frames) == 5
+        assert all(f.mode == LED_MODE_WAVEFORM for f in frames)
+
+    def test_kitt_sweep(self):
+        gen = LEDWaveformGenerator()
+        frame = gen.kitt_sweep_frame(dt=0.033)
+        assert frame.mode == LED_MODE_KITT
+        assert len(frame.brightnesses) == LED_COUNT
+        assert frame.color_r == 255  # Red
+        # At least one LED should be lit
+        assert max(frame.brightnesses) > 0
+
+    def test_kitt_sweep_moves(self):
+        """KITT sweep position changes over time."""
+        gen = LEDWaveformGenerator()
+        frame1 = gen.kitt_sweep_frame(dt=0.033)
+        # Advance several frames
+        for _ in range(20):
+            gen.kitt_sweep_frame(dt=0.033)
+        frame2 = gen.kitt_sweep_frame(dt=0.033)
+        # Position should have moved (different brightness distribution)
+        assert frame1.brightnesses != frame2.brightnesses
+
+    def test_rpm_shift_below_threshold(self):
+        gen = LEDWaveformGenerator()
+        frame = gen.rpm_shift_frame(rpm=2000.0)
+        assert frame.mode == LED_MODE_RPM
+        assert all(b == 0 for b in frame.brightnesses)
+
+    def test_rpm_shift_at_shift_point(self):
+        gen = LEDWaveformGenerator()
+        frame = gen.rpm_shift_frame(rpm=6500.0)
+        assert frame.mode == LED_MODE_RPM
+        assert sum(1 for b in frame.brightnesses if b > 0) > 0
+
+    def test_rpm_shift_redline(self):
+        gen = LEDWaveformGenerator()
+        frame = gen.rpm_shift_frame(rpm=7500.0)
+        assert frame.color_r == 255  # Red at redline
+        assert all(b == 255 for b in frame.brightnesses)
+
+    def test_warmup_cold(self):
+        gen = LEDWaveformGenerator()
+        frame = gen.warmup_frame(progress=0.0)
+        assert frame.mode == LED_MODE_WARMUP
+        assert frame.color_b > frame.color_r  # Blue when cold
+
+    def test_warmup_ready(self):
+        gen = LEDWaveformGenerator()
+        frame = gen.warmup_frame(progress=1.0)
+        assert frame.mode == LED_MODE_WARMUP
+        assert frame.color_g > frame.color_r  # Green when ready
+
+    def test_off_frame(self):
+        gen = LEDWaveformGenerator()
+        frame = gen.off_frame()
+        assert frame.mode == LED_MODE_OFF
+        assert all(b == 0 for b in frame.brightnesses)
+
+    def test_alert_critical(self):
+        gen = LEDWaveformGenerator()
+        frame = gen.alert_flash_frame("critical", phase=0.0)
+        assert frame.color_r == 255
+        assert all(b == 255 for b in frame.brightnesses)
+
+    def test_alert_critical_off_phase(self):
+        gen = LEDWaveformGenerator()
+        frame = gen.alert_flash_frame("critical", phase=0.6)
+        assert all(b == 0 for b in frame.brightnesses)

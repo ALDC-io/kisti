@@ -1,14 +1,22 @@
 """KiSTI - CAN Bus Configuration
 
 Editable constants for the KiSTI publish bus from Link ECU.
-Update these when the real Link G4X CAN configuration is finalized.
+Supports G4X and G5 Neo 4 ECU configurations.
+
+Update these when the real Link CAN configuration is finalized.
 
 All arbitration IDs, byte offsets, scaling, and enums are defined here.
 The decoder in kisti_can.py imports only from this module.
 """
 
 # ---------------------------------------------------------------------------
-# Arbitration IDs
+# ECU Profile Selection
+# ---------------------------------------------------------------------------
+
+ACTIVE_ECU: str = "G5"  # "G4X" or "G5" — determines available CAN frames
+
+# ---------------------------------------------------------------------------
+# Arbitration IDs — KiSTI Custom Frames (all ECUs)
 # ---------------------------------------------------------------------------
 
 DIFF_FRAME_ID: int = 0x6A0         # 50 Hz from Link ECU
@@ -16,11 +24,43 @@ CONTEXT_FRAME_ID: int = 0x6A1      # 20 Hz from Link ECU
 WHEEL_SPEED_FRAME_ID: int = 0x6A2  # 50 Hz — individual wheel speeds
 DYNAMICS_FRAME_ID: int = 0x6A3     # 50 Hz — steering, yaw, lat-G, brake
 
-# Set of all IDs we care about (for CAN filter mask)
-KISTI_CAN_IDS: set[int] = {
+# ---------------------------------------------------------------------------
+# Arbitration IDs — G5 Neo 4 Additional Frames
+# ---------------------------------------------------------------------------
+
+GENERIC_DASH_BASE_ID: int = 0x360  # 7 frames: 0x360-0x366, 50 Hz
+GENERIC_DASH_COUNT: int = 3        # We use frames 0-2 (0x360-0x362)
+
+SI_DRIVE_FRAME_ID: int = 0x6B0    # User CAN: SI Drive state, 10 Hz
+SENSOR_FRAME_ID: int = 0x6B1      # User CAN: extended sensors, 20 Hz
+KEYPAD_FRAME_ID: int = 0x6B2      # 8-Button Keypad state, on-change
+
+LED_OUTPUT_FRAME_ID: int = 0x6C0   # LED waveform output frame 1, 30 Hz
+LED_OUTPUT_FRAME_2_ID: int = 0x6C1 # LED waveform output frame 2, 30 Hz
+
+# ---------------------------------------------------------------------------
+# CAN ID Sets
+# ---------------------------------------------------------------------------
+
+_BASE_CAN_IDS: set[int] = {
     DIFF_FRAME_ID, CONTEXT_FRAME_ID,
     WHEEL_SPEED_FRAME_ID, DYNAMICS_FRAME_ID,
 }
+
+_G5_INPUT_IDS: set[int] = {
+    *(GENERIC_DASH_BASE_ID + i for i in range(GENERIC_DASH_COUNT)),
+    SI_DRIVE_FRAME_ID,
+    SENSOR_FRAME_ID,
+    KEYPAD_FRAME_ID,
+}
+
+# IDs we listen for (input)
+KISTI_CAN_IDS: set[int] = _BASE_CAN_IDS | (
+    _G5_INPUT_IDS if ACTIVE_ECU == "G5" else set()
+)
+
+# IDs we send (output) — excluded from listener filter
+KISTI_CAN_OUTPUT_IDS: set[int] = {LED_OUTPUT_FRAME_ID, LED_OUTPUT_FRAME_2_ID}
 
 # ---------------------------------------------------------------------------
 # CAN interface
@@ -121,6 +161,160 @@ DYN_BRAKE_OFFSET: int = 6
 DYN_BRAKE_SCALE: float = 0.1  # raw / 10 → bar
 
 # ---------------------------------------------------------------------------
+# 0x360 — Generic Dash Frame 1 (8 bytes)
+# ---------------------------------------------------------------------------
+# Link G5 Neo 4 Generic Dash output. 4 channels per frame, uint16 BE.
+#
+# Byte0-1: RPM              uint16 BE  raw RPM (no scaling)
+# Byte2-3: MAP_kPa_x10      uint16 BE  kPa × 10
+# Byte4-5: TPS_x10          uint16 BE  % × 10
+# Byte6-7: CLT_x10          int16 BE   °C × 10
+
+GD1_RPM_OFFSET: int = 0
+GD1_RPM_SCALE: float = 1.0
+
+GD1_MAP_OFFSET: int = 2
+GD1_MAP_SCALE: float = 0.1  # kPa
+
+GD1_TPS_OFFSET: int = 4
+GD1_TPS_SCALE: float = 0.1  # %
+
+GD1_CLT_OFFSET: int = 6
+GD1_CLT_SCALE: float = 0.1  # °C (signed)
+
+# ---------------------------------------------------------------------------
+# 0x361 — Generic Dash Frame 2 (8 bytes)
+# ---------------------------------------------------------------------------
+# Byte0-1: IAT_x10          int16 BE   °C × 10
+# Byte2-3: Lambda1_x1000    uint16 BE  λ × 1000
+# Byte4-5: OilPressure_x10  uint16 BE  kPa × 10
+# Byte6-7: OilTemp_x10      int16 BE   °C × 10
+
+GD2_IAT_OFFSET: int = 0
+GD2_IAT_SCALE: float = 0.1  # °C
+
+GD2_LAMBDA_OFFSET: int = 2
+GD2_LAMBDA_SCALE: float = 0.001  # λ
+
+GD2_OIL_PRESS_OFFSET: int = 4
+GD2_OIL_PRESS_SCALE: float = 0.1  # kPa
+
+GD2_OIL_TEMP_OFFSET: int = 6
+GD2_OIL_TEMP_SCALE: float = 0.1  # °C
+
+# ---------------------------------------------------------------------------
+# 0x362 — Generic Dash Frame 3 (8 bytes)
+# ---------------------------------------------------------------------------
+# Byte0-1: EthanolPct_x10   uint16 BE  % × 10
+# Byte2-3: FuelPressure_x10 uint16 BE  kPa × 10
+# Byte4-5: BatteryV_x100    uint16 BE  V × 100
+# Byte6-7: InjDuty_x10      uint16 BE  % × 10
+
+GD3_ETHANOL_OFFSET: int = 0
+GD3_ETHANOL_SCALE: float = 0.1  # %
+
+GD3_FUEL_PRESS_OFFSET: int = 2
+GD3_FUEL_PRESS_SCALE: float = 0.1  # kPa
+
+GD3_BATT_OFFSET: int = 4
+GD3_BATT_SCALE: float = 0.01  # V
+
+GD3_INJ_DUTY_OFFSET: int = 6
+GD3_INJ_DUTY_SCALE: float = 0.1  # %
+
+# ---------------------------------------------------------------------------
+# 0x6B0 — SI Drive frame layout (8 bytes)
+# ---------------------------------------------------------------------------
+# Link G5 reads SI Drive switch as analog voltage input, outputs via User CAN.
+# Configured in PCLink G5: User CAN Transmit.
+#
+# Byte0:   SI_Drive_Mode     uint8    0=Intelligent, 1=Sport, 2=Sport Sharp
+# Byte1-7: reserved
+
+SI_DRIVE_MODE_OFFSET: int = 0
+
+SI_DRIVE_INTELLIGENT: int = 0
+SI_DRIVE_SPORT: int = 1
+SI_DRIVE_SPORT_SHARP: int = 2
+
+# ---------------------------------------------------------------------------
+# 0x6B1 — Extended Sensor frame (8 bytes)
+# ---------------------------------------------------------------------------
+# User CAN: additional sensors not in Generic Dash or alternative readings.
+#
+# Byte0-1: MAP_4bar_kPa_x10    uint16 BE  kPa × 10 (4-bar sensor, 0-400 kPa)
+# Byte2-3: IAT_ext_x10         int16 BE   °C × 10 (external IAT sensor)
+# Byte4-5: EthanolPct_ext_x10  uint16 BE  % × 10 (Flex Fuel sensor)
+# Byte6-7: OilPSI_150_x10      uint16 BE  PSI × 10 (150 PSI sensor)
+
+SENS_MAP_4BAR_OFFSET: int = 0
+SENS_MAP_4BAR_SCALE: float = 0.1  # kPa
+
+SENS_IAT_EXT_OFFSET: int = 2
+SENS_IAT_EXT_SCALE: float = 0.1  # °C
+
+SENS_ETHANOL_OFFSET: int = 4
+SENS_ETHANOL_SCALE: float = 0.1  # %
+
+SENS_OIL_PSI_OFFSET: int = 6
+SENS_OIL_PSI_SCALE: float = 0.1  # PSI
+
+# ---------------------------------------------------------------------------
+# 0x6B2 — Keypad frame (8 bytes)
+# ---------------------------------------------------------------------------
+# Link 8-Button Keypad — button state as bitfield. Sent on-change.
+#
+# Byte0:   ButtonState      uint8  bit0=K1 .. bit7=K8 (1=pressed)
+# Byte1:   PrevButtonState  uint8  previous state (for edge detection)
+# Byte2-7: reserved
+
+KEYPAD_STATE_OFFSET: int = 0
+KEYPAD_PREV_OFFSET: int = 1
+
+KEYPAD_K1: int = 0x01  # Session Start/Stop
+KEYPAD_K2: int = 0x02  # Mark Segment
+KEYPAD_K3: int = 0x04  # Analyze That Run
+KEYPAD_K4: int = 0x08  # Voice Toggle
+KEYPAD_K5: int = 0x10  # Coaching Level Cycle
+KEYPAD_K6: int = 0x20  # Display Mode Cycle
+KEYPAD_K7: int = 0x40  # Reserved
+KEYPAD_K8: int = 0x80  # Reserved
+
+# ---------------------------------------------------------------------------
+# 0x6C0-0x6C1 — LED Waveform Output (2 × 8 bytes)
+# ---------------------------------------------------------------------------
+# KiSTI → Arduino/ESP32 LED controller via CAN.
+# 10 RGB LEDs controlled via brightness + base color.
+#
+# Frame 0x6C0:
+#   Byte0:   LED_Mode         uint8   0=off, 1=waveform, 2=rpm, 3=kitt, 4=warmup
+#   Byte1-7: Brightness[0-6]  uint8   0-255 per LED
+#
+# Frame 0x6C1:
+#   Byte0-2: Brightness[7-9]  uint8   0-255 per LED
+#   Byte3:   Color_R          uint8   base color red
+#   Byte4:   Color_G          uint8   base color green
+#   Byte5:   Color_B          uint8   base color blue
+#   Byte6-7: reserved
+
+LED_MODE_OFFSET: int = 0
+LED_BRIGHTNESS_START: int = 1   # frame 1: bytes 1-7 = LEDs 0-6
+
+LED2_BRIGHTNESS_START: int = 0  # frame 2: bytes 0-2 = LEDs 7-9
+LED2_COLOR_R_OFFSET: int = 3
+LED2_COLOR_G_OFFSET: int = 4
+LED2_COLOR_B_OFFSET: int = 5
+
+LED_MODE_OFF: int = 0
+LED_MODE_WAVEFORM: int = 1
+LED_MODE_RPM: int = 2
+LED_MODE_KITT: int = 3
+LED_MODE_WARMUP: int = 4
+
+LED_COUNT: int = 10
+LED_OUTPUT_HZ: int = 30  # 30 Hz output rate
+
+# ---------------------------------------------------------------------------
 # Staleness / timing
 # ---------------------------------------------------------------------------
 
@@ -137,3 +331,6 @@ MOCK_DIFF_HZ: int = 50        # Mock DIFF frame rate
 MOCK_CONTEXT_HZ: int = 20     # Mock CONTEXT frame rate
 MOCK_WHEEL_HZ: int = 50       # Mock wheel speed frame rate
 MOCK_DYNAMICS_HZ: int = 50    # Mock dynamics frame rate
+MOCK_GENERIC_DASH_HZ: int = 50  # Mock Generic Dash rate
+MOCK_SI_DRIVE_HZ: int = 10    # Mock SI Drive rate
+MOCK_SENSOR_HZ: int = 20      # Mock extended sensor rate
