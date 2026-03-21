@@ -318,30 +318,29 @@ class _KittWaveform(QWidget):
                 dist = seg  # 0 = closest to center, 6 = furthest
                 lit = seg < level
 
-                # Flame palette: yellow core → orange → red → dark red
-                # Vertical (segment distance) × horizontal (column) × intensity
+                # Sakura palette: light pink core → rose → KiSTI red → dark
+                # Cherry blossom gradient matching STI logo coloring
                 if lit:
-                    # Flame color by distance from center (0=core, 6=edge)
                     t = dist / max(1, num_segments - 1)  # 0.0 → 1.0
-                    # Yellow (255,200,0) → Orange (255,100,0) → Red (200,10,50) → Dark (80,0,20)
+                    # Sakura (255,183,197) → Rose (232,80,122) → KiSTI Red (200,10,51) → Dark (80,0,20)
                     if t < 0.3:
-                        # Core: bright yellow-orange
+                        # Core: soft sakura pink
                         f = t / 0.3
                         fr = 255
-                        fg = int(200 - 100 * f)  # 200 → 100
-                        fb = 0
+                        fg = int(183 - 103 * f)  # 183 → 80
+                        fb = int(197 - 75 * f)   # 197 → 122
                     elif t < 0.6:
-                        # Mid: orange to red
+                        # Mid: rose pink to KiSTI red
                         f = (t - 0.3) / 0.3
-                        fr = int(255 - 55 * f)   # 255 → 200
-                        fg = int(100 - 90 * f)   # 100 → 10
-                        fb = int(50 * f)          # 0 → 50
+                        fr = int(232 - 32 * f)   # 232 → 200
+                        fg = int(80 - 70 * f)    # 80 → 10
+                        fb = int(122 - 71 * f)   # 122 → 51
                     else:
-                        # Outer: red to dark red
+                        # Outer: KiSTI red to dark
                         f = (t - 0.6) / 0.4
                         fr = int(200 - 120 * f)  # 200 → 80
                         fg = int(10 - 10 * f)    # 10 → 0
-                        fb = int(50 - 30 * f)    # 50 → 20
+                        fb = int(51 - 31 * f)    # 51 → 20
 
                     # Apply horizontal and intensity gradients
                     combined = h_fade * self._intensity
