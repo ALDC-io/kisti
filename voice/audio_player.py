@@ -25,7 +25,7 @@ from PySide6.QtCore import QObject, Signal
 log = logging.getLogger("kisti.voice.player")
 
 PIPER_BINARY = Path("/data/piper/piper")
-PIPER_VOICE = Path("/data/piper/en_GB-alba-medium.onnx")
+PIPER_VOICE = Path("/data/piper/en_US-danny-low.onnx")
 PIPER_SAMPLE_RATE = 22050
 ENVELOPE_FPS = 40  # Higher resolution to capture syllable-level cadence
 
