@@ -547,6 +547,27 @@ class KistiModeWidget(QWidget):
         """Called 4 seconds after startup — UI is fully rendered, start intro."""
         self._queue_lines(_INTRO_LINES)
 
+        # Start file watcher for external speech injection
+        # Write text to /tmp/kisti_say.txt and the app will speak it
+        self._say_file = "/tmp/kisti_say.txt"
+        self._say_timer = QTimer(self)
+        self._say_timer.setInterval(500)  # Check every 500ms
+        self._say_timer.timeout.connect(self._check_say_file)
+        self._say_timer.start()
+
+    def _check_say_file(self):
+        """Check for externally injected speech via /tmp/kisti_say.txt."""
+        import os
+        try:
+            if os.path.exists(self._say_file):
+                with open(self._say_file, "r") as f:
+                    text = f.read().strip()
+                os.remove(self._say_file)
+                if text:
+                    self._queue_lines([text])
+        except Exception:
+            pass
+
     def set_demo_mode(self, enabled: bool):
         """Enable/disable idle demo chatter."""
         self._demo_mode = enabled
