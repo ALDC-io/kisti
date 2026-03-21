@@ -6,8 +6,19 @@
 SAY="/tmp/kisti_say.txt"
 
 say() {
+    # Wait for any previous line to be consumed
+    for i in $(seq 1 60); do
+        [ ! -f "$SAY" ] && break
+        sleep 0.5
+    done
     echo "$1" > "$SAY"
-    sleep $(echo "$1" | wc -w | awk '{print $1 * 0.15 + 2}')
+    # Wait for this line to be consumed + spoken
+    for i in $(seq 1 60); do
+        [ ! -f "$SAY" ] && break
+        sleep 0.5
+    done
+    # Extra wait for audio playback to finish
+    sleep $(echo "$1" | wc -w | awk '{print $1 * 0.12 + 1.5}')
 }
 
 say "Running full diagnostics."

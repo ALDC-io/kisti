@@ -152,13 +152,12 @@ def main():
         except Exception as exc:
             log.warning("Cloud sync failed to start: %s", exc)
 
-    # Start CAN source (real or mock)
+    # Start CAN source — real hardware only, no mock
     if listener:
         listener.start()
         log.info("CAN listener started")
-    elif mock:
-        mock.start()
-        log.info("Mock CAN generator started")
+    else:
+        log.info("No CAN hardware — ECU features disabled")
 
     # UI
     window = MainWindow(fullscreen=args.fullscreen)
