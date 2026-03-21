@@ -100,6 +100,17 @@ echo ""
 echo "=== GPU ==="
 nvidia-smi 2>/dev/null | head -5 || echo "nvidia-smi not available"
 
+# --- CAN bus interface ---
+echo ""
+echo "=== CAN Bus ==="
+if ip link show can0 &>/dev/null; then
+    sudo ip link set can0 up type can bitrate 500000 2>/dev/null && \
+        echo "CAN interface can0 up at 500 kbps" || \
+        echo "CAN interface can0 found but failed to bring up"
+else
+    echo "No CAN interface (can0 not found — connect USB-CAN adapter)"
+fi
+
 echo ""
 echo "=== Setup Complete ==="
 echo "Next steps:"

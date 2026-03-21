@@ -73,7 +73,7 @@ def main():
     # Import Qt after environment is configured
     from PySide6.QtWidgets import QApplication
 
-    from can.kisti_can import create_can_source
+    from can.kisti_can import create_can_source, CanOutputThread
     from model.vehicle_state import DiffStateBridge
     from modes.mode_manager import ModeManager
     from alerts.alert_engine import AlertEngine
@@ -153,21 +153,81 @@ def main():
             log.warning("Cloud sync failed to start: %s", exc)
 
     # Start CAN source — real hardware only, no mock
+    can_output = None
     if listener:
         listener.start()
         log.info("CAN listener started")
+
+        # LED output to AiM MXG Strada shift lights via CAN
+        can_output = CanOutputThread()
+        can_output.start()
+        log.info("CAN LED output started (30 Hz → 0x6C0/0x6C1)")
+
+        # Wire voice LED frames to CAN output
+        if voice_mgr:
+            voice_mgr.led_frame_ready.connect(
+                lambda f: can_output.set_leds(
+                    f.mode, f.brightnesses, f.color_r, f.color_g, f.color_b
+                )
+            )
     else:
         log.info("No CAN hardware — ECU features disabled")
 
-    # UI
-    window = MainWindow(fullscreen=args.fullscreen)
+    # --- DuckDB session lifecycle (K1 start/stop, telemetry recording) ---
+    session_id = None
+    telemetry_tick = [0]  # mutable for closure
+
+    if db_store:
+        def _on_state_changed():
+            telemetry_tick[0] += 1
+            # Record telemetry at ~1 Hz (bridge fires at 20-50 Hz)
+            if session_id and telemetry_tick[0] % 20 == 0:
+                try:
+                    db_store.record_telemetry(session_id, bridge.snapshot())
+                except Exception:
+                    pass
+            # Feed voice telemetry context every ~5s
+            if voice_mgr and telemetry_tick[0] % 100 == 0:
+                voice_mgr.set_telemetry(bridge.snapshot())
+
+        def _on_session_toggle():
+            nonlocal session_id
+            if session_id is None:
+                session_id = db_store.start_session(
+                    si_drive_mode=mode_mgr.si_drive_mode.label,
+                )
+                if voice_mgr:
+                    voice_mgr.speak("Session recording started.")
+                log.info("Session started: %s", session_id[:8])
+            else:
+                db_store.end_session(session_id)
+                if voice_mgr:
+                    voice_mgr.speak("Session recording stopped.")
+                log.info("Session ended: %s", session_id[:8])
+                session_id = None
+
+        bridge.state_changed.connect(_on_state_changed)
+        mode_mgr.session_toggle.connect(_on_session_toggle)
+
+        # Record alerts to DuckDB
+        alert_eng.alert_fired.connect(
+            lambda a: db_store.record_alert(
+                session_id or "no-session",
+                a.alert_type, a.severity.label, a.message, a.value,
+            )
+        )
+        log.info("DuckDB session lifecycle wired (K1 start/stop)")
+
+    # UI — pass the shared bridge so CAN data flows to display
+    window = MainWindow(fullscreen=args.fullscreen, bridge=bridge)
     window.show()
 
-    log.info("KiSTI running — SI Drive: %s, Voice: %s, DuckDB: %s, Sync: %s",
+    log.info("KiSTI running — SI Drive: %s, Voice: %s, DuckDB: %s, Sync: %s, CAN Out: %s",
              mode_mgr.si_drive_mode.label,
              "ON" if voice_mgr else "OFF",
              "ON" if db_store else "OFF",
-             "ON" if sync_mgr else "OFF")
+             "ON" if sync_mgr else "OFF",
+             "ON" if can_output else "OFF")
 
     # Run Qt event loop
     exit_code = app.exec()
@@ -176,6 +236,8 @@ def main():
     log.info("Shutting down...")
     if listener:
         listener.stop()
+    if can_output:
+        can_output.stop()
     if mock:
         mock.stop()
     if voice_mgr:
@@ -183,6 +245,8 @@ def main():
     if sync_mgr:
         sync_mgr.stop()
     if db_store:
+        if session_id:
+            db_store.end_session(session_id)
         db_store.close()
     mode_mgr.stop()
     alert_eng.stop()

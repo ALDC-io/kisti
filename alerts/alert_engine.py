@@ -144,10 +144,13 @@ class AlertEngine(QObject):
         self._check_grip(state)
 
     def _check_oil_pressure(self, state: DiffState) -> None:
-        """Oil pressure alerts."""
+        """Oil pressure alerts. Checks dedicated 150 PSI sensor (0x6B1)
+        first, falls back to Generic Dash oil pressure (0x361)."""
         psi = state.oil_psi
+        if psi <= 0 and state.oil_pressure_kpa > 0:
+            psi = state.oil_pressure_kpa * 0.145038  # kPa → PSI
         if psi <= 0:
-            return  # No data
+            return  # No data from either source
 
         if psi < OIL_PRESS_CRITICAL_PSI:
             self._fire(Alert(

@@ -31,12 +31,13 @@ from can.kisti_can import create_can_source
 class MainWindow(QMainWindow):
     """800x480 fixed-size main window with mode switching."""
 
-    def __init__(self, fullscreen=False):
+    def __init__(self, fullscreen=False, bridge=None):
         super().__init__()
         self.setWindowTitle("KiSTI")
         self.setFixedSize(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setStyleSheet(STYLESHEET)
         self._fullscreen = fullscreen
+        self._external_bridge = bridge is not None
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -100,10 +101,15 @@ class MainWindow(QMainWindow):
         self._radar_manager = None
         self._latest_radar = RadarState()
 
-        # CAN / DIFF data pipeline (separate from mock telemetry)
-        self._diff_bridge = DiffStateBridge(self)
+        # CAN / DIFF data pipeline
+        # Use external bridge if provided (from main.py), otherwise create our own
+        self._diff_bridge = bridge if bridge is not None else DiffStateBridge(self)
         self._diff_mode.set_bridge(self._diff_bridge)
-        self._can_listener, self._mock_can = create_can_source(self._diff_bridge, self)
+        # Only create CAN source if we own the bridge (avoid double listeners)
+        if self._external_bridge:
+            self._can_listener, self._mock_can = None, None
+        else:
+            self._can_listener, self._mock_can = create_can_source(self._diff_bridge, self)
 
         # Show splash first, then start
         self._splash = SplashScreen(self._on_splash_done)
@@ -115,12 +121,9 @@ class MainWindow(QMainWindow):
         # Radar: only start if real V1 hardware detected (mock disabled)
         if self._radar_manager is not None:
             self._radar_manager.start()
-        # Start CAN listener — only if real CAN bus is available (no mock)
-        if self._can_listener is not None:
+        # Start CAN listener — only if we own the bridge (not external)
+        if not self._external_bridge and self._can_listener is not None:
             self._can_listener.start()
-        # Mock CAN disabled — only real CAN hardware
-        # if self._mock_can is not None:
-        #     self._mock_can.start()
         if self._fullscreen:
             self.showFullScreen()
 
