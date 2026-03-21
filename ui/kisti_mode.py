@@ -261,14 +261,11 @@ class _KittWaveform(QWidget):
                 left = max(0, int(center * random.uniform(0.4, 1.0)))
                 right = max(0, int(center * random.uniform(0.4, 1.0)))
 
-            # Style rule: outer bars only show when center is active,
-            # and outer bars never exceed center height
-            if center == 0:
-                left = 0
-                right = 0
-            else:
-                left = min(left, center)
-                right = min(right, center)
+            # Style: center always has at least 1 segment while speaking
+            # (never goes full dark mid-sentence). Outer bars capped to center.
+            center = max(1, center)  # Minimum 1 segment while active
+            left = min(left, center)
+            right = min(right, center)
 
             self._levels = [left, center, right]
         else:
