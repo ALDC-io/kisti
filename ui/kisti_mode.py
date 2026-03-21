@@ -318,18 +318,40 @@ class _KittWaveform(QWidget):
                 dist = seg  # 0 = closest to center, 6 = furthest
                 lit = seg < level
 
-                # Color intensity: strongest at center, fades with distance
-                # Vertical (segment) × horizontal (column) × intensity (pause dimming)
+                # Flame palette: yellow core → orange → red → dark red
+                # Vertical (segment distance) × horizontal (column) × intensity
                 if lit:
-                    v_fade = 1.0 - (dist / num_segments) * 0.75  # Vertical: 1.0 → 0.25
-                    combined = v_fade * h_fade * self._intensity
-                    r = int(200 * combined)
-                    g = int(10 * max(0, (0.3 - dist * 0.05) * h_fade * self._intensity))
-                    b = int(51 * max(0, (0.5 - dist * 0.08) * h_fade * self._intensity))
-                    opacity = max(0.15, combined)
+                    # Flame color by distance from center (0=core, 6=edge)
+                    t = dist / max(1, num_segments - 1)  # 0.0 → 1.0
+                    # Yellow (255,200,0) → Orange (255,100,0) → Red (200,10,50) → Dark (80,0,20)
+                    if t < 0.3:
+                        # Core: bright yellow-orange
+                        f = t / 0.3
+                        fr = 255
+                        fg = int(200 - 100 * f)  # 200 → 100
+                        fb = 0
+                    elif t < 0.6:
+                        # Mid: orange to red
+                        f = (t - 0.3) / 0.3
+                        fr = int(255 - 55 * f)   # 255 → 200
+                        fg = int(100 - 90 * f)   # 100 → 10
+                        fb = int(50 * f)          # 0 → 50
+                    else:
+                        # Outer: red to dark red
+                        f = (t - 0.6) / 0.4
+                        fr = int(200 - 120 * f)  # 200 → 80
+                        fg = int(10 - 10 * f)    # 10 → 0
+                        fb = int(50 - 30 * f)    # 50 → 20
+
+                    # Apply horizontal and intensity gradients
+                    combined = h_fade * self._intensity
+                    r = int(fr * combined)
+                    g = int(fg * combined)
+                    b = int(fb * combined)
+                    opacity = max(0.2, combined * (1.0 - t * 0.5))
                 else:
-                    r, g, b = 30, 0, 5
-                    opacity = 0.06
+                    r, g, b = 20, 5, 0
+                    opacity = 0.04
 
                 seg_color = QColor(r, g, b)
                 seg_color.setAlphaF(opacity)
