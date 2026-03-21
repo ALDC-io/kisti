@@ -255,13 +255,22 @@ class _KittWaveform(QWidget):
                 # Add slight randomness for natural feel
                 left = max(0, min(7, left + random.randint(-1, 1)))
                 right = max(0, min(7, right + random.randint(-1, 1)))
-                self._levels = [left, center, right]
             else:
                 # Fallback: random levels
                 center = random.randint(2, 7)
                 left = max(0, int(center * random.uniform(0.4, 1.0)))
                 right = max(0, int(center * random.uniform(0.4, 1.0)))
-                self._levels = [left, center, right]
+
+            # Style rule: outer bars only show when center is active,
+            # and outer bars never exceed center height
+            if center == 0:
+                left = 0
+                right = 0
+            else:
+                left = min(left, center)
+                right = min(right, center)
+
+            self._levels = [left, center, right]
         else:
             self._levels = [0, 0, 0]
         self.update()
