@@ -94,9 +94,9 @@ class MainWindow(QMainWindow):
         self._generator = MockDataGenerator(self)
         self._generator.data_updated.connect(self._on_data_updated)
 
-        # Radar manager (separate data pipeline at 2Hz)
-        self._radar_manager = RadarManager(self)
-        self._radar_manager.radar_updated.connect(self._on_radar_updated)
+        # Radar manager — only started if real V1 hardware is detected
+        # (mock radar disabled — no fake alerts)
+        self._radar_manager = None
         self._latest_radar = RadarState()
 
         # CAN / DIFF data pipeline (separate from mock telemetry)
@@ -111,12 +111,15 @@ class MainWindow(QMainWindow):
     def _on_splash_done(self):
         """Called when splash screen closes."""
         self._generator.start()
-        self._radar_manager.start()
-        # Start CAN listener or mock CAN generator
+        # Radar: only start if real V1 hardware detected (mock disabled)
+        if self._radar_manager is not None:
+            self._radar_manager.start()
+        # Start CAN listener — only if real CAN bus is available (no mock)
         if self._can_listener is not None:
             self._can_listener.start()
-        if self._mock_can is not None:
-            self._mock_can.start()
+        # Mock CAN disabled — only real CAN hardware
+        # if self._mock_can is not None:
+        #     self._mock_can.start()
         if self._fullscreen:
             self.showFullScreen()
 
