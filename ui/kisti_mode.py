@@ -387,27 +387,25 @@ class KistiModeWidget(QWidget):
         self._demo_mode = False      # Set False to stop idle chatter
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setContentsMargins(8, 4, 8, 4)
         layout.setSpacing(0)
 
-        # Top section: voice waveform + status
-        top = QHBoxLayout()
-        top.setSpacing(16)
+        # Top half: centered KITT waveform (prominent, ~50% of vertical space)
+        waveform_container = QVBoxLayout()
+        waveform_container.setAlignment(Qt.AlignCenter)
 
         self._waveform = _KittWaveform(self)
-        self._waveform.setFixedSize(100, 100)
-        top.addWidget(self._waveform)
-
-        top.addStretch()
-
-        layout.addLayout(top)
+        self._waveform.setMinimumSize(240, 140)
+        waveform_container.addWidget(self._waveform, alignment=Qt.AlignCenter)
 
         self._scan_bar = _ScanBar(self)
-        layout.addWidget(self._scan_bar)
+        waveform_container.addWidget(self._scan_bar)
 
-        layout.addSpacing(8)
+        layout.addLayout(waveform_container, stretch=1)
 
-        # Chat transcript area (scrollable)
+        layout.addSpacing(4)
+
+        # Bottom half: chat transcript (equal space with waveform)
         self._chat_label = QLabel("")
         self._chat_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self._chat_label.setWordWrap(True)
