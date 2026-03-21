@@ -86,8 +86,8 @@ class AudioPlayer(QObject):
     # Speech speed by urgency: lower = faster
     _URGENCY_SCALES = {
         "normal": "1.1",     # Composed, slightly slow
-        "alert": "0.9",      # Firm, quicker pace
-        "critical": "0.75",  # Fast, sharp, urgent
+        "alert": "0.8",      # Firm, noticeably quicker
+        "critical": "0.65",  # Fast, sharp, urgent
     }
 
     def _generate_and_play(self, text: str, urgency: str = "normal") -> None:
