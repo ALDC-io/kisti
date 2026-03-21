@@ -389,6 +389,7 @@ class KistiModeWidget(QWidget):
         self._radar_cooldown = 0     # Seconds to wait before next radar speech
         self._voice_enabled = True   # Set False to disable voice output
         self._demo_mode = False      # Set False to stop idle chatter
+        self._audio_playing = False  # True while AudioPlayer is actively playing
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 4, 8, 4)
@@ -502,19 +503,21 @@ class KistiModeWidget(QWidget):
         """Audio is NOW playing — start envelope timer and release typewriter."""
         self._envelope_idx = 0
         self._envelope_playing = True
+        self._audio_playing = True
         self._waveform.set_active(True)
         self._envelope_timer.start()
         self._pause_ticks = 0  # Release typewriter in sync with audio
 
         # Adjust typewriter speed so text finishes near when audio finishes
         if self._envelope and self._char_queue:
-            audio_duration_ms = len(self._envelope) * 33  # ~33ms per frame
+            audio_duration_ms = len(self._envelope) * 37  # 37ms per frame
             char_interval = max(15, min(60, audio_duration_ms // max(1, len(self._char_queue))))
             self._type_timer.setInterval(char_interval)
 
     def _on_audio_finished(self):
         """Audio playback ended — immediately kill envelope and waveform."""
         self._envelope_playing = False
+        self._audio_playing = False
         self._envelope_timer.stop()
         self._envelope = []
         self._envelope_idx = 0
@@ -621,12 +624,15 @@ class KistiModeWidget(QWidget):
             self._current_line += ch
             self._update_display()
         elif self._speaking and not self._char_queue:
-            # Line finished
+            if self._audio_playing:
+                # Typewriter finished but audio still playing — wait for audio
+                return
+            # Both typewriter and audio done — commit line
             self._stop_speaking()
             # Pause between lines (500ms = ~17 ticks at 30ms)
             self._pause_ticks = int(500 / _CHAR_MS)
-        elif not self._speaking and self._line_queue:
-            # Start next queued line
+        elif not self._speaking and not self._audio_playing and self._line_queue:
+            # Both idle — start next queued line
             next_line = self._line_queue.pop(0)
             if next_line.strip():
                 self._start_speaking(next_line)
