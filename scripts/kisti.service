@@ -11,6 +11,7 @@ WorkingDirectory=/home/aldc/repos/kisti
 Environment="DISPLAY=:0"
 Environment="QT_QPA_PLATFORM=eglfs"
 Environment="OLLAMA_MODELS=/data/ollama"
+ExecStartPre=/bin/sh -c 'ip link set can0 up type can bitrate 500000 2>/dev/null || true'
 ExecStart=/usr/bin/python3 main.py --fullscreen
 Restart=on-failure
 RestartSec=5
