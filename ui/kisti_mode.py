@@ -462,8 +462,20 @@ class KistiModeWidget(QWidget):
         except Exception:
             pass  # No voice module available — pure typewriter mode
 
-        # Startup intro — always plays once
-        self._queue_lines(_INTRO_LINES)
+        # Waveform starts in idle KITT sweep immediately (visual first)
+        self._scan_bar.set_active(True)
+
+        # Warm up Piper in background, then play intro with synced voice
+        if self._audio_player and self._audio_player.is_available:
+            import threading
+            threading.Thread(
+                target=self._warmup_and_intro,
+                daemon=True,
+                name="kisti-warmup",
+            ).start()
+        else:
+            # No Piper — just queue intro lines as typewriter
+            self._queue_lines(_INTRO_LINES)
 
     def _queue_lines(self, lines):
         """Queue a list of lines to be spoken sequentially."""
@@ -508,6 +520,25 @@ class KistiModeWidget(QWidget):
         amp = self._envelope[self._envelope_idx]
         self._waveform.set_amplitude(amp)
         self._envelope_idx += 1
+
+    def _warmup_and_intro(self):
+        """Background: warm up Piper with a silent synthesis, then queue intro."""
+        import subprocess
+        from pathlib import Path
+        piper_bin = Path("/data/piper/piper")
+        piper_voice = Path("/data/piper/en_US-lessac-medium.onnx")
+        try:
+            # Warm up Piper by synthesizing a short phrase (discarded)
+            subprocess.run(
+                [str(piper_bin), "--model", str(piper_voice), "--output_raw"],
+                input=b"Ready.",
+                capture_output=True,
+                timeout=10,
+            )
+        except Exception:
+            pass
+        # Now Piper is warm — queue intro lines
+        self._queue_lines(_INTRO_LINES)
 
     def set_demo_mode(self, enabled: bool):
         """Enable/disable idle demo chatter."""
