@@ -1,11 +1,13 @@
-"""KiSTI - CAN Listener & Decoder
+"""KiSTI - CAN Listener, Decoder & Output
 
-Reads Link ECU CAN frames on socketcan, decodes DIFF (0x6A0) and
-CONTEXT (0x6A1) messages, and pushes updates to DiffStateBridge.
+Reads Link ECU CAN frames on socketcan, decodes all frame types, and
+pushes updates to DiffStateBridge. Supports G4X (4 frames) and G5 Neo 4
+(4 + Generic Dash + SI Drive + sensors + keypad).
+
+Also provides CAN output for LED waveform control on the MXG Strada dash.
 
 Falls back to mock data generation if python-can is unavailable or
-the CAN interface doesn't exist.  Mock mode uses QTimers on the
-main thread so no real threading is involved.
+the CAN interface doesn't exist.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from typing import Optional
 from PySide6.QtCore import QObject, QTimer
 
 from can.can_config import (
+    ACTIVE_ECU,
     CAN_BUSTYPE,
     CAN_INTERFACE,
     CONTEXT_FRAME_ID,
@@ -53,12 +56,65 @@ from can.can_config import (
     DYN_YAW_OFFSET,
     DYN_YAW_SCALE,
     DYNAMICS_FRAME_ID,
+    GD1_CLT_OFFSET,
+    GD1_CLT_SCALE,
+    GD1_MAP_OFFSET,
+    GD1_MAP_SCALE,
+    GD1_RPM_OFFSET,
+    GD1_RPM_SCALE,
+    GD1_TPS_OFFSET,
+    GD1_TPS_SCALE,
+    GD2_IAT_OFFSET,
+    GD2_IAT_SCALE,
+    GD2_LAMBDA_OFFSET,
+    GD2_LAMBDA_SCALE,
+    GD2_OIL_PRESS_OFFSET,
+    GD2_OIL_PRESS_SCALE,
+    GD2_OIL_TEMP_OFFSET,
+    GD2_OIL_TEMP_SCALE,
+    GD3_BATT_OFFSET,
+    GD3_BATT_SCALE,
+    GD3_ETHANOL_OFFSET,
+    GD3_ETHANOL_SCALE,
+    GD3_FUEL_PRESS_OFFSET,
+    GD3_FUEL_PRESS_SCALE,
+    GD3_INJ_DUTY_OFFSET,
+    GD3_INJ_DUTY_SCALE,
+    GENERIC_DASH_BASE_ID,
+    KEYPAD_FRAME_ID,
+    KEYPAD_PREV_OFFSET,
+    KEYPAD_STATE_OFFSET,
     KISTI_CAN_IDS,
+    KISTI_CAN_OUTPUT_IDS,
+    LED2_BRIGHTNESS_START,
+    LED2_COLOR_B_OFFSET,
+    LED2_COLOR_G_OFFSET,
+    LED2_COLOR_R_OFFSET,
+    LED_BRIGHTNESS_START,
+    LED_COUNT,
+    LED_MODE_OFFSET,
+    LED_OUTPUT_FRAME_2_ID,
+    LED_OUTPUT_FRAME_ID,
+    LED_OUTPUT_HZ,
     MOCK_CONTEXT_HZ,
     MOCK_DIFF_HZ,
     MOCK_DYNAMICS_HZ,
     MOCK_ENABLED,
+    MOCK_GENERIC_DASH_HZ,
+    MOCK_SENSOR_HZ,
+    MOCK_SI_DRIVE_HZ,
     MOCK_WHEEL_HZ,
+    SENS_ETHANOL_OFFSET,
+    SENS_ETHANOL_SCALE,
+    SENS_IAT_EXT_OFFSET,
+    SENS_IAT_EXT_SCALE,
+    SENS_MAP_4BAR_OFFSET,
+    SENS_MAP_4BAR_SCALE,
+    SENS_OIL_PSI_OFFSET,
+    SENS_OIL_PSI_SCALE,
+    SENSOR_FRAME_ID,
+    SI_DRIVE_FRAME_ID,
+    SI_DRIVE_MODE_OFFSET,
     STALE_TIMEOUT_S,
     WHEEL_SPEED_FRAME_ID,
     WS_FL_OFFSET,
@@ -224,6 +280,197 @@ def decode_dynamics_frame(data: bytes) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# G5 Neo 4 decode functions
+# ---------------------------------------------------------------------------
+
+def decode_generic_dash_1(data: bytes) -> dict:
+    """Decode Generic Dash frame 1 (0x360, 8 bytes).
+
+    Returns:
+        dict with keys: rpm, map_kpa, tps, coolant_temp.
+    """
+    if len(data) < 8:
+        raise ValueError(f"GenDash1 frame too short: {len(data)} bytes (need 8)")
+
+    rpm = struct.unpack_from(">H", data, GD1_RPM_OFFSET)[0] * GD1_RPM_SCALE
+    map_kpa = struct.unpack_from(">H", data, GD1_MAP_OFFSET)[0] * GD1_MAP_SCALE
+    tps = struct.unpack_from(">H", data, GD1_TPS_OFFSET)[0] * GD1_TPS_SCALE
+    coolant_temp = struct.unpack_from(">h", data, GD1_CLT_OFFSET)[0] * GD1_CLT_SCALE
+
+    return {"rpm": rpm, "map_kpa": map_kpa, "tps": tps, "coolant_temp": coolant_temp}
+
+
+def decode_generic_dash_2(data: bytes) -> dict:
+    """Decode Generic Dash frame 2 (0x361, 8 bytes).
+
+    Returns:
+        dict with keys: iat_c, lambda_1, oil_pressure_kpa, oil_temp_c.
+    """
+    if len(data) < 8:
+        raise ValueError(f"GenDash2 frame too short: {len(data)} bytes (need 8)")
+
+    iat_c = struct.unpack_from(">h", data, GD2_IAT_OFFSET)[0] * GD2_IAT_SCALE
+    lambda_1 = struct.unpack_from(">H", data, GD2_LAMBDA_OFFSET)[0] * GD2_LAMBDA_SCALE
+    oil_pressure_kpa = struct.unpack_from(">H", data, GD2_OIL_PRESS_OFFSET)[0] * GD2_OIL_PRESS_SCALE
+    oil_temp_c = struct.unpack_from(">h", data, GD2_OIL_TEMP_OFFSET)[0] * GD2_OIL_TEMP_SCALE
+
+    return {
+        "iat_c": iat_c,
+        "lambda_1": lambda_1,
+        "oil_pressure_kpa": oil_pressure_kpa,
+        "oil_temp_c": oil_temp_c,
+    }
+
+
+def decode_generic_dash_3(data: bytes) -> dict:
+    """Decode Generic Dash frame 3 (0x362, 8 bytes).
+
+    Returns:
+        dict with keys: ethanol_pct, fuel_pressure_kpa, battery_v, injector_duty.
+    """
+    if len(data) < 8:
+        raise ValueError(f"GenDash3 frame too short: {len(data)} bytes (need 8)")
+
+    ethanol_pct = struct.unpack_from(">H", data, GD3_ETHANOL_OFFSET)[0] * GD3_ETHANOL_SCALE
+    fuel_pressure_kpa = struct.unpack_from(">H", data, GD3_FUEL_PRESS_OFFSET)[0] * GD3_FUEL_PRESS_SCALE
+    battery_v = struct.unpack_from(">H", data, GD3_BATT_OFFSET)[0] * GD3_BATT_SCALE
+    injector_duty = struct.unpack_from(">H", data, GD3_INJ_DUTY_OFFSET)[0] * GD3_INJ_DUTY_SCALE
+
+    return {
+        "ethanol_pct": ethanol_pct,
+        "fuel_pressure_kpa": fuel_pressure_kpa,
+        "battery_v": battery_v,
+        "injector_duty": injector_duty,
+    }
+
+
+def decode_si_drive_frame(data: bytes) -> dict:
+    """Decode SI Drive frame (0x6B0, 8 bytes).
+
+    Returns:
+        dict with key: mode (int: 0=I, 1=S, 2=S#).
+    """
+    if len(data) < 1:
+        raise ValueError(f"SI Drive frame too short: {len(data)} bytes (need 1)")
+
+    mode = data[SI_DRIVE_MODE_OFFSET]
+    return {"mode": mode}
+
+
+def decode_sensor_frame(data: bytes) -> dict:
+    """Decode extended sensor frame (0x6B1, 8 bytes).
+
+    Returns:
+        dict with keys: map_4bar_kpa, iat_ext_c, ethanol_ext_pct, oil_psi.
+    """
+    if len(data) < 8:
+        raise ValueError(f"Sensor frame too short: {len(data)} bytes (need 8)")
+
+    map_4bar_kpa = struct.unpack_from(">H", data, SENS_MAP_4BAR_OFFSET)[0] * SENS_MAP_4BAR_SCALE
+    iat_ext_c = struct.unpack_from(">h", data, SENS_IAT_EXT_OFFSET)[0] * SENS_IAT_EXT_SCALE
+    ethanol_ext_pct = struct.unpack_from(">H", data, SENS_ETHANOL_OFFSET)[0] * SENS_ETHANOL_SCALE
+    oil_psi = struct.unpack_from(">H", data, SENS_OIL_PSI_OFFSET)[0] * SENS_OIL_PSI_SCALE
+
+    return {
+        "map_4bar_kpa": map_4bar_kpa,
+        "iat_ext_c": iat_ext_c,
+        "ethanol_ext_pct": ethanol_ext_pct,
+        "oil_psi": oil_psi,
+    }
+
+
+def decode_keypad_frame(data: bytes) -> dict:
+    """Decode keypad frame (0x6B2, 8 bytes).
+
+    Returns:
+        dict with keys: state (int bitfield), prev_state (int bitfield).
+    """
+    if len(data) < 2:
+        raise ValueError(f"Keypad frame too short: {len(data)} bytes (need 2)")
+
+    state = data[KEYPAD_STATE_OFFSET]
+    prev_state = data[KEYPAD_PREV_OFFSET]
+    return {"state": state, "prev_state": prev_state}
+
+
+# ---------------------------------------------------------------------------
+# G5 Neo 4 encode functions (for testing / mock generation)
+# ---------------------------------------------------------------------------
+
+def encode_generic_dash_1(
+    rpm: float, map_kpa: float, tps: float, coolant_temp: float,
+) -> bytes:
+    """Encode Generic Dash frame 1 for testing."""
+    raw_rpm = int(round(rpm / GD1_RPM_SCALE))
+    raw_map = int(round(map_kpa / GD1_MAP_SCALE))
+    raw_tps = int(round(tps / GD1_TPS_SCALE))
+    raw_clt = int(round(coolant_temp / GD1_CLT_SCALE))
+    return struct.pack(">HHHh", raw_rpm, raw_map, raw_tps, raw_clt)
+
+
+def encode_generic_dash_2(
+    iat_c: float, lambda_1: float, oil_pressure_kpa: float, oil_temp_c: float,
+) -> bytes:
+    """Encode Generic Dash frame 2 for testing."""
+    raw_iat = int(round(iat_c / GD2_IAT_SCALE))
+    raw_lambda = int(round(lambda_1 / GD2_LAMBDA_SCALE))
+    raw_oil_p = int(round(oil_pressure_kpa / GD2_OIL_PRESS_SCALE))
+    raw_oil_t = int(round(oil_temp_c / GD2_OIL_TEMP_SCALE))
+    return struct.pack(">hHHh", raw_iat, raw_lambda, raw_oil_p, raw_oil_t)
+
+
+def encode_generic_dash_3(
+    ethanol_pct: float, fuel_pressure_kpa: float, battery_v: float, injector_duty: float,
+) -> bytes:
+    """Encode Generic Dash frame 3 for testing."""
+    raw_eth = int(round(ethanol_pct / GD3_ETHANOL_SCALE))
+    raw_fuel = int(round(fuel_pressure_kpa / GD3_FUEL_PRESS_SCALE))
+    raw_batt = int(round(battery_v / GD3_BATT_SCALE))
+    raw_inj = int(round(injector_duty / GD3_INJ_DUTY_SCALE))
+    return struct.pack(">HHHH", raw_eth, raw_fuel, raw_batt, raw_inj)
+
+
+def encode_si_drive_frame(mode: int) -> bytes:
+    """Encode SI Drive frame for testing."""
+    return struct.pack(">B", mode) + b"\x00" * 7
+
+
+def encode_sensor_frame(
+    map_4bar_kpa: float, iat_ext_c: float, ethanol_ext_pct: float, oil_psi: float,
+) -> bytes:
+    """Encode extended sensor frame for testing."""
+    raw_map = int(round(map_4bar_kpa / SENS_MAP_4BAR_SCALE))
+    raw_iat = int(round(iat_ext_c / SENS_IAT_EXT_SCALE))
+    raw_eth = int(round(ethanol_ext_pct / SENS_ETHANOL_SCALE))
+    raw_oil = int(round(oil_psi / SENS_OIL_PSI_SCALE))
+    return struct.pack(">HhHH", raw_map, raw_iat, raw_eth, raw_oil)
+
+
+def encode_keypad_frame(state: int, prev_state: int) -> bytes:
+    """Encode keypad frame for testing."""
+    return struct.pack(">BB", state, prev_state) + b"\x00" * 6
+
+
+def encode_led_output(
+    mode: int, brightnesses: list[int], color_r: int, color_g: int, color_b: int,
+) -> tuple[bytes, bytes]:
+    """Encode LED output frames (0x6C0 + 0x6C1) for the MXG Strada dash.
+
+    Args:
+        mode: LED mode (0=off, 1=waveform, 2=rpm, 3=kitt, 4=warmup)
+        brightnesses: list of 10 brightness values (0-255)
+        color_r, color_g, color_b: base color (0-255 each)
+
+    Returns:
+        Tuple of (frame_1_bytes, frame_2_bytes).
+    """
+    b = brightnesses + [0] * (LED_COUNT - len(brightnesses))  # pad to 10
+    frame1 = struct.pack(">BBBBBBB B", mode, b[0], b[1], b[2], b[3], b[4], b[5], b[6])
+    frame2 = struct.pack(">BBB BBB BB", b[7], b[8], b[9], color_r, color_g, color_b, 0, 0)
+    return frame1, frame2
+
+
+# ---------------------------------------------------------------------------
 # CAN Listener Thread
 # ---------------------------------------------------------------------------
 
@@ -273,23 +520,136 @@ class CanListenerThread(threading.Thread):
                     continue
 
                 try:
-                    if msg.arbitration_id == DIFF_FRAME_ID:
-                        d = decode_diff_frame(msg.data)
-                        self._bridge.update_diff(**d)
-                    elif msg.arbitration_id == CONTEXT_FRAME_ID:
-                        d = decode_context_frame(msg.data)
-                        self._bridge.update_context(**d)
-                    elif msg.arbitration_id == WHEEL_SPEED_FRAME_ID:
-                        d = decode_wheel_speed_frame(msg.data)
-                        self._bridge.update_wheel_speeds(**d)
-                    elif msg.arbitration_id == DYNAMICS_FRAME_ID:
-                        d = decode_dynamics_frame(msg.data)
-                        self._bridge.update_dynamics(**d)
+                    self._dispatch_frame(msg.arbitration_id, msg.data)
                 except (ValueError, struct.error) as exc:
                     log.debug("Decode error on 0x%03X: %s", msg.arbitration_id, exc)
         finally:
             bus.shutdown()
             log.info("CAN bus closed")
+
+    def _dispatch_frame(self, arb_id: int, data: bytes) -> None:
+        """Route a CAN frame to the appropriate decoder and bridge update."""
+        if arb_id == DIFF_FRAME_ID:
+            d = decode_diff_frame(data)
+            self._bridge.update_diff(**d)
+        elif arb_id == CONTEXT_FRAME_ID:
+            d = decode_context_frame(data)
+            self._bridge.update_context(**d)
+        elif arb_id == WHEEL_SPEED_FRAME_ID:
+            d = decode_wheel_speed_frame(data)
+            self._bridge.update_wheel_speeds(**d)
+        elif arb_id == DYNAMICS_FRAME_ID:
+            d = decode_dynamics_frame(data)
+            self._bridge.update_dynamics(**d)
+        # G5 Neo 4 frames
+        elif arb_id == GENERIC_DASH_BASE_ID:
+            d = decode_generic_dash_1(data)
+            self._bridge.update_generic_dash_1(**d)
+        elif arb_id == GENERIC_DASH_BASE_ID + 1:
+            d = decode_generic_dash_2(data)
+            self._bridge.update_generic_dash_2(**d)
+        elif arb_id == GENERIC_DASH_BASE_ID + 2:
+            d = decode_generic_dash_3(data)
+            self._bridge.update_generic_dash_3(**d)
+        elif arb_id == SI_DRIVE_FRAME_ID:
+            d = decode_si_drive_frame(data)
+            self._bridge.update_si_drive(**d)
+        elif arb_id == SENSOR_FRAME_ID:
+            d = decode_sensor_frame(data)
+            self._bridge.update_sensors(**d)
+        elif arb_id == KEYPAD_FRAME_ID:
+            d = decode_keypad_frame(data)
+            self._bridge.update_keypad(**d)
+
+
+# ---------------------------------------------------------------------------
+# CAN Output Thread (LED waveform → MXG Strada dash)
+# ---------------------------------------------------------------------------
+
+class CanOutputThread(threading.Thread):
+    """Background thread that sends LED waveform frames to the MXG Strada dash.
+
+    Reads LED state from a shared buffer and sends CAN frames at LED_OUTPUT_HZ.
+    """
+
+    def __init__(self, interface: str = CAN_INTERFACE) -> None:
+        super().__init__(daemon=True, name="kisti-can-output")
+        self._interface = interface
+        self._running = threading.Event()
+        self._running.set()
+        self._lock = threading.Lock()
+        self._mode: int = 0
+        self._brightnesses: list[int] = [0] * LED_COUNT
+        self._color: tuple[int, int, int] = (0, 0, 0)
+
+    def stop(self) -> None:
+        self._running.clear()
+
+    def set_leds(
+        self,
+        mode: int,
+        brightnesses: list[int],
+        color_r: int = 0,
+        color_g: int = 0,
+        color_b: int = 0,
+    ) -> None:
+        """Update LED state (thread-safe). Called from voice/mode managers."""
+        with self._lock:
+            self._mode = mode
+            self._brightnesses = list(brightnesses[:LED_COUNT])
+            while len(self._brightnesses) < LED_COUNT:
+                self._brightnesses.append(0)
+            self._color = (color_r, color_g, color_b)
+
+    def run(self) -> None:
+        try:
+            import can as python_can  # type: ignore[import-untyped]
+        except ImportError:
+            log.warning("python-can not installed — CAN output not started")
+            return
+
+        bus = None
+        try:
+            bus = python_can.Bus(
+                interface=CAN_BUSTYPE,
+                channel=self._interface,
+                receive_own_messages=False,
+            )
+            log.info("CAN output bus opened on %s", self._interface)
+        except Exception as exc:
+            log.warning("Failed to open CAN output bus: %s", exc)
+            return
+
+        interval = 1.0 / LED_OUTPUT_HZ
+        try:
+            while self._running.is_set():
+                with self._lock:
+                    mode = self._mode
+                    brights = list(self._brightnesses)
+                    r, g, b = self._color
+
+                frame1, frame2 = encode_led_output(mode, brights, r, g, b)
+
+                try:
+                    msg1 = python_can.Message(
+                        arbitration_id=LED_OUTPUT_FRAME_ID,
+                        data=frame1,
+                        is_extended_id=False,
+                    )
+                    msg2 = python_can.Message(
+                        arbitration_id=LED_OUTPUT_FRAME_2_ID,
+                        data=frame2,
+                        is_extended_id=False,
+                    )
+                    bus.send(msg1)
+                    bus.send(msg2)
+                except Exception as exc:
+                    log.debug("CAN output send error: %s", exc)
+
+                time.sleep(interval)
+        finally:
+            bus.shutdown()
+            log.info("CAN output bus closed")
 
 
 # ---------------------------------------------------------------------------
@@ -297,10 +657,11 @@ class CanListenerThread(threading.Thread):
 # ---------------------------------------------------------------------------
 
 class MockCanGenerator(QObject):
-    """Generates plausible DCCD / context telemetry when no CAN bus.
+    """Generates plausible telemetry when no CAN bus.
 
-    Simulates spirited canyon driving: varying DCCD lock, throttle,
-    speed, occasional braking and slip events.
+    Simulates spirited canyon driving with G5 Neo 4 telemetry:
+    DCCD, context, wheel speeds, dynamics, Generic Dash engine data,
+    SI Drive mode cycling, extended sensors, and keypad events.
     """
 
     def __init__(self, bridge: DiffStateBridge, parent: Optional[QObject] = None) -> None:
@@ -321,6 +682,24 @@ class MockCanGenerator(QObject):
         self._lat_g = 0.0
         self._brake_press = 0.0
 
+        # G5 engine state
+        self._rpm = 3500.0
+        self._map_kpa = 100.0
+        self._coolant_temp = 20.0  # starts cold for warm-up demo
+        self._iat = 25.0
+        self._lambda = 1.0
+        self._oil_press_kpa = 350.0
+        self._oil_temp = 20.0
+        self._ethanol = 0.0
+        self._fuel_press = 380.0
+        self._battery_v = 14.2
+        self._inj_duty = 30.0
+        self._oil_psi = 55.0
+
+        # SI Drive state
+        self._si_drive = 0  # Intelligent
+        self._si_drive_timer = 0.0
+
         self._diff_timer = QTimer(self)
         self._diff_timer.setInterval(1000 // MOCK_DIFF_HZ)
         self._diff_timer.timeout.connect(self._diff_tick)
@@ -337,18 +716,38 @@ class MockCanGenerator(QObject):
         self._dyn_timer.setInterval(1000 // MOCK_DYNAMICS_HZ)
         self._dyn_timer.timeout.connect(self._dyn_tick)
 
+        # G5 timers
+        self._gd_timer = QTimer(self)
+        self._gd_timer.setInterval(1000 // MOCK_GENERIC_DASH_HZ)
+        self._gd_timer.timeout.connect(self._generic_dash_tick)
+
+        self._si_timer = QTimer(self)
+        self._si_timer.setInterval(1000 // MOCK_SI_DRIVE_HZ)
+        self._si_timer.timeout.connect(self._si_drive_tick)
+
+        self._sens_timer = QTimer(self)
+        self._sens_timer.setInterval(1000 // MOCK_SENSOR_HZ)
+        self._sens_timer.timeout.connect(self._sensor_tick)
+
     def start(self) -> None:
         self._diff_timer.start()
         self._ctx_timer.start()
         self._ws_timer.start()
         self._dyn_timer.start()
-        log.info("Mock CAN generator started")
+        if ACTIVE_ECU == "G5":
+            self._gd_timer.start()
+            self._si_timer.start()
+            self._sens_timer.start()
+        log.info("Mock CAN generator started (ECU: %s)", ACTIVE_ECU)
 
     def stop(self) -> None:
         self._diff_timer.stop()
         self._ctx_timer.stop()
         self._ws_timer.stop()
         self._dyn_timer.stop()
+        self._gd_timer.stop()
+        self._si_timer.stop()
+        self._sens_timer.stop()
 
     def _diff_tick(self) -> None:
         self._t += 0.02  # 50 Hz
@@ -478,6 +877,120 @@ class MockCanGenerator(QObject):
             yaw_rate=self._yaw,
             lateral_g=self._lat_g,
             brake_pressure=self._brake_press,
+        )
+
+    def _generic_dash_tick(self) -> None:
+        """Mock Generic Dash engine telemetry (3 frames)."""
+        # RPM correlates with speed and gear
+        gear_ratio = [0, 3.636, 2.235, 1.521, 1.137, 0.971, 0.756]
+        if self._gear > 0:
+            self._rpm = self._speed * gear_ratio[self._gear] * 45.0 + random.uniform(-50, 50)
+        else:
+            self._rpm = 800.0 + random.uniform(-20, 20)
+        self._rpm = max(700.0, min(8500.0, self._rpm))
+
+        # MAP — correlates with throttle + boost
+        target_map = 30.0 + self._throttle * 2.7  # 30 kPa idle → 300 kPa WOT
+        self._map_kpa += (target_map - self._map_kpa) * 0.15 + random.uniform(-2, 2)
+        self._map_kpa = max(20.0, min(350.0, self._map_kpa))
+
+        # Coolant temp — slowly warms up from cold
+        if self._coolant_temp < 85.0:
+            self._coolant_temp += 0.02  # ~7 min warm-up at 50Hz
+        self._coolant_temp += random.uniform(-0.05, 0.05)
+        self._coolant_temp = max(0.0, min(120.0, self._coolant_temp))
+
+        self._bridge.update_generic_dash_1(
+            rpm=self._rpm,
+            map_kpa=self._map_kpa,
+            tps=self._throttle,
+            coolant_temp=self._coolant_temp,
+        )
+
+        # IAT — ambient + heat soak
+        self._iat += random.uniform(-0.1, 0.1)
+        self._iat = max(-10.0, min(60.0, self._iat))
+
+        # Lambda — rich under boost, stoich otherwise
+        if self._map_kpa > 100.0:
+            target_lambda = 0.78 + random.uniform(-0.02, 0.02)
+        else:
+            target_lambda = 1.0 + random.uniform(-0.02, 0.02)
+        self._lambda += (target_lambda - self._lambda) * 0.2
+        self._lambda = max(0.6, min(1.2, self._lambda))
+
+        # Oil pressure — correlates with RPM
+        target_oil = 200.0 + self._rpm * 0.05
+        self._oil_press_kpa += (target_oil - self._oil_press_kpa) * 0.1 + random.uniform(-5, 5)
+        self._oil_press_kpa = max(50.0, min(700.0, self._oil_press_kpa))
+
+        # Oil temp — slowly warms
+        if self._oil_temp < 95.0:
+            self._oil_temp += 0.015
+        self._oil_temp += random.uniform(-0.05, 0.05)
+        self._oil_temp = max(0.0, min(140.0, self._oil_temp))
+
+        self._bridge.update_generic_dash_2(
+            iat_c=self._iat,
+            lambda_1=self._lambda,
+            oil_pressure_kpa=self._oil_press_kpa,
+            oil_temp_c=self._oil_temp,
+        )
+
+        # Ethanol content
+        self._ethanol += random.uniform(-0.1, 0.1)
+        self._ethanol = max(0.0, min(100.0, self._ethanol))
+
+        # Fuel pressure
+        self._fuel_press += random.uniform(-2, 2)
+        self._fuel_press = max(300.0, min(500.0, self._fuel_press))
+
+        # Battery
+        self._battery_v += random.uniform(-0.05, 0.05)
+        self._battery_v = max(12.0, min(15.0, self._battery_v))
+
+        # Injector duty — correlates with throttle/boost
+        target_inj = self._throttle * 0.7 + (self._map_kpa - 100) * 0.1
+        self._inj_duty += (target_inj - self._inj_duty) * 0.15 + random.uniform(-1, 1)
+        self._inj_duty = max(0.0, min(100.0, self._inj_duty))
+
+        self._bridge.update_generic_dash_3(
+            ethanol_pct=self._ethanol,
+            fuel_pressure_kpa=self._fuel_press,
+            battery_v=self._battery_v,
+            injector_duty=self._inj_duty,
+        )
+
+    def _si_drive_tick(self) -> None:
+        """Mock SI Drive mode — cycles every 30 seconds for demo."""
+        self._si_drive_timer += 1.0 / MOCK_SI_DRIVE_HZ
+        if self._si_drive_timer > 30.0:
+            self._si_drive_timer = 0.0
+            self._si_drive = (self._si_drive + 1) % 3
+        self._bridge.update_si_drive(mode=self._si_drive)
+
+    def _sensor_tick(self) -> None:
+        """Mock extended sensor data."""
+        # 4-bar MAP — similar to GD1 MAP but from dedicated sensor
+        map_4bar = self._map_kpa + random.uniform(-1, 1)
+
+        # External IAT
+        iat_ext = self._iat + random.uniform(-0.5, 0.5)
+
+        # Flex Fuel ethanol
+        ethanol_ext = self._ethanol + random.uniform(-0.2, 0.2)
+
+        # Oil PSI — convert from kPa mock + some variation
+        self._oil_psi += random.uniform(-0.5, 0.5)
+        target_psi = self._oil_press_kpa * 0.145038  # kPa to PSI
+        self._oil_psi += (target_psi - self._oil_psi) * 0.2
+        self._oil_psi = max(0.0, min(150.0, self._oil_psi))
+
+        self._bridge.update_sensors(
+            map_4bar_kpa=max(0.0, map_4bar),
+            iat_ext_c=iat_ext,
+            ethanol_ext_pct=max(0.0, ethanol_ext),
+            oil_psi=self._oil_psi,
         )
 
 
