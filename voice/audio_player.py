@@ -31,6 +31,8 @@ PIPER_VOICE = Path("/data/piper/en_US-danny-low.onnx")
 # Danny-low = 16000 Hz, most medium voices = 22050 Hz
 PIPER_SAMPLE_RATE_DEFAULT = 22050
 ENVELOPE_FPS = 40  # Higher resolution to capture syllable-level cadence
+# HDMI audio device — bypass PulseAudio so systemd service gets audio output
+ALSA_DEVICE = "plughw:HDA,3"
 
 
 class AudioPlayer(QObject):
@@ -159,7 +161,7 @@ class AudioPlayer(QObject):
             # Step 5: Start playback — signal the exact moment audio begins
             log.info("Starting aplay...")
             play_proc = subprocess.Popen(
-                ["aplay", wav_path],
+                ["aplay", "-D", ALSA_DEVICE, wav_path],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
             )
