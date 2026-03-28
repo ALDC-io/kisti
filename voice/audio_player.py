@@ -267,6 +267,8 @@ class AudioPlayer(QObject):
         text = re.sub(r'\bECU\b', 'E C U', text)
         text = re.sub(r'\bAWD\b', 'all wheel drive', text)
         text = re.sub(r'\bDCCD\b', 'D C C D', text)
+        text = re.sub(r'\bKiSTI\b', 'Keesty Eye', text)
+        text = re.sub(r'\bkisti\b', 'Keesty Eye', text, flags=re.IGNORECASE)
         text = re.sub(r'\bFLIR\b', 'fleer', text)
         text = re.sub(r'\bLiDAR\b', 'lie-dar', text)
         text = re.sub(r'\bNVMe\b', 'N V M E', text)
