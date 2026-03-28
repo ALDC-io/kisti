@@ -531,6 +531,7 @@ class KistiModeWidget(QWidget):
         self._voice_enabled = True   # Set False to disable voice output
         self._demo_mode = False      # Set False to stop idle chatter
         self._audio_playing = False  # True while AudioPlayer is actively playing
+        self._bridge = None          # DiffStateBridge — set via set_bridge()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 4, 8, 4)
@@ -643,6 +644,10 @@ class KistiModeWidget(QWidget):
                 daemon=True,
                 name="kisti-warmup",
             ).start()
+
+    def set_bridge(self, bridge):
+        """Set the DiffStateBridge for ambient data access."""
+        self._bridge = bridge
 
     def _queue_lines(self, lines, urgency: str = "normal"):
         """Queue a list of lines to be spoken sequentially."""
@@ -785,28 +790,18 @@ class KistiModeWidget(QWidget):
         if not ollama_ok:
             issues.append(("alert", "Local AI not responding."))
 
-        # Ambient weather sensor — read directly from Yoctopuce
+        # Ambient weather — read from bridge (populated by YoctopuceReader at 1Hz)
         ambient = None
-        try:
-            from yoctopuce.yocto_api import YAPI, YRefParam
-            from yoctopuce.yocto_temperature import YTemperature
-            from yoctopuce.yocto_humidity import YHumidity
-            from yoctopuce.yocto_pressure import YPressure
-            from sensors.yoctopuce_reader import _dew_point, _density_altitude
-
-            # YAPI may already be registered by main.py — try reading directly
-            temp_s = YTemperature.FirstTemperature()
-            if temp_s and temp_s.isOnline():
-                t = temp_s.get_currentValue()
-                h = YHumidity.FirstHumidity().get_currentValue()
-                p = YPressure.FirstPressure().get_currentValue()
+        if self._bridge:
+            snap = self._bridge.snapshot()
+            if snap.ambient_available:
                 ambient = {
-                    "temp_c": t, "humidity_pct": h, "pressure_hpa": p,
-                    "dew_point_c": _dew_point(t, h),
-                    "density_altitude_ft": _density_altitude(p, t),
+                    "temp_c": snap.ambient_temp_c,
+                    "humidity_pct": snap.ambient_humidity_pct,
+                    "pressure_hpa": snap.ambient_pressure_hpa,
+                    "dew_point_c": snap.dew_point_c,
+                    "density_altitude_ft": snap.density_altitude_ft,
                 }
-        except Exception:
-            pass
 
         # Visual-only: log all status silently
         self._transcript.append(f"  CPU: {cpu_temp:.0f}°C" if cpu_temp else "  CPU: ---")
