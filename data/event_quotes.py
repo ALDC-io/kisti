@@ -280,6 +280,36 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Michael, I would not advise full throttle right now.",     # KITT
     ],
 
+    # ===== GPS / POSITION / G-FORCE =====
+
+    "gps_signal_acquired": [
+        "Navigation systems online. I know where we are.",          # Original
+        "GPS lock established. Tracking position.",                 # Original
+        "Satellites acquired. I can see the whole track.",          # Original
+        "Position confirmed. All systems nominal.",                 # Original
+    ],
+
+    "gps_signal_lost": [
+        "Navigation offline. Flying blind.",                        # Original
+        "I have lost visual. Going to instruments.",                # Various
+        "GPS signal lost. Maintaining last known position.",        # Original
+        "We are off the grid.",                                     # Original
+    ],
+
+    "extreme_lateral_g": [
+        "I felt a great disturbance in the Force.",                 # Star Wars
+        "That is some serious cornering force.",                    # Original
+        "Physics would like a word with you.",                      # Original
+        "Now this is pod racing!",                                  # Star Wars
+    ],
+
+    "perfect_apex": [
+        "The line is the line.",                                    # Original
+        "Textbook corner. Right through the apex.",                 # Original
+        "That was the racing line. Beautiful.",                     # Original
+        "Most impressive.",                                         # Vader
+    ],
+
     # ===== RARE / EASTER EGGS (low probability) =====
 
     "easter_egg": [

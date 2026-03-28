@@ -101,7 +101,18 @@ CREATE TABLE IF NOT EXISTS telemetry (
     wheel_rl DOUBLE,
     wheel_rr DOUBLE,
     si_drive_mode TEXT,
-    surface_state TEXT
+    surface_state TEXT,
+    gps_latitude DOUBLE,
+    gps_longitude DOUBLE,
+    gps_altitude_m DOUBLE,
+    gps_speed_mps DOUBLE,
+    gps_heading DOUBLE,
+    gps_satellites INTEGER,
+    imu_accel_x DOUBLE,
+    imu_accel_y DOUBLE,
+    imu_accel_z DOUBLE,
+    imu_gyro_x DOUBLE,
+    imu_gyro_y DOUBLE
 );
 
 CREATE TABLE IF NOT EXISTS summaries (
@@ -227,7 +238,8 @@ class DuckDBStore:
             return
 
         self._conn.execute(
-            "INSERT INTO telemetry VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO telemetry VALUES ("
+            + ", ".join(["?"] * 38) + ")",
             [
                 _now(), session_id,
                 state.rpm, state.speed_kph, state.gear, state.throttle_pct,
@@ -239,6 +251,11 @@ class DuckDBStore:
                 state.wheel_speed_fl, state.wheel_speed_fr,
                 state.wheel_speed_rl, state.wheel_speed_rr,
                 state.si_drive_mode.label, state.surface_state.label,
+                state.gps_latitude, state.gps_longitude,
+                state.gps_altitude_m, state.gps_speed_mps,
+                state.gps_heading, state.gps_satellites,
+                state.imu_accel_x, state.imu_accel_y, state.imu_accel_z,
+                state.imu_gyro_x, state.imu_gyro_y,
             ],
         )
 

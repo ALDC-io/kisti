@@ -25,6 +25,16 @@ WHEEL_SPEED_FRAME_ID: int = 0x6A2  # 50 Hz — individual wheel speeds
 DYNAMICS_FRAME_ID: int = 0x6A3     # 50 Hz — steering, yaw, lat-G, brake
 
 # ---------------------------------------------------------------------------
+# Arbitration IDs — AiM GPS09 Pro (via Strada CAN)
+# ---------------------------------------------------------------------------
+# Placeholder IDs — update from Race Studio 3 when hardware arrives.
+
+GPS_FRAME_ID: int = 0x6A4          # 10 Hz — lat/lon position
+GPS_EXT_FRAME_ID: int = 0x6A5     # 10 Hz — altitude, speed, heading, sats
+IMU_FRAME_ID: int = 0x6A6         # 50 Hz — 3-axis accelerometer
+IMU_GYRO_FRAME_ID: int = 0x6A7    # 50 Hz — 3-axis gyroscope
+
+# ---------------------------------------------------------------------------
 # Arbitration IDs — G5 Neo 4 Additional Frames
 # ---------------------------------------------------------------------------
 
@@ -47,12 +57,17 @@ _BASE_CAN_IDS: set[int] = {
     WHEEL_SPEED_FRAME_ID, DYNAMICS_FRAME_ID,
 }
 
+_GPS_IMU_IDS: set[int] = {
+    GPS_FRAME_ID, GPS_EXT_FRAME_ID,
+    IMU_FRAME_ID, IMU_GYRO_FRAME_ID,
+}
+
 _G5_INPUT_IDS: set[int] = {
     *(GENERIC_DASH_BASE_ID + i for i in range(GENERIC_DASH_COUNT)),
     SI_DRIVE_FRAME_ID,
     SENSOR_FRAME_ID,
     KEYPAD_FRAME_ID,
-}
+} | _GPS_IMU_IDS
 
 # IDs we listen for (input)
 KISTI_CAN_IDS: set[int] = _BASE_CAN_IDS | (
@@ -289,6 +304,74 @@ KEYPAD_K7: int = 0x40  # Reserved
 KEYPAD_K8: int = 0x80  # Reserved
 
 # ---------------------------------------------------------------------------
+# 0x6A4 — GPS Position frame layout (8 bytes)
+# ---------------------------------------------------------------------------
+# AiM GPS09 Pro — position data via Strada CAN.
+# Placeholder layout — update from Race Studio 3 when hardware arrives.
+#
+# Byte0-3: Latitude_x100000   int32 BE   degrees × 100000 (±0.00001° ≈ 1m)
+# Byte4-7: Longitude_x100000  int32 BE   degrees × 100000
+
+GPS_LAT_OFFSET: int = 0
+GPS_LON_OFFSET: int = 4
+GPS_COORD_SCALE: float = 0.00001  # raw / 100000 → degrees
+
+# ---------------------------------------------------------------------------
+# 0x6A5 — GPS Extended frame layout (8 bytes)
+# ---------------------------------------------------------------------------
+# Byte0-1: Altitude_m          int16 BE   meters (1m resolution)
+# Byte2-3: Speed_mps_x100     uint16 BE  m/s × 100
+# Byte4-5: Heading_x10        uint16 BE  degrees × 10 (0-3599)
+# Byte6:   Satellites          uint8      0-15
+# Byte7:   GPS_Fix_Quality     uint8      0=no fix, 1=2D, 2=3D
+
+GPS_ALT_OFFSET: int = 0
+GPS_ALT_SCALE: float = 1.0       # raw → meters (1m resolution)
+
+GPS_SPEED_OFFSET: int = 2
+GPS_SPEED_SCALE: float = 0.01    # raw / 100 → m/s
+
+GPS_HEADING_OFFSET: int = 4
+GPS_HEADING_SCALE: float = 0.1   # raw / 10 → degrees
+
+GPS_SATS_OFFSET: int = 6
+GPS_FIX_OFFSET: int = 7
+
+GPS_FIX_NONE: int = 0
+GPS_FIX_2D: int = 1
+GPS_FIX_3D: int = 2
+
+# ---------------------------------------------------------------------------
+# 0x6A6 — IMU Accelerometer frame layout (8 bytes)
+# ---------------------------------------------------------------------------
+# AiM GPS09 Pro — 3-axis accelerometer.
+#
+# Byte0-1: Accel_X_x1000   int16 BE   g × 1000 (longitudinal, +ve = accel)
+# Byte2-3: Accel_Y_x1000   int16 BE   g × 1000 (lateral, +ve = right)
+# Byte4-5: Accel_Z_x1000   int16 BE   g × 1000 (vertical, +ve = up)
+# Byte6-7: reserved
+
+IMU_AX_OFFSET: int = 0
+IMU_AY_OFFSET: int = 2
+IMU_AZ_OFFSET: int = 4
+IMU_ACCEL_SCALE: float = 0.001   # raw / 1000 → g
+
+# ---------------------------------------------------------------------------
+# 0x6A7 — IMU Gyroscope frame layout (8 bytes)
+# ---------------------------------------------------------------------------
+# AiM GPS09 Pro — 3-axis gyroscope.
+#
+# Byte0-1: Gyro_X_x100   int16 BE   deg/s × 100 (roll rate)
+# Byte2-3: Gyro_Y_x100   int16 BE   deg/s × 100 (pitch rate)
+# Byte4-5: Gyro_Z_x100   int16 BE   deg/s × 100 (yaw rate)
+# Byte6-7: reserved
+
+IMU_GX_OFFSET: int = 0
+IMU_GY_OFFSET: int = 2
+IMU_GZ_OFFSET: int = 4
+IMU_GYRO_SCALE: float = 0.01    # raw / 100 → deg/s
+
+# ---------------------------------------------------------------------------
 # 0x6C0-0x6C1 — LED Waveform Output (2 × 8 bytes)
 # ---------------------------------------------------------------------------
 # KiSTI → external LED controller (Arduino/ESP32) via CAN.
@@ -325,6 +408,7 @@ LED_MODE_WAVEFORM: int = 1
 LED_MODE_RPM: int = 2
 LED_MODE_KITT: int = 3
 LED_MODE_WARMUP: int = 4
+LED_MODE_GFORCE: int = 5
 
 LED_COUNT: int = 10
 LED_OUTPUT_HZ: int = 30  # 30 Hz output rate
@@ -349,3 +433,5 @@ MOCK_DYNAMICS_HZ: int = 50    # Mock dynamics frame rate
 MOCK_GENERIC_DASH_HZ: int = 50  # Mock Generic Dash rate
 MOCK_SI_DRIVE_HZ: int = 10    # Mock SI Drive rate
 MOCK_SENSOR_HZ: int = 20      # Mock extended sensor rate
+MOCK_GPS_HZ: int = 10         # Mock GPS frame rate (GPS09 Pro)
+MOCK_IMU_HZ: int = 50         # Mock IMU frame rate (GPS09 Pro)

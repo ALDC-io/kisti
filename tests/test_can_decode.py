@@ -5,6 +5,10 @@ Tests cover:
   - CONTEXT frame (0x6A1) decode: normal, neutral gear, max values
   - WHEEL_SPEED frame (0x6A2) decode
   - DYNAMICS frame (0x6A3) decode
+  - GPS Position frame (0x6A4) decode
+  - GPS Extended frame (0x6A5) decode
+  - IMU Accelerometer frame (0x6A6) decode
+  - IMU Gyroscope frame (0x6A7) decode
   - Generic Dash frames (0x360-0x362) decode
   - SI Drive frame (0x6B0) decode
   - Extended Sensor frame (0x6B1) decode
@@ -34,6 +38,10 @@ from can.kisti_can import (
     decode_generic_dash_1,
     decode_generic_dash_2,
     decode_generic_dash_3,
+    decode_gps_ext_frame,
+    decode_gps_frame,
+    decode_imu_frame,
+    decode_imu_gyro_frame,
     decode_keypad_frame,
     decode_sensor_frame,
     decode_si_drive_frame,
@@ -43,6 +51,10 @@ from can.kisti_can import (
     encode_generic_dash_1,
     encode_generic_dash_2,
     encode_generic_dash_3,
+    encode_gps_ext_frame,
+    encode_gps_frame,
+    encode_imu_frame,
+    encode_imu_gyro_frame,
     encode_keypad_frame,
     encode_led_output,
     encode_sensor_frame,
@@ -454,6 +466,156 @@ class TestDecodeKeypadFrame:
 
 
 # ========================================================================
+# GPS09 Pro decode tests
+# ========================================================================
+
+class TestDecodeGPSFrame:
+    """Tests for decode_gps_frame() — GPS position (0x6A4)."""
+
+    def test_laguna_seca(self):
+        """Normal position — Laguna Seca."""
+        data = encode_gps_frame(36.5842, -121.7528)
+        result = decode_gps_frame(data)
+        assert abs(result["latitude"] - 36.5842) < 0.00002
+        assert abs(result["longitude"] - (-121.7528)) < 0.00002
+
+    def test_equator_prime_meridian(self):
+        """Zero-zero coordinates."""
+        data = encode_gps_frame(0.0, 0.0)
+        result = decode_gps_frame(data)
+        assert abs(result["latitude"]) < 0.00002
+        assert abs(result["longitude"]) < 0.00002
+
+    def test_negative_coords(self):
+        """Southern hemisphere, western hemisphere."""
+        data = encode_gps_frame(-33.8688, 151.2093)  # Sydney
+        result = decode_gps_frame(data)
+        assert abs(result["latitude"] - (-33.8688)) < 0.00002
+        assert abs(result["longitude"] - 151.2093) < 0.00002
+
+    def test_high_precision(self):
+        """Precision to ~1m (0.00001 degrees)."""
+        data = encode_gps_frame(36.58421, -121.75283)
+        result = decode_gps_frame(data)
+        assert abs(result["latitude"] - 36.58421) < 0.00002
+        assert abs(result["longitude"] - (-121.75283)) < 0.00002
+
+    def test_short_frame_raises(self):
+        with pytest.raises(ValueError, match="too short"):
+            decode_gps_frame(b"\x00\x01\x02\x03")
+
+
+class TestDecodeGPSExtFrame:
+    """Tests for decode_gps_ext_frame() — GPS extended (0x6A5)."""
+
+    def test_normal_values(self):
+        data = encode_gps_ext_frame(321.0, 30.5, 135.0, 12, 2)
+        result = decode_gps_ext_frame(data)
+        assert abs(result["altitude_m"] - 321.0) < 1.0
+        assert abs(result["speed_mps"] - 30.5) < 0.02
+        assert abs(result["heading"] - 135.0) < 0.2
+        assert result["satellites"] == 12
+        assert result["fix_quality"] == 2
+
+    def test_zero_speed_no_fix(self):
+        data = encode_gps_ext_frame(0.0, 0.0, 0.0, 0, 0)
+        result = decode_gps_ext_frame(data)
+        assert abs(result["speed_mps"]) < 0.02
+        assert result["satellites"] == 0
+        assert result["fix_quality"] == 0
+
+    def test_high_altitude(self):
+        """High altitude track (e.g., Pikes Peak)."""
+        data = encode_gps_ext_frame(4302.0, 40.0, 270.0, 8, 2)
+        result = decode_gps_ext_frame(data)
+        assert abs(result["altitude_m"] - 4302.0) < 1.0
+
+    def test_negative_altitude(self):
+        """Below sea level (e.g., Death Valley)."""
+        data = encode_gps_ext_frame(-86.0, 10.0, 45.0, 10, 2)
+        result = decode_gps_ext_frame(data)
+        assert abs(result["altitude_m"] - (-86.0)) < 1.0
+
+    def test_heading_north(self):
+        data = encode_gps_ext_frame(100.0, 20.0, 359.9, 10, 2)
+        result = decode_gps_ext_frame(data)
+        assert abs(result["heading"] - 359.9) < 0.2
+
+    def test_short_frame_raises(self):
+        with pytest.raises(ValueError, match="too short"):
+            decode_gps_ext_frame(b"\x00\x01\x02")
+
+
+class TestDecodeIMUFrame:
+    """Tests for decode_imu_frame() — IMU accelerometer (0x6A6)."""
+
+    def test_at_rest(self):
+        """Stationary — 0g lateral/longitudinal, 1g vertical."""
+        data = encode_imu_frame(0.0, 0.0, 1.0)
+        result = decode_imu_frame(data)
+        assert abs(result["accel_x"]) < 0.002
+        assert abs(result["accel_y"]) < 0.002
+        assert abs(result["accel_z"] - 1.0) < 0.002
+
+    def test_hard_braking(self):
+        """Hard braking — negative X."""
+        data = encode_imu_frame(-1.2, 0.0, 1.0)
+        result = decode_imu_frame(data)
+        assert abs(result["accel_x"] - (-1.2)) < 0.002
+
+    def test_hard_cornering(self):
+        """Hard right corner — positive Y."""
+        data = encode_imu_frame(0.0, 1.5, 1.0)
+        result = decode_imu_frame(data)
+        assert abs(result["accel_y"] - 1.5) < 0.002
+
+    def test_combined_g(self):
+        """Trail braking into corner — both X and Y."""
+        data = encode_imu_frame(-0.8, 0.9, 1.0)
+        result = decode_imu_frame(data)
+        assert abs(result["accel_x"] - (-0.8)) < 0.002
+        assert abs(result["accel_y"] - 0.9) < 0.002
+
+    def test_short_frame_raises(self):
+        with pytest.raises(ValueError, match="too short"):
+            decode_imu_frame(b"\x00\x01\x02\x03")
+
+
+class TestDecodeIMUGyroFrame:
+    """Tests for decode_imu_gyro_frame() — IMU gyroscope (0x6A7)."""
+
+    def test_stationary(self):
+        data = encode_imu_gyro_frame(0.0, 0.0, 0.0)
+        result = decode_imu_gyro_frame(data)
+        assert abs(result["gyro_x"]) < 0.02
+        assert abs(result["gyro_y"]) < 0.02
+        assert abs(result["gyro_z"]) < 0.02
+
+    def test_yaw_turn(self):
+        """Turning — yaw rate (Z axis)."""
+        data = encode_imu_gyro_frame(0.0, 0.0, 45.0)
+        result = decode_imu_gyro_frame(data)
+        assert abs(result["gyro_z"] - 45.0) < 0.02
+
+    def test_fast_spin(self):
+        """High rotation rates."""
+        data = encode_imu_gyro_frame(120.0, -50.0, 200.0)
+        result = decode_imu_gyro_frame(data)
+        assert abs(result["gyro_x"] - 120.0) < 0.02
+        assert abs(result["gyro_y"] - (-50.0)) < 0.02
+        assert abs(result["gyro_z"] - 200.0) < 0.02
+
+    def test_negative_roll(self):
+        data = encode_imu_gyro_frame(-30.0, 0.0, 0.0)
+        result = decode_imu_gyro_frame(data)
+        assert abs(result["gyro_x"] - (-30.0)) < 0.02
+
+    def test_short_frame_raises(self):
+        with pytest.raises(ValueError, match="too short"):
+            decode_imu_gyro_frame(b"\x00\x01\x02\x03")
+
+
+# ========================================================================
 # LED output encode tests
 # ========================================================================
 
@@ -587,6 +749,40 @@ class TestRoundTrip:
             result = decode_keypad_frame(data)
             assert result["state"] == state
 
+    def test_gps_round_trip(self):
+        """GPS position frame round-trip."""
+        for lat, lon in [(36.5842, -121.7528), (0.0, 0.0), (-33.8688, 151.2093)]:
+            data = encode_gps_frame(lat, lon)
+            result = decode_gps_frame(data)
+            assert abs(result["latitude"] - lat) < 0.00002
+            assert abs(result["longitude"] - lon) < 0.00002
+
+    def test_gps_ext_round_trip(self):
+        """GPS extended frame round-trip."""
+        for alt in [0.0, 321.0, 4302.0, -86.0]:
+            data = encode_gps_ext_frame(alt, 30.5, 135.0, 12, 2)
+            result = decode_gps_ext_frame(data)
+            assert abs(result["altitude_m"] - alt) < 1.0
+            assert abs(result["speed_mps"] - 30.5) < 0.02
+
+    def test_imu_round_trip(self):
+        """IMU accelerometer frame round-trip."""
+        for ax, ay, az in [(0.0, 0.0, 1.0), (-1.2, 0.9, 1.0), (0.5, -0.3, 0.98)]:
+            data = encode_imu_frame(ax, ay, az)
+            result = decode_imu_frame(data)
+            assert abs(result["accel_x"] - ax) < 0.002
+            assert abs(result["accel_y"] - ay) < 0.002
+            assert abs(result["accel_z"] - az) < 0.002
+
+    def test_imu_gyro_round_trip(self):
+        """IMU gyroscope frame round-trip."""
+        for gx, gy, gz in [(0.0, 0.0, 0.0), (45.0, -20.0, 120.0), (-30.0, 10.0, -5.0)]:
+            data = encode_imu_gyro_frame(gx, gy, gz)
+            result = decode_imu_gyro_frame(data)
+            assert abs(result["gyro_x"] - gx) < 0.02
+            assert abs(result["gyro_y"] - gy) < 0.02
+            assert abs(result["gyro_z"] - gz) < 0.02
+
 
 # ========================================================================
 # DiffState staleness tests
@@ -628,6 +824,36 @@ class TestDiffStateStaleness:
         """Default (no engine data) is stale."""
         state = DiffState()
         assert state.is_engine_stale() is True
+
+    def test_gps_stale_default(self):
+        """Default (no GPS data) is stale."""
+        state = DiffState()
+        assert state.is_gps_stale() is True
+
+    def test_gps_fresh(self):
+        now = time.monotonic()
+        state = DiffState(gps_frame_ts=now)
+        assert state.is_gps_stale(now, timeout=1.0) is False
+
+    def test_gps_old_is_stale(self):
+        now = time.monotonic()
+        state = DiffState(gps_frame_ts=now - 2.0)
+        assert state.is_gps_stale(now, timeout=1.0) is True
+
+    def test_imu_stale_default(self):
+        """Default (no IMU data) is stale."""
+        state = DiffState()
+        assert state.is_imu_stale() is True
+
+    def test_imu_fresh(self):
+        now = time.monotonic()
+        state = DiffState(imu_frame_ts=now)
+        assert state.is_imu_stale(now, timeout=0.5) is False
+
+    def test_imu_old_is_stale(self):
+        now = time.monotonic()
+        state = DiffState(imu_frame_ts=now - 1.0)
+        assert state.is_imu_stale(now, timeout=0.5) is True
 
 
 # ========================================================================
