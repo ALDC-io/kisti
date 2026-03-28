@@ -9,8 +9,10 @@ User=aldc
 Group=aldc
 WorkingDirectory=/home/aldc/repos/kisti
 Environment="DISPLAY=:0"
-Environment="QT_QPA_PLATFORM=eglfs"
+Environment="QT_QPA_PLATFORM=xcb"
 Environment="OLLAMA_MODELS=/data/ollama"
+Environment="XDG_RUNTIME_DIR=/run/user/1000"
+Environment="PULSE_SERVER=unix:/run/user/1000/pulse/native"
 ExecStartPre=-+/sbin/ip link set can0 up type can bitrate 1000000
 ExecStart=/usr/bin/python3 main.py --fullscreen
 Restart=on-failure

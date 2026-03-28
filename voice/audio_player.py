@@ -31,8 +31,8 @@ PIPER_VOICE = Path("/data/piper/en_US-danny-low.onnx")
 # Danny-low = 16000 Hz, most medium voices = 22050 Hz
 PIPER_SAMPLE_RATE_DEFAULT = 22050
 ENVELOPE_FPS = 40  # Higher resolution to capture syllable-level cadence
-# HDMI audio device — bypass PulseAudio so systemd service gets audio output
-ALSA_DEVICE = "plughw:HDA,3"
+# Route through PulseAudio — direct hardware (plughw:HDA,3) conflicts with PA
+ALSA_DEVICE = "pulse"
 
 
 class AudioPlayer(QObject):
@@ -158,13 +158,18 @@ class AudioPlayer(QObject):
             log.info("Audio ready: %.1fs, %d envelope frames", duration_s, len(envelope))
             self.ready.emit(envelope, duration_s)
 
-            # Step 5: Start playback — signal the exact moment audio begins
+            # Step 5: Start playback — wait for ALSA device ready before signalling
             log.info("Starting aplay...")
             play_proc = subprocess.Popen(
                 ["aplay", "-D", ALSA_DEVICE, wav_path],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
             )
+            # Block until aplay prints its format line — device is open and
+            # buffers are filled, so audio is about to hit the speaker.
+            ready_line = play_proc.stderr.readline().decode(errors="replace")
+            if ready_line:
+                log.info("aplay ready: %s", ready_line.strip()[:120])
             self.playback_started.emit()
             log.info("playback_started emitted")
 
@@ -172,7 +177,7 @@ class AudioPlayer(QObject):
             play_proc.wait(timeout=60)
             stderr = play_proc.stderr.read().decode() if play_proc.stderr else ""
             if stderr:
-                log.warning("aplay stderr: %s", stderr[:200])
+                log.info("aplay stderr: %s", stderr[:200])
 
             self._playing = False  # Reset BEFORE emitting signal
             log.info("Playback finished")

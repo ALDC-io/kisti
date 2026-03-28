@@ -538,10 +538,11 @@ class KistiModeWidget(QWidget):
         self._waveform.setMinimumSize(240, 140)
         waveform_container.addWidget(self._waveform, alignment=Qt.AlignCenter)
 
-        self._scan_bar = _ScanBar(self)
-        waveform_container.addWidget(self._scan_bar)
-
         layout.addLayout(waveform_container, stretch=1)
+
+        # Scanner bar spans full width (outside centered waveform container)
+        self._scan_bar = _ScanBar(self)
+        layout.addWidget(self._scan_bar)
 
         layout.addSpacing(4)
 
@@ -586,6 +587,7 @@ class KistiModeWidget(QWidget):
         self._envelope = []           # Pre-computed amplitude envelope
         self._envelope_idx = 0        # Current frame index
         self._envelope_playing = False
+        self._playback_start_time = 0.0  # monotonic clock anchor for time-based sync
 
         self._envelope_timer = QTimer(self)
         self._envelope_timer.setInterval(25)  # 40 Hz to match envelope — captures syllable cadence
@@ -653,6 +655,7 @@ class KistiModeWidget(QWidget):
         self._envelope_idx = 0
         self._envelope_playing = True
         self._audio_playing = True
+        self._playback_start_time = time.monotonic()
         self._waveform.set_active(True)
         self._envelope_timer.start()
         self._pause_ticks = 0  # Release typewriter in sync with audio
@@ -676,15 +679,24 @@ class KistiModeWidget(QWidget):
         self._waveform.update()  # Force immediate repaint to zero
 
     def _envelope_tick(self):
-        """Advance one frame in the pre-computed envelope (main thread, 30 Hz)."""
-        if not self._envelope_playing or self._envelope_idx >= len(self._envelope):
+        """Advance to the correct envelope frame based on elapsed wall-clock time.
+
+        Using elapsed time instead of tick-counting keeps the waveform locked
+        to the audio even when the Qt event loop is slow (GNOME, dialogs, etc.).
+        """
+        if not self._envelope_playing or not self._envelope:
             self._envelope_timer.stop()
             self._waveform.set_amplitude(0.0)
             return
 
-        amp = self._envelope[self._envelope_idx]
-        self._waveform.set_amplitude(amp)
-        self._envelope_idx += 1
+        elapsed = time.monotonic() - self._playback_start_time
+        frame = int(elapsed * 40)  # 40 FPS envelope
+        if frame >= len(self._envelope):
+            self._envelope_timer.stop()
+            self._waveform.set_amplitude(0.0)
+            return
+
+        self._waveform.set_amplitude(self._envelope[frame])
 
     def _warmup_piper(self):
         """Background: warm up Piper model by synthesizing a discarded phrase."""
