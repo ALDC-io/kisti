@@ -51,6 +51,8 @@ def main():
     parser.add_argument("--no-sync", action="store_true", help="Disable cloud sync")
     parser.add_argument("--no-duckdb", action="store_true", help="Disable DuckDB recording")
     parser.add_argument("--demo", action="store_true", help="Enable demo mode (idle chatter)")
+    parser.add_argument("--sim-ambient", action="store_true",
+                        help="Run ambient weather simulation (scripted scenario, ~90s)")
     args = parser.parse_args()
 
     setup_logging()
@@ -93,24 +95,32 @@ def main():
     alert_eng = AlertEngine(bridge)
     alert_eng.start()
 
-    # Ambient weather sensor (Yoctopuce Yocto-Meteo-V2)
-    yocto_reader = None
-    try:
-        from sensors.yoctopuce_reader import YoctopuceReader
-        yocto_reader = YoctopuceReader()
-        if yocto_reader.start():
-            yocto_reader.reading_updated.connect(
-                lambda r: bridge.update_ambient(
-                    r.temperature_c, r.humidity_pct, r.pressure_hpa,
-                    r.density_altitude_ft, r.dew_point_c,
-                )
+    # Ambient weather sensor (Yoctopuce Yocto-Meteo-V2) or simulator
+    ambient_source = None  # YoctopuceReader or AmbientSimulator — same signal interface
+    ambient_tick = [0]
+
+    if args.sim_ambient:
+        from sensors.ambient_simulator import AmbientSimulator
+        ambient_source = AmbientSimulator()
+    else:
+        try:
+            from sensors.yoctopuce_reader import YoctopuceReader
+            yocto = YoctopuceReader()
+            if yocto.start():
+                ambient_source = yocto
+                log.info("Ambient sensor online: Yoctopuce Yocto-Meteo-V2")
+            else:
+                log.info("No Yoctopuce sensor found")
+        except Exception as exc:
+            log.info("Ambient sensor unavailable: %s", exc)
+
+    if ambient_source:
+        ambient_source.reading_updated.connect(
+            lambda r: bridge.update_ambient(
+                r.temperature_c, r.humidity_pct, r.pressure_hpa,
+                r.density_altitude_ft, r.dew_point_c,
             )
-            log.info("Ambient sensor online: Yoctopuce Yocto-Meteo-V2")
-        else:
-            yocto_reader = None
-    except Exception as exc:
-        log.info("Ambient sensor unavailable: %s", exc)
-        yocto_reader = None
+        )
 
     # Voice pipeline (optional)
     voice_mgr = None
@@ -152,6 +162,7 @@ def main():
             log.info("DuckDB session store ready")
         except Exception as exc:
             log.warning("DuckDB failed to initialize: %s", exc)
+            db_store = None
 
     # Cloud sync (optional)
     sync_mgr = None
@@ -237,16 +248,84 @@ def main():
         )
         log.info("DuckDB session lifecycle wired (K1 start/stop)")
 
+    # --- Ambient condition tracking (independent of ECU session) ---
+    if db_store and ambient_source:
+        def _on_ambient_reading(reading):
+            """Record ambient data at ~1/60 Hz (once per minute)."""
+            ambient_tick[0] += 1
+            if ambient_tick[0] % 60 == 0:
+                try:
+                    db_store.record_ambient(
+                        reading.temperature_c, reading.humidity_pct,
+                        reading.pressure_hpa, reading.density_altitude_ft,
+                        reading.dew_point_c,
+                    )
+                except Exception:
+                    pass
+
+        def _on_condition_changed(change):
+            """Record condition change event + announce via voice."""
+            try:
+                state = bridge.snapshot()
+                db_store.record_ambient(
+                    state.ambient_temp_c, state.ambient_humidity_pct,
+                    state.ambient_pressure_hpa, state.density_altitude_ft,
+                    state.dew_point_c,
+                    change_event=change.event, change_delta=change.delta,
+                )
+            except Exception:
+                pass
+            if voice_mgr:
+                voice_mgr.speak(change.message)
+
+        ambient_source.reading_updated.connect(_on_ambient_reading)
+        ambient_source.condition_changed.connect(_on_condition_changed)
+        log.info("Ambient DuckDB recording enabled (1/min + change events)")
+
+    elif ambient_source and voice_mgr:
+        # No DuckDB but still announce condition changes via voice
+        ambient_source.condition_changed.connect(
+            lambda c: voice_mgr.speak(c.message)
+        )
+
+    # --- Ambient simulation voice hooks ---
+    if args.sim_ambient and ambient_source:
+        from sensors.ambient_simulator import AmbientSimulator
+        if isinstance(ambient_source, AmbientSimulator):
+            if voice_mgr:
+                ambient_source.simulation_started.connect(
+                    lambda: voice_mgr.speak("Ambient weather simulation starting. Monitoring conditions.")
+                )
+                ambient_source.simulation_ended.connect(
+                    lambda: voice_mgr.speak("Ambient weather simulation complete.")
+                )
+            ambient_source.simulation_started.connect(
+                lambda: log.info("SIM: Ambient weather simulation started")
+            )
+            ambient_source.simulation_ended.connect(
+                lambda: log.info("SIM: Ambient weather simulation ended")
+            )
+            # Auto-quit when simulation completes
+            def _sim_done():
+                log.info("SIM: Ambient weather simulation ended — exiting")
+                app.quit()
+            ambient_source.simulation_ended.connect(_sim_done)
+
+            # Start sim after event loop is running (QTimer.singleShot)
+            from PySide6.QtCore import QTimer as _QT
+            _QT.singleShot(2000, ambient_source.start)
+
     # UI — pass the shared bridge so CAN data flows to display
     window = MainWindow(fullscreen=args.fullscreen, bridge=bridge)
     window.show()
 
-    log.info("KiSTI running — SI Drive: %s, Voice: %s, DuckDB: %s, Sync: %s, CAN Out: %s",
+    log.info("KiSTI running — SI Drive: %s, Voice: %s, DuckDB: %s, Sync: %s, CAN Out: %s, Ambient: %s",
              mode_mgr.si_drive_mode.label,
              "ON" if voice_mgr else "OFF",
              "ON" if db_store else "OFF",
              "ON" if sync_mgr else "OFF",
-             "ON" if can_output else "OFF")
+             "ON" if can_output else "OFF",
+             "SIM" if args.sim_ambient else ("YOCTO" if ambient_source else "OFF"))
 
     # Run Qt event loop
     exit_code = app.exec()
@@ -267,8 +346,8 @@ def main():
         if session_id:
             db_store.end_session(session_id)
         db_store.close()
-    if yocto_reader:
-        yocto_reader.stop()
+    if ambient_source:
+        ambient_source.stop()
     mode_mgr.stop()
     alert_eng.stop()
 

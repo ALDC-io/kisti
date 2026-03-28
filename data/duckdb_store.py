@@ -115,6 +115,17 @@ CREATE TABLE IF NOT EXISTS telemetry (
     imu_gyro_y DOUBLE
 );
 
+CREATE TABLE IF NOT EXISTS ambient_conditions (
+    timestamp TIMESTAMP,
+    temperature_c DOUBLE,
+    humidity_pct DOUBLE,
+    pressure_hpa DOUBLE,
+    density_altitude_ft DOUBLE,
+    dew_point_c DOUBLE,
+    change_event TEXT,
+    change_delta DOUBLE
+);
+
 CREATE TABLE IF NOT EXISTS summaries (
     summary_id TEXT PRIMARY KEY,
     session_id TEXT,
@@ -256,6 +267,26 @@ class DuckDBStore:
                 state.gps_heading, state.gps_satellites,
                 state.imu_accel_x, state.imu_accel_y, state.imu_accel_z,
                 state.imu_gyro_x, state.imu_gyro_y,
+            ],
+        )
+
+    def record_ambient(
+        self,
+        temperature_c: float,
+        humidity_pct: float,
+        pressure_hpa: float,
+        density_altitude_ft: float,
+        dew_point_c: float,
+        change_event: Optional[str] = None,
+        change_delta: Optional[float] = None,
+    ) -> None:
+        """Record an ambient conditions snapshot (independent of ECU session)."""
+        self._conn.execute(
+            "INSERT INTO ambient_conditions VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                _now(), temperature_c, humidity_pct, pressure_hpa,
+                density_altitude_ft, dew_point_c,
+                change_event, change_delta,
             ],
         )
 
@@ -437,7 +468,7 @@ class DuckDBStore:
     def db_stats(self) -> dict:
         """Get database statistics."""
         stats = {}
-        for table in ["sessions", "telemetry", "thermal_state", "events", "alerts", "segments", "summaries"]:
+        for table in ["sessions", "telemetry", "thermal_state", "events", "alerts", "segments", "summaries", "ambient_conditions"]:
             count = self._conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
             stats[table] = count
 

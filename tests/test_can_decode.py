@@ -977,3 +977,333 @@ class TestKeypadEdgeDetection:
         state = DiffState(keypad_state=0xFF, keypad_prev_state=0x00)
         for mask in [KEYPAD_K1, KEYPAD_K2, KEYPAD_K3, KEYPAD_K4, KEYPAD_K5, KEYPAD_K6]:
             assert state.keypad_pressed(mask) is True
+
+
+# ========================================================================
+# Ambient condition change detection tests
+# ========================================================================
+
+class TestAmbientChangeDetection:
+    """Tests for YoctopuceReader delta detection logic."""
+
+    def test_ambient_reading_dataclass(self):
+        """AmbientReading fields have correct defaults."""
+        from sensors.yoctopuce_reader import AmbientReading
+        r = AmbientReading()
+        assert r.temperature_c == 0.0
+        assert r.humidity_pct == 0.0
+        assert r.pressure_hpa == 0.0
+        assert r.density_altitude_ft == 0.0
+        assert r.dew_point_c == 0.0
+        assert r.available is False
+
+    def test_ambient_change_dataclass(self):
+        """AmbientChange captures event details."""
+        from sensors.yoctopuce_reader import AmbientChange
+        c = AmbientChange(
+            event="pressure_falling",
+            message="Pressure falling.",
+            old_value=1013.0,
+            new_value=1007.0,
+            delta=-6.0,
+        )
+        assert c.event == "pressure_falling"
+        assert c.delta == -6.0
+
+    def test_pressure_threshold_constants(self):
+        """Delta thresholds are sensible."""
+        from sensors.yoctopuce_reader import PRESSURE_DELTA_HPA, TEMP_DELTA_C, HUMIDITY_DELTA_PCT
+        assert PRESSURE_DELTA_HPA == 5.0
+        assert TEMP_DELTA_C == 3.0
+        assert HUMIDITY_DELTA_PCT == 15.0
+
+    def test_dew_point_calculation(self):
+        """Magnus formula dew point at known conditions."""
+        from sensors.yoctopuce_reader import _dew_point
+        # At 20°C, 50% RH, dew point should be ~9.3°C
+        dp = _dew_point(20.0, 50.0)
+        assert 8.5 < dp < 10.0
+
+    def test_dew_point_zero_humidity(self):
+        """Zero humidity returns temperature (edge case guard)."""
+        from sensors.yoctopuce_reader import _dew_point
+        dp = _dew_point(25.0, 0.0)
+        assert dp == 25.0
+
+    def test_density_altitude_sea_level_isa(self):
+        """ISA standard conditions: 1013.25 hPa, 15°C → ~0 ft."""
+        from sensors.yoctopuce_reader import _density_altitude
+        da = _density_altitude(1013.25, 15.0)
+        assert abs(da) < 50  # within 50 ft of 0
+
+    def test_density_altitude_hot_day(self):
+        """Hot day at sea level pressure → positive density altitude."""
+        from sensors.yoctopuce_reader import _density_altitude
+        da = _density_altitude(1013.25, 35.0)  # 20°C above ISA
+        assert da > 2000  # should be well above 0
+
+    def test_density_altitude_zero_pressure(self):
+        """Zero pressure returns 0 (guard)."""
+        from sensors.yoctopuce_reader import _density_altitude
+        da = _density_altitude(0.0, 20.0)
+        assert da == 0.0
+
+
+class TestAmbientDuckDB:
+    """Tests for DuckDB ambient_conditions table."""
+
+    def test_ambient_table_exists(self, tmp_path):
+        """ambient_conditions table is created in schema."""
+        from data.duckdb_store import DuckDBStore
+        store = DuckDBStore(db_path=tmp_path / "test.duckdb")
+        store.open()
+        tables = store._conn.execute(
+            "SELECT table_name FROM information_schema.tables WHERE table_name = 'ambient_conditions'"
+        ).fetchall()
+        assert len(tables) == 1
+        store.close()
+
+    def test_record_ambient_basic(self, tmp_path):
+        """Record and query ambient data."""
+        from data.duckdb_store import DuckDBStore
+        store = DuckDBStore(db_path=tmp_path / "test.duckdb")
+        store.open()
+        store.record_ambient(20.0, 55.0, 1013.0, 120.0, 9.3)
+        rows = store._conn.execute("SELECT * FROM ambient_conditions").fetchall()
+        assert len(rows) == 1
+        assert rows[0][1] == 20.0  # temperature_c
+        assert rows[0][2] == 55.0  # humidity_pct
+        assert rows[0][3] == 1013.0  # pressure_hpa
+        store.close()
+
+    def test_record_ambient_with_change_event(self, tmp_path):
+        """Record ambient data with a change event tag."""
+        from data.duckdb_store import DuckDBStore
+        store = DuckDBStore(db_path=tmp_path / "test.duckdb")
+        store.open()
+        store.record_ambient(18.0, 60.0, 1008.0, 200.0, 10.0,
+                             change_event="pressure_falling", change_delta=-5.0)
+        rows = store._conn.execute(
+            "SELECT change_event, change_delta FROM ambient_conditions"
+        ).fetchall()
+        assert rows[0][0] == "pressure_falling"
+        assert rows[0][1] == -5.0
+        store.close()
+
+    def test_ambient_in_db_stats(self, tmp_path):
+        """db_stats includes ambient_conditions count."""
+        from data.duckdb_store import DuckDBStore
+        store = DuckDBStore(db_path=tmp_path / "test.duckdb")
+        store.open()
+        store.record_ambient(20.0, 50.0, 1013.0, 0.0, 9.0)
+        stats = store.db_stats()
+        assert stats["ambient_conditions"] == 1
+        store.close()
+
+
+class TestAmbientAlertEngine:
+    """Tests for ambient change detection in AlertEngine."""
+
+    def _make_bridge(self):
+        """Create a DiffStateBridge with ambient data."""
+        from model.vehicle_state import DiffStateBridge
+        bridge = DiffStateBridge()
+        return bridge
+
+    def test_ambient_baseline_set_on_first_read(self):
+        """First ambient reading sets baseline, no alert fired."""
+        from alerts.alert_engine import AlertEngine
+        bridge = self._make_bridge()
+        engine = AlertEngine(bridge)
+        alerts = []
+        engine.alert_fired.connect(lambda a: alerts.append(a))
+
+        # Set ambient available
+        bridge.update_ambient(20.0, 50.0, 1013.0, 0.0, 9.0)
+        engine._evaluate()
+        # First call sets baseline — no ambient alert expected
+        ambient_alerts = [a for a in alerts if a.alert_type.startswith(("pressure_", "temp_", "humidity_"))]
+        assert len(ambient_alerts) == 0
+
+    def test_ambient_pressure_drop_fires_alert(self):
+        """Pressure drop >= 5 hPa fires advisory."""
+        from alerts.alert_engine import AlertEngine
+        bridge = self._make_bridge()
+        engine = AlertEngine(bridge)
+        alerts = []
+        engine.alert_fired.connect(lambda a: alerts.append(a))
+
+        # Baseline
+        bridge.update_ambient(20.0, 50.0, 1013.0, 0.0, 9.0)
+        engine._evaluate()
+
+        # Significant pressure drop
+        bridge.update_ambient(20.0, 50.0, 1007.0, 0.0, 9.0)
+        engine._evaluate()
+
+        pressure_alerts = [a for a in alerts if a.alert_type == "pressure_falling"]
+        assert len(pressure_alerts) == 1
+        assert pressure_alerts[0].severity.label == "advisory"
+
+    def test_ambient_temp_drop_fires_alert(self):
+        """Temperature drop >= 3°C fires advisory."""
+        from alerts.alert_engine import AlertEngine
+        bridge = self._make_bridge()
+        engine = AlertEngine(bridge)
+        alerts = []
+        engine.alert_fired.connect(lambda a: alerts.append(a))
+
+        bridge.update_ambient(20.0, 50.0, 1013.0, 0.0, 9.0)
+        engine._evaluate()
+
+        bridge.update_ambient(16.0, 50.0, 1013.0, 0.0, 7.0)
+        engine._evaluate()
+
+        temp_alerts = [a for a in alerts if a.alert_type == "temp_dropping"]
+        assert len(temp_alerts) == 1
+
+    def test_ambient_humidity_rise_fires_alert(self):
+        """Humidity rise >= 15% fires advisory."""
+        from alerts.alert_engine import AlertEngine
+        bridge = self._make_bridge()
+        engine = AlertEngine(bridge)
+        alerts = []
+        engine.alert_fired.connect(lambda a: alerts.append(a))
+
+        bridge.update_ambient(20.0, 40.0, 1013.0, 0.0, 9.0)
+        engine._evaluate()
+
+        bridge.update_ambient(20.0, 60.0, 1013.0, 0.0, 9.0)
+        engine._evaluate()
+
+        hum_alerts = [a for a in alerts if a.alert_type == "humidity_rising"]
+        assert len(hum_alerts) == 1
+
+    def test_no_alert_below_threshold(self):
+        """Small changes below threshold produce no alert."""
+        from alerts.alert_engine import AlertEngine
+        bridge = self._make_bridge()
+        engine = AlertEngine(bridge)
+        alerts = []
+        engine.alert_fired.connect(lambda a: alerts.append(a))
+
+        bridge.update_ambient(20.0, 50.0, 1013.0, 0.0, 9.0)
+        engine._evaluate()
+
+        # Small changes — below all thresholds
+        bridge.update_ambient(21.0, 52.0, 1011.0, 0.0, 9.5)
+        engine._evaluate()
+
+        ambient_alerts = [a for a in alerts if a.alert_type.startswith(("pressure_", "temp_", "humidity_"))]
+        assert len(ambient_alerts) == 0
+
+    def test_ambient_not_available_skips(self):
+        """No ambient data → no alerts, no crash."""
+        from alerts.alert_engine import AlertEngine
+        bridge = self._make_bridge()
+        engine = AlertEngine(bridge)
+        alerts = []
+        engine.alert_fired.connect(lambda a: alerts.append(a))
+
+        # Don't set any ambient data
+        engine._evaluate()
+        ambient_alerts = [a for a in alerts if a.alert_type.startswith(("pressure_", "temp_", "humidity_"))]
+        assert len(ambient_alerts) == 0
+
+
+class TestWeatherEventQuotes:
+    """Tests for weather change event quotes in EVENT_QUOTES."""
+
+    def test_weather_event_keys_exist(self):
+        """All weather event keys have quotes."""
+        from data.event_quotes import EVENT_QUOTES
+        for key in ["pressure_falling", "pressure_rising", "temp_dropping",
+                     "temp_rising", "humidity_rising", "humidity_dropping"]:
+            assert key in EVENT_QUOTES, f"Missing event key: {key}"
+            assert len(EVENT_QUOTES[key]) >= 3, f"Too few quotes for {key}"
+
+    def test_get_event_quote_returns_weather(self):
+        """get_event_quote returns a string for weather events."""
+        from data.event_quotes import get_event_quote
+        for key in ["pressure_falling", "temp_dropping", "humidity_rising"]:
+            quote = get_event_quote(key)
+            assert isinstance(quote, str)
+            assert len(quote) > 10
+
+
+class TestAmbientSimulator:
+    """Tests for AmbientSimulator scripted weather scenario."""
+
+    def test_simulator_creates(self):
+        """AmbientSimulator instantiates without error."""
+        from sensors.ambient_simulator import AmbientSimulator
+        sim = AmbientSimulator()
+        assert sim.available is False
+
+    def test_simulator_phases_defined(self):
+        """Simulation has multiple phases totalling > 60s."""
+        from sensors.ambient_simulator import _PHASES
+        assert len(_PHASES) >= 4
+        total_s = sum(p.duration_s for p in _PHASES)
+        assert total_s >= 60
+
+    def test_simulator_initial_reading(self):
+        """First reading matches phase 0 baseline."""
+        from sensors.ambient_simulator import AmbientSimulator, _PHASES
+        sim = AmbientSimulator()
+        readings = []
+        sim.reading_updated.connect(lambda r: readings.append(r))
+        sim.start()
+        sim.stop()
+        assert len(readings) >= 1
+        r = readings[0]
+        assert abs(r.temperature_c - _PHASES[0].temp_c) < 0.5
+        assert abs(r.pressure_hpa - _PHASES[0].pressure_hpa) < 0.5
+        assert r.available is True
+
+    def test_simulator_emits_changes(self):
+        """Running through ticks produces condition_changed signals."""
+        from sensors.ambient_simulator import AmbientSimulator
+        sim = AmbientSimulator()
+        changes = []
+        sim.condition_changed.connect(lambda c: changes.append(c))
+        sim.start()
+        # Manually tick through enough to trigger at least one change
+        for _ in range(40):
+            sim._tick()
+        sim.stop()
+        assert len(changes) >= 1
+        # First change should be pressure_falling (storm front in phase 2)
+        assert changes[0].event == "pressure_falling"
+
+    def test_simulator_completes(self):
+        """Simulation emits simulation_ended after all phases."""
+        from sensors.ambient_simulator import AmbientSimulator, _PHASES
+        sim = AmbientSimulator()
+        ended = []
+        sim.simulation_ended.connect(lambda: ended.append(True))
+        sim.start()
+        total_ticks = sum(p.duration_s for p in _PHASES) + 5
+        for _ in range(total_ticks):
+            if not sim.available:
+                break
+            sim._tick()
+        assert len(ended) == 1
+
+    def test_simulator_values_interpolate(self):
+        """Values change gradually, not in jumps."""
+        from sensors.ambient_simulator import AmbientSimulator
+        sim = AmbientSimulator()
+        readings = []
+        sim.reading_updated.connect(lambda r: readings.append(r))
+        sim.start()
+        for _ in range(30):
+            sim._tick()
+        sim.stop()
+        # Check pressure decreases gradually over ticks 15-30 (phase 2)
+        pressures = [r.pressure_hpa for r in readings]
+        # Should have at least some downward movement
+        assert pressures[-1] < pressures[0]
+        # No single-tick jump > 2 hPa (gradual interpolation)
+        for i in range(1, len(pressures)):
+            assert abs(pressures[i] - pressures[i - 1]) < 2.0

@@ -117,6 +117,12 @@ class AlertEngine(QObject):
         self._engine_ready_announced = False
         self._warmup_announced = False
 
+        # Track previous ambient state for delta detection
+        self._prev_ambient_pressure: float = 0.0
+        self._prev_ambient_temp: float = 0.0
+        self._prev_ambient_humidity: float = 0.0
+        self._ambient_baseline_set: bool = False
+
         # Check timer (2 Hz)
         self._timer = QTimer(self)
         self._timer.setInterval(500)
@@ -134,11 +140,14 @@ class AlertEngine(QObject):
         """Evaluate all alert thresholds against current telemetry."""
         state = self._bridge.snapshot()
 
-        # Skip if no engine data
+        # Sensor-independent checks — run even without ECU
+        self._check_gps_stale(state)
+        self._check_high_g(state)
+        self._check_ambient_change(state)
+
+        # Engine-dependent checks — skip if no ECU data
         if state.is_engine_stale():
             return
-
-        # Skip if engine not running
         if state.rpm < ENGINE_RUNNING_RPM:
             return
 
@@ -150,8 +159,6 @@ class AlertEngine(QObject):
         self._check_cooldown_needed(state)
         self._check_warmup_state(state)
         self._check_grip(state)
-        self._check_high_g(state)
-        self._check_gps_stale(state)
 
     def _check_oil_pressure(self, state: DiffState) -> None:
         """Oil pressure alerts. Checks dedicated 150 PSI sensor (0x6B1)
@@ -340,6 +347,82 @@ class AlertEngine(QObject):
             ))
 
         self._last_alert["_gps_was_live"] = not is_stale
+
+    def _check_ambient_change(self, state: DiffState) -> None:
+        """Ambient weather change alerts — runs without ECU."""
+        if not state.ambient_available:
+            return
+
+        # Set baseline on first reading
+        if not self._ambient_baseline_set:
+            self._prev_ambient_pressure = state.ambient_pressure_hpa
+            self._prev_ambient_temp = state.ambient_temp_c
+            self._prev_ambient_humidity = state.ambient_humidity_pct
+            self._ambient_baseline_set = True
+            return
+
+        # Pressure change — weather system movement
+        p_delta = state.ambient_pressure_hpa - self._prev_ambient_pressure
+        if abs(p_delta) >= 5.0:
+            if p_delta < 0:
+                self._fire(Alert(
+                    alert_type="pressure_falling",
+                    severity=AlertSeverity.ADVISORY,
+                    message=f"Barometric pressure dropping: {p_delta:+.1f} hPa. Weather changing.",
+                    short_message=f"Pressure {p_delta:+.1f} hPa",
+                    value=state.ambient_pressure_hpa,
+                ))
+            else:
+                self._fire(Alert(
+                    alert_type="pressure_rising",
+                    severity=AlertSeverity.INFO,
+                    message=f"Barometric pressure rising: {p_delta:+.1f} hPa. Conditions stabilising.",
+                    short_message=f"Pressure {p_delta:+.1f} hPa",
+                    value=state.ambient_pressure_hpa,
+                ))
+            self._prev_ambient_pressure = state.ambient_pressure_hpa
+
+        # Temperature change
+        t_delta = state.ambient_temp_c - self._prev_ambient_temp
+        if abs(t_delta) >= 3.0:
+            if t_delta < 0:
+                self._fire(Alert(
+                    alert_type="temp_dropping",
+                    severity=AlertSeverity.ADVISORY,
+                    message=f"Temperature dropped {abs(t_delta):.1f} degrees. Grip may decrease.",
+                    short_message=f"Temp {t_delta:+.1f}°C",
+                    value=state.ambient_temp_c,
+                ))
+            else:
+                self._fire(Alert(
+                    alert_type="temp_rising",
+                    severity=AlertSeverity.INFO,
+                    message=f"Temperature up {t_delta:.1f} degrees. Conditions improving.",
+                    short_message=f"Temp {t_delta:+.1f}°C",
+                    value=state.ambient_temp_c,
+                ))
+            self._prev_ambient_temp = state.ambient_temp_c
+
+        # Humidity change
+        h_delta = state.ambient_humidity_pct - self._prev_ambient_humidity
+        if abs(h_delta) >= 15.0:
+            if h_delta > 0:
+                self._fire(Alert(
+                    alert_type="humidity_rising",
+                    severity=AlertSeverity.ADVISORY,
+                    message=f"Humidity up {h_delta:.0f} percent. Condensation risk increasing.",
+                    short_message=f"Humidity {h_delta:+.0f}%",
+                    value=state.ambient_humidity_pct,
+                ))
+            else:
+                self._fire(Alert(
+                    alert_type="humidity_dropping",
+                    severity=AlertSeverity.INFO,
+                    message=f"Humidity down {abs(h_delta):.0f} percent. Drier conditions.",
+                    short_message=f"Humidity {h_delta:+.0f}%",
+                    value=state.ambient_humidity_pct,
+                ))
+            self._prev_ambient_humidity = state.ambient_humidity_pct
 
     def _fire(self, alert: Alert) -> None:
         """Fire an alert if not debounced."""
