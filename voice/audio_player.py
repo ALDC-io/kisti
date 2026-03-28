@@ -150,6 +150,17 @@ class AudioPlayer(QObject):
             # Step 2: Pre-compute full amplitude envelope
             envelope = self._compute_envelope(audio_pcm, self._sample_rate, ENVELOPE_FPS)
 
+            # Debug: check raw PCM stats
+            n_samples = len(audio_pcm) // 2
+            peak = 0
+            for j in range(0, min(len(audio_pcm) - 1, 20000), 2):
+                s = abs(struct.unpack_from("<h", audio_pcm, j)[0])
+                if s > peak:
+                    peak = s
+            env_max = max(envelope) if envelope else 0
+            log.info("PCM debug: %d bytes, %d samples, peak=%d, env_max=%.3f, sr=%d",
+                     len(audio_pcm), n_samples, peak, env_max, self._sample_rate)
+
             # Step 3: Write WAV
             wav_path = "/tmp/kisti_speech.wav"
             self._write_wav(audio_pcm, self._sample_rate, wav_path)
