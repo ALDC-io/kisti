@@ -20,11 +20,21 @@ export LD_LIBRARY_PATH="$HOME/.local/lib:${LD_LIBRARY_PATH:-}"
 KISTI_DIR="$HOME/repos/kisti"
 LOG="/tmp/kisti-session.log"
 
-echo "$(date) KiSTI session starting" > "$LOG"
+LOCKFILE="/tmp/kisti-session.lock"
 
-# Guard: kill any existing KiSTI instance (GDM can double-launch on autologin)
-pkill -f 'python3 main.py' 2>/dev/null || true
+# Singleton guard — GDM autologin fires the session script twice.
+# First instance grabs the lock and runs. Second sees the lock and exits.
+if [ -f "$LOCKFILE" ] && kill -0 "$(cat "$LOCKFILE")" 2>/dev/null; then
+    echo "$(date) KiSTI already running (PID $(cat "$LOCKFILE")), exiting duplicate" >> /tmp/kisti-session.log
+    exit 0
+fi
+echo $$ > "$LOCKFILE"
+
+# Kill any orphaned KiSTI processes from a previous crash
+pkill -9 -f 'python3 main.py' 2>/dev/null || true
 sleep 1
+
+echo "$(date) KiSTI session starting (PID $$)" > "$LOG"
 
 # Black background, no screen blanking
 xsetroot -solid black 2>/dev/null || true
@@ -58,4 +68,5 @@ echo "$(date) Launching KiSTI" >> "$LOG"
 cd "$KISTI_DIR"
 python3 main.py --fullscreen >> "$LOG" 2>&1
 
+rm -f "$LOCKFILE"
 echo "$(date) KiSTI session ended" >> "$LOG"
