@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=KiSTI
+Comment=KiSTI Edge AI Co-Driver (minimal session, GPU optimized)
+Exec=/usr/local/bin/kisti-session
+Type=Application
+DesktopNames=KiSTI
