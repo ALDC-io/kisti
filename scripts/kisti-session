@@ -11,6 +11,16 @@
 
 set -e
 
+LOCKFILE="/tmp/kisti-session.lock"
+
+# Singleton: flock is atomic — if another instance holds the lock, exit immediately.
+exec 9>"$LOCKFILE"
+if ! flock -n 9; then
+    echo "$(date) duplicate session blocked by flock, exiting" >> /tmp/kisti-session.log
+    exit 0
+fi
+# Lock held for lifetime of this process (fd 9 stays open).
+
 export DISPLAY="${DISPLAY:-:0}"
 export QT_QPA_PLATFORM=xcb
 export OLLAMA_MODELS=/data/ollama
@@ -20,17 +30,7 @@ export LD_LIBRARY_PATH="$HOME/.local/lib:${LD_LIBRARY_PATH:-}"
 KISTI_DIR="$HOME/repos/kisti"
 LOG="/tmp/kisti-session.log"
 
-LOCKFILE="/tmp/kisti-session.lock"
-
-# Singleton guard — GDM autologin fires the session script twice.
-# First instance grabs the lock and runs. Second sees the lock and exits.
-if [ -f "$LOCKFILE" ] && kill -0 "$(cat "$LOCKFILE")" 2>/dev/null; then
-    echo "$(date) KiSTI already running (PID $(cat "$LOCKFILE")), exiting duplicate" >> /tmp/kisti-session.log
-    exit 0
-fi
-echo $$ > "$LOCKFILE"
-
-# Kill any orphaned KiSTI processes from a previous crash
+# Kill any orphaned KiSTI from a previous crash
 pkill -9 -f 'python3 main.py' 2>/dev/null || true
 sleep 1
 
@@ -68,5 +68,4 @@ echo "$(date) Launching KiSTI" >> "$LOG"
 cd "$KISTI_DIR"
 python3 main.py --fullscreen >> "$LOG" 2>&1
 
-rm -f "$LOCKFILE"
 echo "$(date) KiSTI session ended" >> "$LOG"
