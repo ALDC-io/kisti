@@ -839,36 +839,34 @@ class KistiModeWidget(QWidget):
             dp = ambient["dew_point_c"]
             da = ambient["density_altitude_ft"]
 
-            # Temperature feel
-            if t < 5:
-                temp_feel = "Cold out there"
-            elif t < 15:
-                temp_feel = "Cool conditions"
-            elif t < 25:
-                temp_feel = "Mild conditions"
-            elif t < 35:
-                temp_feel = "Warm out there"
-            else:
-                temp_feel = "It is hot out there"
-
-            # Grip/surface risk
+            # Grip expectation (lead with what the driver cares about)
             if dp > (t - 2):
-                grip_note = "Roads may be damp. Expect reduced grip early on."
+                grip = "Reduced grip expected"
+                reason = "damp conditions near the dew point"
+            elif t < 5:
+                grip = "Low grip expected"
+                reason = "cold surface temperatures"
             elif t < 8:
-                grip_note = "Cold surface. Tires will need a few laps to come in."
+                grip = "Grip will build slowly"
+                reason = "cool surface temperatures"
             elif h > 80:
-                grip_note = "High humidity. Watch for slippery patches."
+                grip = "Watch for slippery patches"
+                reason = "high humidity"
+            elif t > 35:
+                grip = "Good grip, but watch tire temps"
+                reason = "hot conditions"
             else:
-                grip_note = "Dry conditions. Good grip expected."
+                grip = "Good grip expected"
+                reason = "dry and mild conditions" if t < 25 else "dry and warm conditions"
 
             # Power note (only if significant)
             power_note = ""
             if da > 4000:
-                power_note = " Thin air up here. Expect noticeable power loss."
+                power_note = " Thin air today, expect reduced power."
             elif da > 3000:
-                power_note = " High altitude. Engine will make less power."
+                power_note = " High altitude, engine will make less power."
 
-            weather_line = f"{temp_feel}. {grip_note}{power_note}"
+            weather_line = f"{grip}, {reason}.{power_note}"
             time.sleep(4)
             self._queue_lines([weather_line])
 
