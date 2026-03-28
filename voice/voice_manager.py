@@ -25,6 +25,7 @@ from PySide6.QtCore import QObject, QThread, Signal
 
 from model.vehicle_state import DiffState, SIDriveMode
 from voice.llm_engine import LLMEngine
+from voice.mic_capture import MicCapture
 from voice.stt_engine import STTEngine
 from voice.tts_engine import TTSEngine
 from voice.led_waveform import LEDFrame, LEDWaveformGenerator
@@ -69,12 +70,14 @@ class VoiceManager(QObject):
     led_frame_ready = Signal(object)  # LEDFrame
     response_ready = Signal(str)      # LLM response text for UI AudioPlayer
 
-    def __init__(self, parent: Optional[QObject] = None) -> None:
+    def __init__(self, mic_device: str = "default", enable_mic: bool = True,
+                 parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
         self._stt = STTEngine()
         self._tts = TTSEngine()
         self._llm = LLMEngine()
         self._led = LEDWaveformGenerator()
+        self._mic = MicCapture(device=mic_device) if enable_mic else None
 
         self._state = VoiceState.IDLE
         self._toggle_state = VoiceToggleState.NORMAL
@@ -86,6 +89,10 @@ class VoiceManager(QObject):
 
         # Telemetry snapshot for LLM context
         self._telemetry_snapshot: Optional[DiffState] = None
+
+        # Wire mic → STT → LLM pipeline
+        if self._mic:
+            self._mic.speech_captured.connect(self._on_speech_captured)
 
     def start(self) -> None:
         """Initialize all voice subsystems and start the worker thread."""
@@ -100,16 +107,30 @@ class VoiceManager(QObject):
             name="kisti-voice-manager",
         )
         self._worker_thread.start()
-        log.info("Voice manager started (STT=%s, TTS=%s, LLM=%s)",
+
+        # Start mic capture (safe to call even without a mic — falls back gracefully)
+        if self._mic:
+            self._mic.start()
+
+        mic_status = "off"
+        if self._mic and self._mic.is_available:
+            mic_status = "real"
+        elif self._mic:
+            mic_status = "no device"
+
+        log.info("Voice manager started (STT=%s, TTS=%s, LLM=%s, Mic=%s)",
                  "real" if self._stt.is_real else "mock",
                  "real" if self._tts.is_real else "mock",
-                 "real" if self._llm.is_real else "persona")
+                 "real" if self._llm.is_real else "persona",
+                 mic_status)
 
     def stop(self) -> None:
         """Stop all voice subsystems."""
         self._running = False
         if self._worker_thread:
             self._worker_thread.join(timeout=5.0)
+        if self._mic:
+            self._mic.stop()
         self._stt.stop()
         self._tts.stop()
         self._llm.stop()
@@ -226,10 +247,52 @@ class VoiceManager(QObject):
                 log.error("Voice loop error: %s", exc, exc_info=True)
                 time.sleep(1.0)
 
+    def _on_speech_captured(self, pcm: bytes) -> None:
+        """Mic captured a complete utterance — transcribe and process.
+
+        Runs STT then checks for wake word. If the utterance contains a
+        wake word (or KiSTI is already in LISTENING state), routes to LLM.
+        """
+        if self._state in (VoiceState.OFF, VoiceState.SPEAKING):
+            return
+
+        # Transcribe on a worker thread to avoid blocking Qt
+        def _process():
+            result = self._stt.transcribe(pcm)
+            if not result.text.strip() or result.text == "[mock transcription]":
+                return
+
+            text = result.text.strip()
+            lower = text.lower()
+            log.info("STT: '%s' (%.2fs latency, conf=%.1f)", text[:60], result.latency_s, result.confidence)
+
+            # Check for wake word — if found, strip it and process the rest
+            has_wake_word = any(w in lower for w in WAKE_WORDS)
+            if has_wake_word or self._state == VoiceState.LISTENING:
+                # Strip wake word prefix from the query
+                query = text
+                for w in WAKE_WORDS:
+                    idx = lower.find(w)
+                    if idx >= 0:
+                        query = text[idx + len(w):].strip(" ,.")
+                        break
+                if query:
+                    self.handle_voice_query(query)
+                else:
+                    # Just the wake word with no query — acknowledge and listen
+                    self._set_state(VoiceState.LISTENING)
+                    self.speak("I'm listening.")
+
+        threading.Thread(target=_process, daemon=True, name="kisti-stt-worker").start()
+
     def _do_speak(self, text: str) -> None:
         """Synthesize and play speech with LED waveform."""
         self._set_state(VoiceState.SPEAKING)
         self.speaking_text.emit(text)
+
+        # Pause mic capture during speech (echo suppression)
+        if self._mic:
+            self._mic.pause()
 
         # Synthesize
         result = self._tts.speak(text)
@@ -245,6 +308,10 @@ class VoiceManager(QObject):
 
         # Play audio (via sounddevice or pyaudio)
         self._play_audio(result.audio_pcm, result.sample_rate)
+
+        # Resume mic capture
+        if self._mic:
+            self._mic.resume()
 
         self._set_state(VoiceState.IDLE)
 
@@ -275,13 +342,13 @@ class VoiceManager(QObject):
         if s.speed_kph > 0:
             lines.append(f"Speed: {s.speed_kph:.0f} km/h, Gear: {s.gear}")
         if s.map_kpa > 0:
-            lines.append(f"MAP: {s.map_kpa:.0f} kPa ({s.map_kpa * 0.145038 - 14.7:.1f} PSI boost)")
+            lines.append(f"Boost: {s.map_kpa - 101.3:.0f} kPa")
         if s.coolant_temp > 0:
             lines.append(f"Coolant: {s.coolant_temp:.0f}°C")
         if s.oil_temp_c > 0:
             lines.append(f"Oil Temp: {s.oil_temp_c:.0f}°C")
         if s.oil_psi > 0:
-            lines.append(f"Oil Pressure: {s.oil_psi:.0f} PSI")
+            lines.append(f"Oil Pressure: {s.oil_psi * 6.895:.0f} kPa")
         if s.lambda_1 > 0:
             lines.append(f"Lambda: {s.lambda_1:.3f}")
         if s.iat_c != 0:

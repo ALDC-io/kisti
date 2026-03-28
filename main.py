@@ -55,6 +55,10 @@ def main():
                         help="Run ambient weather simulation (scripted scenario, ~90s)")
     parser.add_argument("--sim-voice", action="store_true",
                         help="Simulate voice queries through full KiSTI pipeline")
+    parser.add_argument("--no-mic", action="store_true",
+                        help="Disable microphone capture (no voice input)")
+    parser.add_argument("--mic-device", type=str, default="default",
+                        help="ALSA capture device for mic (default: 'default')")
     args = parser.parse_args()
 
     setup_logging()
@@ -129,7 +133,10 @@ def main():
     if not args.no_voice:
         try:
             from voice.voice_manager import VoiceManager
-            voice_mgr = VoiceManager()
+            voice_mgr = VoiceManager(
+                mic_device=args.mic_device,
+                enable_mic=not args.no_mic,
+            )
             voice_mgr.start()
 
             # Wire mode changes to voice manager
