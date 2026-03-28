@@ -310,7 +310,7 @@ class _KittWaveform(QWidget):
         if not active:
             self._levels = [0, 0, 0]
             self._real_amplitude = 0.0
-            self.update()
+            self.repaint()
 
     def set_amplitude(self, amplitude: float):
         """Set real amplitude from audio playback (0.0-1.0)."""
@@ -357,7 +357,9 @@ class _KittWaveform(QWidget):
             self._levels = [left, center, right]
         else:
             self._levels = [0, 0, 0]
-        self.update()
+        # repaint() forces synchronous paint — required in compositorless X11
+        # where update() batches may not flush the backing store
+        self.repaint()
 
     def paintEvent(self, event):
         p = QPainter(self)
@@ -479,7 +481,7 @@ class _ScanBar(QWidget):
 
     def set_active(self, active):
         self._active = active
-        self.update()
+        self.repaint()
 
     def _tick(self):
         if self._active:
@@ -488,7 +490,7 @@ class _ScanBar(QWidget):
                 self._direction = -1
             elif self._pos <= 0.0:
                 self._direction = 1
-            self.update()
+            self.repaint()
 
     def paintEvent(self, event):
         p = QPainter(self)
@@ -680,7 +682,7 @@ class KistiModeWidget(QWidget):
         self._waveform._real_amplitude = 0.0
         self._waveform._levels = [0, 0, 0]
         self._waveform.set_active(False)
-        self._waveform.update()  # Force immediate repaint to zero
+        self._waveform.repaint()  # Force immediate repaint to zero
 
     def _envelope_tick(self):
         """Advance to the correct envelope frame based on elapsed wall-clock time."""

@@ -219,7 +219,6 @@ class VoiceManager(QObject):
                     source="voice",
                 )
                 self.response_ready.emit("Got it. I'll remember that.")
-                self.speak("Got it. I'll remember that.")
                 return
 
         # Check for quiet/resume commands
@@ -343,19 +342,30 @@ class VoiceManager(QObject):
         self._set_state(VoiceState.IDLE)
 
     def _play_audio(self, audio_pcm: bytes, sample_rate: int) -> None:
-        """Play PCM audio via USB audio output."""
+        """Play PCM audio via ALSA direct to HDMI."""
+        import subprocess as _sp
+        import tempfile
+        import wave
         try:
-            import sounddevice as sd  # type: ignore[import-untyped]
-            import numpy as np  # type: ignore[import-untyped]
-            audio_np = np.frombuffer(audio_pcm, dtype=np.int16).astype(np.float32) / 32768.0
-            sd.play(audio_np, samplerate=sample_rate, blocking=True)
-        except ImportError:
-            # sounddevice not available — estimate duration and sleep
-            duration = len(audio_pcm) / (sample_rate * 2)
-            log.debug("No audio output — simulating %.1fs playback", duration)
-            time.sleep(duration)
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                wav_path = f.name
+            with wave.open(wav_path, "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(sample_rate)
+                wf.writeframes(audio_pcm)
+            _sp.run(
+                ["aplay", "-D", "plughw:0,3", wav_path],
+                stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, timeout=60,
+            )
         except Exception as exc:
             log.warning("Audio playback failed: %s", exc)
+        finally:
+            import os
+            try:
+                os.unlink(wav_path)
+            except OSError:
+                pass
 
     def _build_telemetry_context(self) -> str:
         """Build telemetry context string for LLM system prompt."""
