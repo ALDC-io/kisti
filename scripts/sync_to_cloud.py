@@ -81,67 +81,62 @@ def sync_weather(db_path: Path) -> int:
 
     conn = _open_db_readonly(db_path)
 
-    count = conn.execute("SELECT COUNT(*) FROM ambient_conditions").fetchone()[0]
-    if count == 0:
-        log.info("No weather data to sync")
+    try:
+        count = conn.execute("SELECT COUNT(*) FROM ambient_conditions").fetchone()[0]
+        if count == 0:
+            log.info("No weather data to sync")
+            return 0
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "ambient_conditions.parquet"
+            conn.execute(
+                f"COPY (SELECT * FROM ambient_conditions ORDER BY timestamp) "
+                f"TO '{out}' (FORMAT PARQUET)"
+            )
+
+            csv_out = Path(tmp) / "ambient_conditions.csv"
+            conn.execute(
+                f"COPY (SELECT * FROM ambient_conditions ORDER BY timestamp) "
+                f"TO '{csv_out}' (FORMAT CSV, HEADER TRUE)"
+            )
+
+            stats = conn.execute("""
+                SELECT
+                    COUNT(*) as total_readings,
+                    MIN(timestamp) as first_reading,
+                    MAX(timestamp) as last_reading,
+                    AVG(temperature_c) as avg_temp_c,
+                    MIN(temperature_c) as min_temp_c,
+                    MAX(temperature_c) as max_temp_c,
+                    AVG(humidity_pct) as avg_humidity,
+                    AVG(pressure_hpa) as avg_pressure_hpa,
+                    COUNT(change_event) as change_events
+                FROM ambient_conditions
+            """).fetchone()
+
+            _rclone_copy(out, f"{CLOUD_BASE}/weather/ambient_conditions.parquet")
+            _rclone_copy(csv_out, f"{CLOUD_BASE}/weather/ambient_conditions.csv")
+
+            summary = {
+                "synced_at": datetime.now(timezone.utc).isoformat(),
+                "total_readings": stats[0],
+                "first_reading": str(stats[1]),
+                "last_reading": str(stats[2]),
+                "avg_temp_c": round(stats[3], 1) if stats[3] else None,
+                "min_temp_c": round(stats[4], 1) if stats[4] else None,
+                "max_temp_c": round(stats[5], 1) if stats[5] else None,
+                "avg_humidity_pct": round(stats[6], 1) if stats[6] else None,
+                "avg_pressure_hpa": round(stats[7], 1) if stats[7] else None,
+                "change_events": stats[8],
+            }
+            summary_path = Path(tmp) / "weather_summary.json"
+            summary_path.write_text(json.dumps(summary, indent=2))
+            _rclone_copy(summary_path, f"{CLOUD_BASE}/weather/weather_summary.json")
+
+        log.info("Weather sync complete: %d readings", count)
+        return count
+    finally:
         conn.close()
-        return 0
-
-    with tempfile.TemporaryDirectory() as tmp:
-        out = Path(tmp) / "ambient_conditions.parquet"
-        conn.execute(
-            f"COPY (SELECT * FROM ambient_conditions ORDER BY timestamp) "
-            f"TO '{out}' (FORMAT PARQUET)"
-        )
-        conn.close()
-
-        # Also export as CSV for easy viewing
-        csv_out = Path(tmp) / "ambient_conditions.csv"
-        conn2 = duckdb.connect(str(db_path), read_only=True)
-        conn2.execute(
-            f"COPY (SELECT * FROM ambient_conditions ORDER BY timestamp) "
-            f"TO '{csv_out}' (FORMAT CSV, HEADER TRUE)"
-        )
-        conn2.close()
-
-        _rclone_copy(out, f"{CLOUD_BASE}/weather/ambient_conditions.parquet")
-        _rclone_copy(csv_out, f"{CLOUD_BASE}/weather/ambient_conditions.csv")
-
-        # Summary JSON
-        conn3 = duckdb.connect(str(db_path), read_only=True)
-        stats = conn3.execute("""
-            SELECT
-                COUNT(*) as total_readings,
-                MIN(timestamp) as first_reading,
-                MAX(timestamp) as last_reading,
-                AVG(temperature_c) as avg_temp_c,
-                MIN(temperature_c) as min_temp_c,
-                MAX(temperature_c) as max_temp_c,
-                AVG(humidity_pct) as avg_humidity,
-                AVG(pressure_hpa) as avg_pressure_hpa,
-                COUNT(change_event) as change_events
-            FROM ambient_conditions
-        """).fetchone()
-        conn3.close()
-
-        summary = {
-            "synced_at": datetime.now(timezone.utc).isoformat(),
-            "total_readings": stats[0],
-            "first_reading": str(stats[1]),
-            "last_reading": str(stats[2]),
-            "avg_temp_c": round(stats[3], 1) if stats[3] else None,
-            "min_temp_c": round(stats[4], 1) if stats[4] else None,
-            "max_temp_c": round(stats[5], 1) if stats[5] else None,
-            "avg_humidity_pct": round(stats[6], 1) if stats[6] else None,
-            "avg_pressure_hpa": round(stats[7], 1) if stats[7] else None,
-            "change_events": stats[8],
-        }
-        summary_path = Path(tmp) / "weather_summary.json"
-        summary_path.write_text(json.dumps(summary, indent=2))
-        _rclone_copy(summary_path, f"{CLOUD_BASE}/weather/weather_summary.json")
-
-    log.info("Weather sync complete: %d readings", count)
-    return count
 
 
 def sync_database(db_path: Path) -> bool:
