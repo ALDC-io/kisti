@@ -31,8 +31,8 @@ PIPER_VOICE = Path("/data/piper/en_US-danny-low.onnx")
 # Danny-low = 16000 Hz, most medium voices = 22050 Hz
 PIPER_SAMPLE_RATE_DEFAULT = 22050
 ENVELOPE_FPS = 40  # Higher resolution to capture syllable-level cadence
-# Route through PulseAudio — direct hardware (plughw:HDA,3) conflicts with PA
-ALSA_DEVICE = "pulse"
+# Direct ALSA to HDMI — PulseAudio is killed in KiSTI minimal session
+ALSA_DEVICE = "plughw:0,3"
 
 
 class AudioPlayer(QObject):
