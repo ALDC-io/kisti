@@ -208,6 +208,14 @@ class DiffState:
     lap_count: int = 0
     lap_time_ms: int = 0
 
+    # Ambient weather (Yoctopuce Yocto-Meteo-V2, exterior)
+    ambient_temp_c: float = 0.0           # °C
+    ambient_humidity_pct: float = 0.0     # %RH
+    ambient_pressure_hpa: float = 0.0     # hPa (barometric)
+    density_altitude_ft: float = 0.0      # feet
+    dew_point_c: float = 0.0             # °C
+    ambient_available: bool = False
+
     # Warm-up state (computed, not from CAN)
     warmup_state: WarmUpState = WarmUpState.COLD
 
@@ -540,6 +548,23 @@ class DiffStateBridge(QObject):
             self._state.imu_gyro_frame_ts = time.monotonic()
             self._state.can_connected = True
         self.state_changed.emit()
+
+    def update_ambient(
+        self,
+        temp_c: float,
+        humidity_pct: float,
+        pressure_hpa: float,
+        density_altitude_ft: float,
+        dew_point_c: float,
+    ) -> None:
+        """Called from Yoctopuce reader with ambient weather data."""
+        with self._lock:
+            self._state.ambient_temp_c = temp_c
+            self._state.ambient_humidity_pct = humidity_pct
+            self._state.ambient_pressure_hpa = pressure_hpa
+            self._state.density_altitude_ft = density_altitude_ft
+            self._state.dew_point_c = dew_point_c
+            self._state.ambient_available = True
 
     def set_disconnected(self) -> None:
         """Mark CAN bus as disconnected."""
