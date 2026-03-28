@@ -1,0 +1,44 @@
+#!/bin/bash
+# KiSTI minimal X session — replaces GNOME desktop to free GPU memory
+#
+# GDM handles login; this script IS the entire desktop session.
+# No window manager, no compositor, no desktop — just KiSTI fullscreen.
+# Frees ~500MB unified memory for Ollama CUDA inference.
+#
+# Install: sudo cp scripts/kisti-session.desktop /usr/share/xsessions/
+#          sudo cp scripts/kisti-session /usr/local/bin/ && sudo chmod +x /usr/local/bin/kisti-session
+# Select "KiSTI" session from GDM gear icon at login.
+
+set -e
+
+export DISPLAY="${DISPLAY:-:0}"
+export QT_QPA_PLATFORM=xcb
+export OLLAMA_MODELS=/data/ollama
+export PULSE_SERVER="unix:/run/user/$(id -u)/pulse/native"
+export LD_LIBRARY_PATH="$HOME/.local/lib:${LD_LIBRARY_PATH:-}"
+
+KISTI_DIR="$HOME/repos/kisti"
+LOG="/tmp/kisti-session.log"
+
+echo "$(date) KiSTI session starting" > "$LOG"
+
+# Black background, no screen blanking
+xsetroot -solid black 2>/dev/null || true
+xset s off -dpms 2>/dev/null || true
+
+# Wait for Ollama to be ready (systemd should have started it)
+for i in $(seq 1 15); do
+    curl -sf http://localhost:11434/api/tags >/dev/null 2>&1 && break
+    echo "$(date) Waiting for Ollama... ($i)" >> "$LOG"
+    sleep 1
+done
+
+# Bring up CAN if adapter connected
+sudo -n ip link set can0 up type can bitrate 1000000 2>/dev/null || true
+
+# Launch KiSTI fullscreen — when it exits, session ends → back to GDM
+echo "$(date) Launching KiSTI" >> "$LOG"
+cd "$KISTI_DIR"
+python3 main.py --fullscreen >> "$LOG" 2>&1
+
+echo "$(date) KiSTI session ended" >> "$LOG"
