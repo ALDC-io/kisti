@@ -137,6 +137,8 @@ class AudioPlayer(QObject):
             if proc.returncode != 0 or len(proc.stdout) < 100:
                 log.warning("Piper failed or empty output")
                 self._playing = False
+                self.playback_finished.emit()
+                self._drain_queue()
                 return
 
             audio_pcm = proc.stdout

@@ -480,6 +480,65 @@ class DuckDBStore:
         log.info("Purged %d synced sessions older than %d days", count, keep_days)
         return count
 
+    def export_weather_parquet(self, output_dir: Path) -> Optional[Path]:
+        """Export ambient_conditions to Parquet for cloud sync.
+
+        Returns the Parquet path, or None if no data.
+        """
+        count = self._conn.execute(
+            "SELECT COUNT(*) FROM ambient_conditions"
+        ).fetchone()[0]
+        if count == 0:
+            return None
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+        path = output_dir / "ambient_conditions.parquet"
+        self._conn.execute(
+            f"COPY (SELECT * FROM ambient_conditions ORDER BY timestamp) "
+            f"TO '{path}' (FORMAT PARQUET)"
+        )
+
+        # Also export CSV for easy viewing
+        csv_path = output_dir / "ambient_conditions.csv"
+        self._conn.execute(
+            f"COPY (SELECT * FROM ambient_conditions ORDER BY timestamp) "
+            f"TO '{csv_path}' (FORMAT CSV, HEADER TRUE)"
+        )
+
+        # Summary JSON
+        stats = self._conn.execute("""
+            SELECT
+                COUNT(*) as total,
+                MIN(timestamp) as first_ts,
+                MAX(timestamp) as last_ts,
+                AVG(temperature_c) as avg_temp,
+                MIN(temperature_c) as min_temp,
+                MAX(temperature_c) as max_temp,
+                AVG(humidity_pct) as avg_humidity,
+                AVG(pressure_hpa) as avg_pressure,
+                COUNT(change_event) as changes
+            FROM ambient_conditions
+        """).fetchone()
+
+        import json
+        summary = {
+            "exported_at": _now().isoformat(),
+            "total_readings": stats[0],
+            "first_reading": str(stats[1]),
+            "last_reading": str(stats[2]),
+            "avg_temp_c": round(stats[3], 1) if stats[3] else None,
+            "min_temp_c": round(stats[4], 1) if stats[4] else None,
+            "max_temp_c": round(stats[5], 1) if stats[5] else None,
+            "avg_humidity_pct": round(stats[6], 1) if stats[6] else None,
+            "avg_pressure_hpa": round(stats[7], 1) if stats[7] else None,
+            "change_events": stats[8],
+        }
+        summary_path = output_dir / "weather_summary.json"
+        summary_path.write_text(json.dumps(summary, indent=2))
+
+        log.info("Weather export: %d readings → %s", count, output_dir)
+        return path
+
     def db_stats(self) -> dict:
         """Get database statistics."""
         stats = {}

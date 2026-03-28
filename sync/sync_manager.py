@@ -31,6 +31,7 @@ log = logging.getLogger("kisti.sync")
 SYNC_QUEUE_DIR = Path("/data/sync_queue")
 NEXTCLOUD_REMOTE = "kisti"  # rclone remote name (dedicated KiSTI Nextcloud account)
 NEXTCLOUD_PATH = "Project KiSTI/sessions"  # Remote path on Nextcloud
+NEXTCLOUD_WEATHER_PATH = "Project KiSTI/weather"  # Weather data on Nextcloud
 SYNC_CHECK_INTERVAL_S = 60  # Check for sync every 60 seconds
 
 
@@ -79,7 +80,7 @@ class SyncManager(QObject):
         self._timer.stop()
 
     def _sync_tick(self) -> None:
-        """Periodic sync check."""
+        """Periodic sync check — sessions + weather data."""
         try:
             online = self._check_connectivity()
             self._status.is_online = online
@@ -87,7 +88,11 @@ class SyncManager(QObject):
             if self._store is None:
                 return
 
-            # Count pending
+            # Sync weather data (independent of sessions)
+            if online:
+                self._sync_weather()
+
+            # Count pending sessions
             unsynced = self._store.get_unsynced_sessions()
             self._status.pending_sessions = len(unsynced)
             self.sync_status_changed.emit(self._status)
@@ -95,7 +100,7 @@ class SyncManager(QObject):
             if not online or not unsynced:
                 return
 
-            # Export and sync
+            # Export and sync sessions
             synced_count = 0
             for session in unsynced:
                 try:
@@ -132,6 +137,20 @@ class SyncManager(QObject):
         except Exception as exc:
             log.error("Sync tick error: %s", exc, exc_info=True)
             self._status.last_error = str(exc)
+
+    def _sync_weather(self) -> None:
+        """Export and upload ambient weather data to Nextcloud."""
+        try:
+            weather_dir = self._sync_dir / "weather"
+            path = self._store.export_weather_parquet(weather_dir)
+            if path is None:
+                return
+
+            if self._upload_rclone(weather_dir, NEXTCLOUD_WEATHER_PATH):
+                log.info("Weather data synced to Nextcloud")
+                self._cleanup_dir(weather_dir)
+        except Exception as exc:
+            log.warning("Weather sync failed: %s", exc)
 
     @staticmethod
     def _check_connectivity() -> bool:
