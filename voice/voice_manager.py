@@ -90,6 +90,9 @@ class VoiceManager(QObject):
         # Telemetry snapshot for LLM context
         self._telemetry_snapshot: Optional[DiffState] = None
 
+        # Edge memory for "remember" commands and LLM context
+        self._edge_memory = None
+
         # Wire mic → STT → LLM pipeline
         if self._mic:
             self._mic.speech_captured.connect(self._on_speech_captured)
@@ -144,6 +147,10 @@ class VoiceManager(QObject):
     def set_telemetry(self, state: DiffState) -> None:
         """Update telemetry snapshot for LLM context."""
         self._telemetry_snapshot = state
+
+    def set_edge_memory(self, edge_memory: object) -> None:
+        """Inject edge memory for 'remember' commands and LLM context."""
+        self._edge_memory = edge_memory
 
     def toggle_voice(self) -> VoiceToggleState:
         """Cycle voice state: Normal → Quiet → Off → Normal (K4 button)."""
@@ -200,8 +207,22 @@ class VoiceManager(QObject):
         if not transcription.strip():
             return
 
-        # Check for quiet/resume commands
         lower = transcription.lower().strip()
+
+        # Check for "remember" commands → store in edge memory
+        if lower.startswith("remember ") and self._edge_memory:
+            content = transcription[len("remember "):].strip()
+            if content:
+                self._edge_memory.remember(
+                    content=content,
+                    memory_type="manual",
+                    source="voice",
+                )
+                self.response_ready.emit("Got it. I'll remember that.")
+                self.speak("Got it. I'll remember that.")
+                return
+
+        # Check for quiet/resume commands
         if any(cmd in lower for cmd in QUIET_COMMANDS):
             self._toggle_state = VoiceToggleState.QUIET
             self._set_state(VoiceState.QUIET)
@@ -218,10 +239,16 @@ class VoiceManager(QObject):
         # Build telemetry context
         context = self._build_telemetry_context()
 
+        # Build memory context (skip in Sport Sharp — token budget too tight)
+        memory_context = ""
+        if self._edge_memory and self._si_drive_mode != SIDriveMode.SPORT_SHARP:
+            memory_context = self._edge_memory.build_memory_context(transcription)
+
         # Query LLM
         response = self._llm.query(
             user_message=transcription,
             telemetry_context=context,
+            memory_context=memory_context,
             si_drive_mode=self._si_drive_mode.label,
         )
 

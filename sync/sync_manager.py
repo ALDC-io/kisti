@@ -29,8 +29,8 @@ from PySide6.QtCore import QObject, QTimer, Signal
 log = logging.getLogger("kisti.sync")
 
 SYNC_QUEUE_DIR = Path("/data/sync_queue")
-NEXTCLOUD_REMOTE = "nextcloud"  # rclone remote name
-NEXTCLOUD_PATH = "KiSTI/sessions"  # Remote path on Nextcloud
+NEXTCLOUD_REMOTE = "kisti"  # rclone remote name (dedicated KiSTI Nextcloud account)
+NEXTCLOUD_PATH = "Project KiSTI/sessions"  # Remote path on Nextcloud
 SYNC_CHECK_INTERVAL_S = 60  # Check for sync every 60 seconds
 
 

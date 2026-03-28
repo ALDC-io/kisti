@@ -203,6 +203,7 @@ class LLMEngine:
         self,
         user_message: str,
         telemetry_context: str = "",
+        memory_context: str = "",
         si_drive_mode: str = "Intelligent",
     ) -> LLMResponse:
         """Send a query to the LLM (or persona fallback).
@@ -210,6 +211,7 @@ class LLMEngine:
         Args:
             user_message: What the driver said/asked.
             telemetry_context: Current telemetry snapshot as text.
+            memory_context: Relevant memories from edge memory system.
             si_drive_mode: Current SI Drive mode name.
 
         Returns:
@@ -222,7 +224,8 @@ class LLMEngine:
         if self._available_model:
             try:
                 return self._query_ollama(
-                    user_message, telemetry_context, si_drive_mode, max_tokens, start_time,
+                    user_message, telemetry_context, memory_context,
+                    si_drive_mode, max_tokens, start_time,
                 )
             except Exception as exc:
                 log.warning("Ollama query failed: %s — falling back to persona", exc)
@@ -253,6 +256,7 @@ class LLMEngine:
         self,
         user_message: str,
         telemetry_context: str,
+        memory_context: str,
         si_drive_mode: str,
         max_tokens: int,
         start_time: float,
@@ -261,6 +265,10 @@ class LLMEngine:
         system_prompt = KISTI_SYSTEM_PROMPT.format(
             telemetry_context=telemetry_context or "No live telemetry available.",
         )
+
+        # Inject memory context (skip in Sport Sharp — every token counts)
+        if memory_context and si_drive_mode != "Sport Sharp":
+            system_prompt += f"\n\nRelevant memories:\n{memory_context}"
 
         # Mode-specific prompt reinforcement (kept minimal — prompt tokens cost time)
         if si_drive_mode == "Sport":
