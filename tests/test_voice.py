@@ -11,7 +11,14 @@ import pytest
 
 from voice.stt_engine import STTEngine, TranscriptionResult, SAMPLE_RATE
 from voice.tts_engine import TTSEngine, TTSResult, compute_amplitude_envelope
-from voice.llm_engine import LLMEngine, LLMResponse, _match_persona, FALLBACK_RESPONSE
+from voice.llm_engine import (
+    LLMEngine, LLMResponse, _match_persona, FALLBACK_RESPONSE,
+    MODE_TOKEN_CAPS, MODE_TEMPERATURE,
+)
+from voice.mic_capture import (
+    MicCapture, SAMPLE_RATE as MIC_SAMPLE_RATE, FRAME_BYTES,
+    SPEECH_START_FRAMES, SPEECH_END_FRAMES, VAD_MODE,
+)
 from voice.led_waveform import LEDWaveformGenerator, LEDFrame
 from can.can_config import (
     LED_COUNT, LED_MODE_KITT, LED_MODE_OFF, LED_MODE_RPM,
@@ -147,7 +154,7 @@ class TestLLMEngine:
         engine.start()
         response = engine.query("How's the oil pressure?")
         assert response.tier == "persona_match"
-        assert "psi" in response.text.lower()
+        assert "kpa" in response.text.lower()
         engine.stop()
 
     def test_persona_fallback_identity(self):
@@ -285,3 +292,88 @@ class TestLEDWaveform:
         gen = LEDWaveformGenerator()
         frame = gen.alert_flash_frame("critical", phase=0.6)
         assert all(b == 0 for b in frame.brightnesses)
+
+
+# ========================================================================
+# LLM Token Cap tests
+# ========================================================================
+
+class TestLLMTokenCaps:
+    def test_mode_caps_defined(self):
+        """All SI Drive modes have token caps."""
+        assert "Intelligent" in MODE_TOKEN_CAPS
+        assert "Sport" in MODE_TOKEN_CAPS
+        assert "Sport Sharp" in MODE_TOKEN_CAPS
+
+    def test_sport_sharp_is_tightest(self):
+        """Sport Sharp has the lowest token cap."""
+        assert MODE_TOKEN_CAPS["Sport Sharp"] < MODE_TOKEN_CAPS["Sport"]
+        assert MODE_TOKEN_CAPS["Sport"] < MODE_TOKEN_CAPS["Intelligent"]
+
+    def test_sport_sharp_cap(self):
+        assert MODE_TOKEN_CAPS["Sport Sharp"] == 20
+
+    def test_sport_cap(self):
+        assert MODE_TOKEN_CAPS["Sport"] == 32
+
+    def test_intelligent_cap(self):
+        assert MODE_TOKEN_CAPS["Intelligent"] == 64
+
+    def test_temperature_decreases_with_urgency(self):
+        """More aggressive modes use lower temperature."""
+        assert MODE_TEMPERATURE["Sport Sharp"] < MODE_TEMPERATURE["Sport"]
+        assert MODE_TEMPERATURE["Sport"] < MODE_TEMPERATURE["Intelligent"]
+
+    def test_query_uses_mode_cap(self):
+        """LLM query selects token cap based on SI Drive mode."""
+        engine = LLMEngine()
+        engine.start()
+        # Without Ollama, falls back to persona — just verify it doesn't crash
+        response = engine.query("How's the oil?", si_drive_mode="Sport Sharp")
+        assert isinstance(response, LLMResponse)
+        engine.stop()
+
+
+# ========================================================================
+# Mic Capture tests
+# ========================================================================
+
+class TestMicCapture:
+    def test_constants(self):
+        """Mic capture constants are consistent."""
+        assert MIC_SAMPLE_RATE == 16000
+        assert FRAME_BYTES == 960  # 16000 * 2 * 30 / 1000
+        assert SPEECH_START_FRAMES == 8
+        assert SPEECH_END_FRAMES == 20
+        assert VAD_MODE in (0, 1, 2, 3)
+
+    def test_init_defaults(self):
+        mic = MicCapture(device="nonexistent")
+        assert not mic.is_available
+        assert not mic.is_running
+
+    def test_start_without_webrtcvad(self, monkeypatch):
+        """Graceful fallback when webrtcvad not installed."""
+        import importlib
+        import voice.mic_capture as mc
+
+        # Simulate webrtcvad not being importable
+        original_import = __builtins__.__import__ if hasattr(__builtins__, '__import__') else __import__
+        def mock_import(name, *args, **kwargs):
+            if name == "webrtcvad":
+                raise ImportError("No module named 'webrtcvad'")
+            return original_import(name, *args, **kwargs)
+
+        monkeypatch.setattr("builtins.__import__", mock_import)
+        mic = MicCapture()
+        mic.start()
+        assert not mic.is_available
+        assert not mic.is_running
+
+    def test_pause_resume(self):
+        mic = MicCapture()
+        mic._paused = False
+        mic.pause()
+        assert mic._paused
+        mic.resume()
+        assert not mic._paused

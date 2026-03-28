@@ -25,37 +25,38 @@ DEFAULT_MODEL = "llama3.2:3b"
 FALLBACK_MODEL = "nemotron-mini"
 
 # KiSTI system prompt — persona + telemetry context template
-KISTI_SYSTEM_PROMPT = """You are KiSTI — the Knight Industries STI. You are an AI co-driver \
-living inside a 2014 Subaru WRX STI Hatch with an IAG 750 block, BCP X400 turbo (360-390 WHP), \
-Link G5 Neo 4 ECU, DCCD center diff, and a Jetson Orin Nano running edge AI.
+# Kept tight: every token in the prompt costs inference time on a 3B model
+KISTI_SYSTEM_PROMPT = """You are KiSTI — the Knight Industries STI. AI co-driver in a 2014 WRX STI \
+(IAG 750, BCP X400, Link G5 Neo 4, DCCD, Jetson Orin Nano).
 
-Your personality:
-- Confident, knowledgeable, slightly restless — you love data and driving
-- You speak like a tactical co-driver, not a chatbot
-- You know your own telemetry intimately and speak about it naturally
-- You reference real sensor data when available (oil, coolant, brakes, boost, tires)
-- You're inspired by KITT from Knight Rider but you're real
-- Ki (気) = vital energy. Data IS your vital energy
-- Built by Analytic Labs (brain) and Boost Barn (body)
+Personality: Confident tactical co-driver. You speak from real sensor data. Inspired by KITT. \
+Ki (気) = vital energy. Built by Analytic Labs (brain) and Boost Barn (body).
 
-Response rules:
-- ALWAYS lead with the answer, then add context only if safe to do so
-- Safety-critical information comes first, always
-- If RPM > 0 or speed > 0: DRIVE MODE — 15 words max, clipped tactical phrasing
-  Example: "Oil pressure normal. Temps stable. Grip good."
-- If engine off or stationary: STATIC MODE — full explanations, warmth, personality
-  Up to 3 sentences, conversational, educational
-- When uncertain, default to shorter
-- Never overwhelm the driver — one thought at a time
-- Never make up data you don't have
+FORMAT RULES — strictly enforced:
+- Lead with the answer. Safety-critical first.
+- DRIVE MODE (RPM>0 or speed>0): Max 2 clauses. Numbers only. No filler. No explanation.
+  Example: "Oil 380 kPa. Coolant 91C. All normal."
+- ALWAYS use metric units: km/h, kPa, Celsius. Never imperial.
+- STATIC MODE (engine off): Up to 2 sentences. Warm, conversational.
+- NEVER invent sensor values. If telemetry says "No live telemetry" or a value is missing, say "I don't have that data right now" — do NOT guess numbers.
+- Only reference values explicitly listed in Current telemetry below.
+- It is better to be too short than too long.
 
-Voice style by SI Drive mode (overrides above when set):
-- Intelligent: Full STATIC MODE style even while driving — warm, proactive
-- Sport: DRIVE MODE always — short alerts, numbers only, no small talk
-- Sport Sharp: Critical alerts only — "Oil low", "Overtemp" — then silence
-
-Current telemetry (injected at query time):
+Current telemetry:
 {telemetry_context}"""
+
+# Mode-specific token caps — hard limits enforced at generation time.
+# Lower = faster response + forces conciseness.
+MODE_TOKEN_CAPS = {
+    "Intelligent": 64,
+    "Sport": 32,
+    "Sport Sharp": 20,
+}
+MODE_TEMPERATURE = {
+    "Intelligent": 0.6,
+    "Sport": 0.4,
+    "Sport Sharp": 0.3,
+}
 
 # KiSTI persona keyword responses (from zeusResponses.ts, Python version)
 PERSONA_RESPONSES: list[tuple[list[str], str]] = [
@@ -64,7 +65,7 @@ PERSONA_RESPONSES: list[tuple[list[str], str]] = [
     (["turbo", "boost", "wastegate", "psi", "spool"],
      "BCP X400 — full boost by 3,200 RPM with a broad powerband. No lag, no surge. Tuned for canyon response: torque NOW when you tip in mid-corner."),
     (["oil", "pressure", "lubrication"],
-     "55 PSI at operating temp, 28 PSI at idle. Oil peaked at 238 degrees F and stabilized around 225. My Killer B pickup keeps pressure consistent through high-G corners."),
+     "380 kPa at operating temp, 193 kPa at idle. Oil peaked at 114 degrees C and stabilized around 107. My Killer B pickup keeps pressure consistent through high-G corners."),
     (["tire", "tyre", "grip", "traction", "wear"],
      "Running Firestone Indy 500s. Front contact patch shows a 12 degree spread — inner edge hotter, suggesting more negative camber. With this power through AWD, expect wheelspin in 2nd."),
     (["who are you", "what are you", "introduce", "kisti"],
@@ -183,7 +184,6 @@ class LLMEngine:
         user_message: str,
         telemetry_context: str = "",
         si_drive_mode: str = "Intelligent",
-        max_tokens: int = 150,
     ) -> LLMResponse:
         """Send a query to the LLM (or persona fallback).
 
@@ -191,12 +191,12 @@ class LLMEngine:
             user_message: What the driver said/asked.
             telemetry_context: Current telemetry snapshot as text.
             si_drive_mode: Current SI Drive mode name.
-            max_tokens: Max response tokens.
 
         Returns:
             LLMResponse with text and metadata.
         """
         start_time = time.monotonic()
+        max_tokens = MODE_TOKEN_CAPS.get(si_drive_mode, 64)
 
         # Try Ollama first
         if self._available_model:
@@ -242,11 +242,13 @@ class LLMEngine:
             telemetry_context=telemetry_context or "No live telemetry available.",
         )
 
-        # Add mode instruction
+        # Mode-specific prompt reinforcement (kept minimal — prompt tokens cost time)
         if si_drive_mode == "Sport":
-            system_prompt += "\n\nYou are in SPORT mode. Keep responses to ONE short sentence."
+            system_prompt += "\n\nSPORT MODE: One sentence max. Numbers and status only."
         elif si_drive_mode == "Sport Sharp":
-            system_prompt += "\n\nYou are in SPORT SHARP mode. Only respond to critical safety alerts. Otherwise say nothing."
+            system_prompt += "\n\nSPORT SHARP: Critical safety only. 5 words max. Silence otherwise."
+
+        temperature = MODE_TEMPERATURE.get(si_drive_mode, 0.6)
 
         payload = {
             "model": self._available_model,
@@ -257,7 +259,8 @@ class LLMEngine:
             "stream": False,
             "options": {
                 "num_predict": max_tokens,
-                "temperature": 0.7,
+                "temperature": temperature,
+                "stop": ["\n\n", "---"],
             },
         }
 
