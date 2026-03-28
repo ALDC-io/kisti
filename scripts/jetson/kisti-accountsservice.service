@@ -1,0 +1,12 @@
+[Unit]
+Description=Restore KiSTI session for GDM
+After=accounts-daemon.service
+Before=gdm.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/cp /etc/kisti-session-user /var/lib/AccountsService/users/aldc
+RemainAfterExit=yes
+
+[Install]
+WantedBy=graphical.target
