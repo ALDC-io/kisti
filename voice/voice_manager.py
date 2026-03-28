@@ -67,6 +67,7 @@ class VoiceManager(QObject):
     state_changed = Signal(int)
     speaking_text = Signal(str)
     led_frame_ready = Signal(object)  # LEDFrame
+    response_ready = Signal(str)      # LLM response text for UI AudioPlayer
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
@@ -204,7 +205,7 @@ class VoiceManager(QObject):
         )
 
         log.info("LLM response (tier=%s, %.1fs): %s", response.tier, response.latency_s, response.text[:80])
-        self.speak(response.text)
+        self.response_ready.emit(response.text)
 
     def _voice_loop(self) -> None:
         """Main voice processing loop (runs in worker thread)."""

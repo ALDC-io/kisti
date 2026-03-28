@@ -53,6 +53,8 @@ def main():
     parser.add_argument("--demo", action="store_true", help="Enable demo mode (idle chatter)")
     parser.add_argument("--sim-ambient", action="store_true",
                         help="Run ambient weather simulation (scripted scenario, ~90s)")
+    parser.add_argument("--sim-voice", action="store_true",
+                        help="Simulate voice queries through full KiSTI pipeline")
     args = parser.parse_args()
 
     setup_logging()
@@ -323,6 +325,44 @@ def main():
             # Start sim after startup sequence finishes (~20s for voice lines)
             from PySide6.QtCore import QTimer as _QT
             _QT.singleShot(20000, ambient_source.start)
+    # --- Route LLM responses through AudioPlayer (aplay) ---
+    if voice_mgr:
+        voice_mgr.response_ready.connect(
+            lambda text: window.queue_speech(text)
+        )
+
+    # --- Simulated voice queries ---
+    if args.sim_voice and voice_mgr:
+        _SIM_QUERIES = [
+            "How are conditions looking?",
+            "What is the oil pressure like?",
+            "Tell me about the turbo setup.",
+            "Who are you?",
+            "What should I watch out for today?",
+            "How is the DCCD performing?",
+            "Give me a systems check.",
+        ]
+        _sim_idx = [0]
+
+        def _sim_next_query():
+            if _sim_idx[0] < len(_SIM_QUERIES):
+                q = _SIM_QUERIES[_sim_idx[0]]
+                _sim_idx[0] += 1
+                log.info("SIM VOICE [%d/%d]: %s", _sim_idx[0], len(_SIM_QUERIES), q)
+                window.queue_speech(f"Driver says: {q}", urgency="normal")
+                # Small delay then send to LLM
+                from PySide6.QtCore import QTimer as _QTV
+                _QTV.singleShot(4000, lambda: voice_mgr.handle_voice_query(q))
+                # Schedule next query after response has time to play
+                _QTV.singleShot(20000, _sim_next_query)
+            else:
+                log.info("SIM VOICE: All queries complete")
+                window.queue_speech("Voice simulation complete.")
+
+        # Start after startup sequence
+        from PySide6.QtCore import QTimer as _QT3
+        _QT3.singleShot(25000, _sim_next_query)
+
     window.show()
 
     log.info("KiSTI running — SI Drive: %s, Voice: %s, DuckDB: %s, Sync: %s, CAN Out: %s, Ambient: %s",
