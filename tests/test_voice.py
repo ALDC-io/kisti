@@ -154,7 +154,7 @@ class TestLLMEngine:
         engine.start()
         response = engine.query("How's the oil pressure?")
         assert response.tier == "persona_match"
-        assert "kpa" in response.text.lower()
+        assert "psi" in response.text.lower()
         engine.stop()
 
     def test_persona_fallback_identity(self):
