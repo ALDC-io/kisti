@@ -72,7 +72,7 @@ class TestTTSEngine:
         engine = TTSEngine()
         engine.start()
         assert engine.is_running
-        assert not engine.is_real  # Piper not at /data/piper/
+        # is_real depends on whether Piper is installed (Jetson: yes, CI: no)
         engine.stop()
         assert not engine.is_running
 
@@ -134,7 +134,7 @@ class TestLLMEngine:
         engine = LLMEngine()
         engine.start()
         assert engine.is_running
-        assert not engine.is_real  # No Ollama running
+        # is_real depends on whether Ollama is running (Jetson: yes, CI: no)
         engine.stop()
         assert not engine.is_running
 
