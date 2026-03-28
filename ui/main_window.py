@@ -160,6 +160,14 @@ class MainWindow(QMainWindow):
         # Also set the session mode to match UI mode
         vehicle_state.session.mode = self._current_mode
 
+    def queue_speech(self, text: str, urgency: str = "normal") -> None:
+        """Queue text to be spoken through the KiSTI mode AudioPlayer (aplay).
+
+        This is the reliable audio path — uses Piper TTS → aplay.
+        Use this for simulation announcements, condition changes, etc.
+        """
+        self._kisti_mode._queue_lines([text], urgency=urgency)
+
     def _toggle_fullscreen(self):
         if self.isFullScreen():
             self.showNormal()

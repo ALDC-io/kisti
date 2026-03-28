@@ -248,7 +248,11 @@ def main():
         )
         log.info("DuckDB session lifecycle wired (K1 start/stop)")
 
+    # UI — pass the shared bridge so CAN data flows to display
+    window = MainWindow(fullscreen=args.fullscreen, bridge=bridge)
+
     # --- Ambient condition tracking (independent of ECU session) ---
+    # Wired AFTER window so queue_speech() is available via AudioPlayer
     if db_store and ambient_source:
         def _on_ambient_reading(reading):
             """Record ambient data at ~1/60 Hz (once per minute)."""
@@ -275,48 +279,50 @@ def main():
                 )
             except Exception:
                 pass
-            if voice_mgr:
-                voice_mgr.speak(change.message)
+            window.queue_speech(change.message, urgency="alert")
 
         ambient_source.reading_updated.connect(_on_ambient_reading)
         ambient_source.condition_changed.connect(_on_condition_changed)
         log.info("Ambient DuckDB recording enabled (1/min + change events)")
 
-    elif ambient_source and voice_mgr:
-        # No DuckDB but still announce condition changes via voice
+    elif ambient_source:
         ambient_source.condition_changed.connect(
-            lambda c: voice_mgr.speak(c.message)
+            lambda c: window.queue_speech(c.message, urgency="alert")
         )
 
-    # --- Ambient simulation voice hooks ---
+    # --- Ambient simulation lifecycle ---
     if args.sim_ambient and ambient_source:
         from sensors.ambient_simulator import AmbientSimulator
         if isinstance(ambient_source, AmbientSimulator):
-            if voice_mgr:
-                ambient_source.simulation_started.connect(
-                    lambda: voice_mgr.speak("Ambient weather simulation starting. Monitoring conditions.")
+            ambient_source.simulation_started.connect(
+                lambda: window.queue_speech(
+                    "Starting ambient weather simulation. Monitoring conditions."
                 )
-                ambient_source.simulation_ended.connect(
-                    lambda: voice_mgr.speak("Ambient weather simulation complete.")
+            )
+            ambient_source.simulation_ended.connect(
+                lambda: window.queue_speech(
+                    "Ambient weather simulation complete."
                 )
+            )
             ambient_source.simulation_started.connect(
                 lambda: log.info("SIM: Ambient weather simulation started")
             )
             ambient_source.simulation_ended.connect(
                 lambda: log.info("SIM: Ambient weather simulation ended")
             )
-            # Auto-quit when simulation completes
+
+            # Auto-quit after final speech has time to play
             def _sim_done():
-                log.info("SIM: Ambient weather simulation ended — exiting")
-                app.quit()
+                from PySide6.QtCore import QTimer as _QT2
+                _QT2.singleShot(8000, lambda: (
+                    log.info("SIM: exiting after final speech"),
+                    app.quit(),
+                ))
             ambient_source.simulation_ended.connect(_sim_done)
 
-            # Start sim after event loop is running (QTimer.singleShot)
+            # Start sim after startup sequence finishes (~20s for voice lines)
             from PySide6.QtCore import QTimer as _QT
-            _QT.singleShot(2000, ambient_source.start)
-
-    # UI — pass the shared bridge so CAN data flows to display
-    window = MainWindow(fullscreen=args.fullscreen, bridge=bridge)
+            _QT.singleShot(20000, ambient_source.start)
     window.show()
 
     log.info("KiSTI running — SI Drive: %s, Voice: %s, DuckDB: %s, Sync: %s, CAN Out: %s, Ambient: %s",
