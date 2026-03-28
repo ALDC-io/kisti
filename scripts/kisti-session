@@ -27,10 +27,12 @@ xsetroot -solid black 2>/dev/null || true
 xset s off -dpms 2>/dev/null || true
 
 # Route audio to HDMI (no GNOME to auto-detect)
-export ALSA_CARD=HDA
-echo "defaults.pcm.card HDA" > "$HOME/.asoundrc"
-echo "defaults.pcm.device 3" >> "$HOME/.asoundrc"
-echo "$(date) ALSA default set to HDMI (HDA:3)" >> "$LOG"
+cat > "$HOME/.asoundrc" << 'ASOUND'
+defaults.pcm.card 0
+defaults.pcm.device 3
+defaults.ctl.card 0
+ASOUND
+echo "$(date) ALSA default set to HDMI (card 0, device 3)" >> "$LOG"
 
 # Wait for Ollama to be ready (systemd should have started it)
 for i in $(seq 1 15); do
