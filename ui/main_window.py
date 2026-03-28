@@ -105,6 +105,7 @@ class MainWindow(QMainWindow):
         # Use external bridge if provided (from main.py), otherwise create our own
         self._diff_bridge = bridge if bridge is not None else DiffStateBridge(self)
         self._diff_mode.set_bridge(self._diff_bridge)
+        self._kisti_mode.set_bridge(self._diff_bridge)
         # Only create CAN source if we own the bridge (avoid double listeners)
         if self._external_bridge:
             self._can_listener, self._mock_can = None, None
