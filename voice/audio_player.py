@@ -143,8 +143,9 @@ class AudioPlayer(QObject):
 
             audio_pcm = proc.stdout
 
-            # Prepend 250ms silence to prevent ALSA device wake cutoff
-            silence = b"\x00\x00" * int(self._sample_rate * 0.25)
+            # Prepend 500ms silence — HDMI audio needs time to wake the monitor's
+            # DAC before real audio arrives, otherwise first syllable is clipped
+            silence = b"\x00\x00" * int(self._sample_rate * 0.50)
             audio_pcm = silence + audio_pcm
 
             duration_s = len(audio_pcm) / (self._sample_rate * 2)

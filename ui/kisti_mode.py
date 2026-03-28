@@ -791,17 +791,21 @@ class KistiModeWidget(QWidget):
             issues.append(("alert", "Local AI not responding."))
 
         # Ambient weather — read from bridge (populated by YoctopuceReader at 1Hz)
+        # Wait up to 3s for the first sensor reading to arrive
         ambient = None
         if self._bridge:
-            snap = self._bridge.snapshot()
-            if snap.ambient_available:
-                ambient = {
-                    "temp_c": snap.ambient_temp_c,
-                    "humidity_pct": snap.ambient_humidity_pct,
-                    "pressure_hpa": snap.ambient_pressure_hpa,
-                    "dew_point_c": snap.dew_point_c,
-                    "density_altitude_ft": snap.density_altitude_ft,
-                }
+            for _ in range(6):
+                snap = self._bridge.snapshot()
+                if snap.ambient_available:
+                    ambient = {
+                        "temp_c": snap.ambient_temp_c,
+                        "humidity_pct": snap.ambient_humidity_pct,
+                        "pressure_hpa": snap.ambient_pressure_hpa,
+                        "dew_point_c": snap.dew_point_c,
+                        "density_altitude_ft": snap.density_altitude_ft,
+                    }
+                    break
+                time.sleep(0.5)
 
         # Visual-only: log all status silently
         self._transcript.append(f"  CPU: {cpu_temp:.0f}°C" if cpu_temp else "  CPU: ---")
