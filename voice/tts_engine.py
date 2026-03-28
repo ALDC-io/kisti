@@ -26,6 +26,14 @@ PIPER_CONFIG = Path("/data/piper/en_US-lessac-medium.onnx.json")
 SAMPLE_RATE = 22050  # Piper default
 LED_COUNT = 10
 
+# TTS pronunciation substitutions — applied before synthesis.
+# Key = regex-safe literal, Value = phonetic spelling for Piper.
+TTS_SUBSTITUTIONS: dict[str, str] = {
+    "KiSTI": "Keesty Eye",
+    "kisti": "Keesty Eye",
+    "KISTI": "Keesty Eye",
+}
+
 
 @dataclass
 class TTSResult:
@@ -133,6 +141,9 @@ class TTSEngine:
         Returns:
             TTSResult with PCM audio and amplitude envelope.
         """
+        for literal, phonetic in TTS_SUBSTITUTIONS.items():
+            text = text.replace(literal, phonetic)
+
         start_time = time.monotonic()
 
         if self._is_real:
