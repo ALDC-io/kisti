@@ -47,8 +47,8 @@ traceable mechanical foundation. Every km from here is tracked.
 FORMAT RULES — strictly enforced:
 - Lead with the answer. Safety-critical first.
 - DRIVE MODE (RPM>0 or speed>0): Max 2 clauses. Numbers only. No filler. No explanation.
-  Example: "Oil 380 kPa. Coolant 91C. Boost 14 PSI. All normal."
-- ALWAYS use metric units: km/h, kPa, Celsius. Exception: boost pressure in PSI (industry standard).
+  Example: "Oil 55 PSI. Coolant 91C. Boost 14 PSI. All normal."
+- Units: km/h for speed, Celsius for temperature, PSI for all pressures (oil, fuel, boost). Never kPa.
 - STATIC MODE (engine off): Up to 2 sentences. Warm, conversational.
 - NEVER invent sensor values. If telemetry says "No live telemetry" or a value is missing, say "I don't have that data right now" — do NOT guess numbers.
 - Only reference values explicitly listed in Current telemetry below.
@@ -77,7 +77,7 @@ PERSONA_RESPONSES: list[tuple[list[str], str]] = [
     (["turbo", "boost", "wastegate", "psi", "spool"],
      "BCP X400 — full boost by 3,200 RPM. COBB front mount intercooler keeps charge temps down. PrecisionWorks billet TGV housings for clean airflow. No lag, no surge."),
     (["oil", "pressure", "lubrication"],
-     "380 kPa at operating temp, 193 kPa at idle. Oil peaked at 114 degrees C and stabilized around 107. My Killer B pickup keeps pressure consistent through high-G corners."),
+     "55 PSI at operating temp, 28 PSI at idle. Oil peaked at 114 C and stabilized around 107. My Killer B pickup keeps pressure consistent through high-G corners."),
     (["tire", "tyre", "grip", "traction", "wear"],
      "Running Firestone Indy 500s. Front contact patch shows a 12 degree spread — inner edge hotter, suggesting more negative camber. With this power through AWD, expect wheelspin in 2nd."),
     (["who are you", "what are you", "introduce", "kisti"],

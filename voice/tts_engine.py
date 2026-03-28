@@ -32,6 +32,23 @@ TTS_SUBSTITUTIONS: dict[str, str] = {
     "KiSTI": "Keesty Eye",
     "kisti": "Keesty Eye",
     "KISTI": "Keesty Eye",
+    " PSI": " pounds",
+    " psi": " pounds",
+    " WHP": " wheel horsepower",
+    " whp": " wheel horsepower",
+    " BHP": " brake horsepower",
+    " bhp": " brake horsepower",
+    "DCCD": "D C C D",
+    "ECU": "E C U",
+    "IAG": "I A G",
+    "FMIC": "front mount intercooler",
+    "TGV": "T G V",
+    "ID1300": "I D thirteen hundred",
+    "DW300C": "D W three hundred C",
+    "EJ257": "E J two fifty seven",
+    "CSF": "C S F",
+    "ARP": "A R P",
+    "GSC": "G S C",
 }
 
 
