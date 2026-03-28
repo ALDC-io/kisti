@@ -646,12 +646,14 @@ class KistiModeWidget(QWidget):
 
     def _on_audio_ready(self, envelope: list, duration_s: float):
         """Envelope pre-computed — store it and wait for playback_started."""
+        klog.info("_on_audio_ready: %d frames, %.1fs", len(envelope), duration_s)
         self._envelope = envelope
         self._envelope_idx = 0
         self._envelope_playing = False
 
     def _on_audio_started(self):
         """Audio is NOW playing — start envelope timer and release typewriter."""
+        klog.info("_on_audio_started: envelope=%d frames, waveform activating", len(self._envelope))
         self._envelope_idx = 0
         self._envelope_playing = True
         self._audio_playing = True
