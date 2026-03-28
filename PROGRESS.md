@@ -152,3 +152,35 @@ Added complete Mission Raceway track day session with 6 laps (1 warm-up, 3 hot, 
 - LOG mode page (session recording/playback)
 - Touch optimization for Excelon capacitive screen
 - Performance profiling on Jetson GPU
+
+## Session: 2026-03-27 — Jetson Deployment + Ambient Weather + Stress Test
+
+### Completed
+- **Ambient weather system**: `YoctopuceReader` condition_changed signal (pressure ±5hPa, temp ±3°C, humidity ±15%)
+- **AmbientSimulator**: 6-phase 90s scripted weather scenario, identical signal interface to hardware sensor
+- **DuckDB ambient_conditions table**: records independently of ECU sessions
+- **Weather event quotes**: 6 new keys (pressure_falling/rising, temp_dropping/rising, humidity_rising/dropping)
+- **Minimal X session**: Replaced GNOME → freed ~500MB GPU for Ollama CUDA; `scripts/kisti-session` + `install-session.sh`
+- **Audio routing**: Killed PulseAudio + masked socket; `ALSA_DEVICE = "plughw:0,3"` in AudioPlayer
+- **LLM selection**: llama3.2:3b (14 tok/s GPU) chosen over nemotron-mini (6.9 tok/s partial GPU)
+- **System prompt**: Drive/Static mode (15-word max when RPM>0, full personality when static)
+- **voice_mgr.response_ready signal**: Routes LLM responses through AudioPlayer/aplay (not sounddevice)
+- **Stress test**: 21/21 queries, zero crashes, 58°C peak, 50% memory, 1.0s–12.1s response times
+- **207 tests** passing
+
+### Learnings
+- **.asoundrc unreliable on Jetson**: String card names rejected, plug configs silently fail. Use explicit `-D plughw:0,3` in aplay instead — abandon .asoundrc entirely
+- **PulseAudio must be masked, not just killed**: Socket activation respawns it. `systemctl --user mask pulseaudio.socket pulseaudio.service` required in session startup
+- **CUDA pre-load order is critical**: Ollama MUST load model before Qt starts — unified memory means Qt GPU claims block Ollama. Reverse order = OOM
+- **sounddevice silently fails without PulseAudio**: All KiSTI speech must route through AudioPlayer → aplay, never voice_mgr.speak()
+- **Multiple sim auto-quit conflict**: When --sim-ambient + --sim-voice run together, only the longest-running sim controls app.quit(). Conditional check prevents early exit
+- **GDM AccountsService wiped on restart**: Must recreate `/var/lib/AccountsService/users/aldc` each time
+
+### Open Bug
+- **Waveform not rendering in minimal X session**: All signals fire, envelope correct (PCM peak=32767, env_max=1.000), but widget doesn't visually animate. Debug commit f35a052 adds frame 15/30/60 logging. WA_OpaquePaintEvent added to _KittWaveform and _ScanBar — needs validation on Jetson
+
+### Next Steps
+- Validate waveform fix (WA_OpaquePaintEvent) in minimal X session on Jetson
+- Remove debug frame logging from kisti_mode.py once viz confirmed working
+- Permanent AccountsService fix via tmpfiles.d
+- GPS09 Pro IMU/GPS integration (plan saved — placeholder CAN IDs 0x6A4-0x6A7)
