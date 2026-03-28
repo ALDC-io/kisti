@@ -21,8 +21,8 @@ from typing import Optional
 log = logging.getLogger("kisti.voice.llm")
 
 OLLAMA_URL = "http://localhost:11434"
-DEFAULT_MODEL = "nemotron3-nano:4b-q4_K_M"
-FALLBACK_MODEL = "llama3.2:3b"
+DEFAULT_MODEL = "llama3.2:3b"
+FALLBACK_MODEL = "nemotron-mini"
 
 # KiSTI system prompt — persona + telemetry context template
 KISTI_SYSTEM_PROMPT = """You are KiSTI — the Knight Industries STI. You are an AI co-driver \
