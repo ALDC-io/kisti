@@ -783,11 +783,38 @@ class KistiModeWidget(QWidget):
         if not ollama_ok:
             issues.append(("alert", "Local AI not responding."))
 
+        # Ambient weather sensor — read directly from Yoctopuce
+        ambient = None
+        try:
+            from yoctopuce.yocto_api import YAPI, YRefParam
+            from yoctopuce.yocto_temperature import YTemperature
+            from yoctopuce.yocto_humidity import YHumidity
+            from yoctopuce.yocto_pressure import YPressure
+            from sensors.yoctopuce_reader import _dew_point, _density_altitude
+
+            # YAPI may already be registered by main.py — try reading directly
+            temp_s = YTemperature.FirstTemperature()
+            if temp_s and temp_s.isOnline():
+                t = temp_s.get_currentValue()
+                h = YHumidity.FirstHumidity().get_currentValue()
+                p = YPressure.FirstPressure().get_currentValue()
+                ambient = {
+                    "temp_c": t, "humidity_pct": h, "pressure_hpa": p,
+                    "dew_point_c": _dew_point(t, h),
+                    "density_altitude_ft": _density_altitude(p, t),
+                }
+        except Exception:
+            pass
+
         # Visual-only: log all status silently
         self._transcript.append(f"  CPU: {cpu_temp:.0f}°C" if cpu_temp else "  CPU: ---")
         self._transcript.append(f"  GPU: {'OK' if gpu_ok else '---'}")
         self._transcript.append(f"  ECU: {'OK' if ecu_ok else '---'}")
         self._transcript.append(f"  AI: {'OK' if ollama_ok else '---'}")
+        if ambient:
+            self._transcript.append(f"  Ambient: {ambient['temp_c']:.1f}°C  {ambient['humidity_pct']:.0f}%RH  {ambient['pressure_hpa']:.0f}hPa")
+        else:
+            self._transcript.append("  Ambient: ---")
         self._update_display()
 
         time.sleep(1)
@@ -804,6 +831,19 @@ class KistiModeWidget(QWidget):
             if not ecu_ok and random.randint(1, 4) == 1:
                 time.sleep(4)
                 self._queue_lines(["Just when I thought I was out... they pull me back in."])
+
+        # Ambient weather report — always speak if available
+        if ambient:
+            da = ambient["density_altitude_ft"]
+            weather_line = f"Outside temperature, {ambient['temp_c']:.0f} degrees. Humidity {ambient['humidity_pct']:.0f} percent."
+            if da > 3000:
+                weather_line += f" Density altitude {da:.0f} feet. Expect reduced power."
+            elif da > 1000:
+                weather_line += f" Density altitude {da:.0f} feet."
+            if ambient["dew_point_c"] > (ambient["temp_c"] - 3):
+                weather_line += " Dew point close to ambient. Watch for condensation."
+            time.sleep(4)
+            self._queue_lines([weather_line])
 
     def _check_say_file(self):
         """Check for externally injected speech or questions.

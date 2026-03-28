@@ -93,6 +93,25 @@ def main():
     alert_eng = AlertEngine(bridge)
     alert_eng.start()
 
+    # Ambient weather sensor (Yoctopuce Yocto-Meteo-V2)
+    yocto_reader = None
+    try:
+        from sensors.yoctopuce_reader import YoctopuceReader
+        yocto_reader = YoctopuceReader()
+        if yocto_reader.start():
+            yocto_reader.reading_updated.connect(
+                lambda r: bridge.update_ambient(
+                    r.temperature_c, r.humidity_pct, r.pressure_hpa,
+                    r.density_altitude_ft, r.dew_point_c,
+                )
+            )
+            log.info("Ambient sensor online: Yoctopuce Yocto-Meteo-V2")
+        else:
+            yocto_reader = None
+    except Exception as exc:
+        log.info("Ambient sensor unavailable: %s", exc)
+        yocto_reader = None
+
     # Voice pipeline (optional)
     voice_mgr = None
     if not args.no_voice:
@@ -248,6 +267,8 @@ def main():
         if session_id:
             db_store.end_session(session_id)
         db_store.close()
+    if yocto_reader:
+        yocto_reader.stop()
     mode_mgr.stop()
     alert_eng.stop()
 
