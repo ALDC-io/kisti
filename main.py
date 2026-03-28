@@ -313,14 +313,15 @@ def main():
                 lambda: log.info("SIM: Ambient weather simulation ended")
             )
 
-            # Auto-quit after final speech has time to play
-            def _sim_done():
-                from PySide6.QtCore import QTimer as _QT2
-                _QT2.singleShot(8000, lambda: (
-                    log.info("SIM: exiting after final speech"),
-                    app.quit(),
-                ))
-            ambient_source.simulation_ended.connect(_sim_done)
+            # Auto-quit only if ambient sim is the only sim running
+            if not args.sim_voice:
+                def _sim_done():
+                    from PySide6.QtCore import QTimer as _QT2
+                    _QT2.singleShot(8000, lambda: (
+                        log.info("SIM: exiting after final speech"),
+                        app.quit(),
+                    ))
+                ambient_source.simulation_ended.connect(_sim_done)
 
             # Start sim after startup sequence finishes (~20s for voice lines)
             from PySide6.QtCore import QTimer as _QT
@@ -374,8 +375,13 @@ def main():
                 # Schedule next query — tight pacing to stress test
                 _QTV.singleShot(15000, _sim_next_query)
             else:
-                log.info("SIM VOICE: All queries complete")
-                window.queue_speech("Voice simulation complete.")
+                log.info("SIM VOICE: All %d queries complete", len(_SIM_QUERIES))
+                window.queue_speech("Voice simulation complete. All 20 queries answered.")
+                from PySide6.QtCore import QTimer as _QTX
+                _QTX.singleShot(15000, lambda: (
+                    log.info("SIM VOICE: exiting after final speech"),
+                    app.quit(),
+                ))
 
         # Start after startup sequence
         from PySide6.QtCore import QTimer as _QT3
