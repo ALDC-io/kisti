@@ -96,11 +96,36 @@ from can.can_config import (
     LED_OUTPUT_FRAME_2_ID,
     LED_OUTPUT_FRAME_ID,
     LED_OUTPUT_HZ,
+    GPS_ALT_OFFSET,
+    GPS_ALT_SCALE,
+    GPS_COORD_SCALE,
+    GPS_EXT_FRAME_ID,
+    GPS_FIX_OFFSET,
+    GPS_FRAME_ID,
+    GPS_HEADING_OFFSET,
+    GPS_HEADING_SCALE,
+    GPS_LAT_OFFSET,
+    GPS_LON_OFFSET,
+    GPS_SATS_OFFSET,
+    GPS_SPEED_OFFSET,
+    GPS_SPEED_SCALE,
+    IMU_ACCEL_SCALE,
+    IMU_AX_OFFSET,
+    IMU_AY_OFFSET,
+    IMU_AZ_OFFSET,
+    IMU_FRAME_ID,
+    IMU_GYRO_FRAME_ID,
+    IMU_GYRO_SCALE,
+    IMU_GX_OFFSET,
+    IMU_GY_OFFSET,
+    IMU_GZ_OFFSET,
     MOCK_CONTEXT_HZ,
     MOCK_DIFF_HZ,
     MOCK_DYNAMICS_HZ,
     MOCK_ENABLED,
     MOCK_GENERIC_DASH_HZ,
+    MOCK_GPS_HZ,
+    MOCK_IMU_HZ,
     MOCK_SENSOR_HZ,
     MOCK_SI_DRIVE_HZ,
     MOCK_WHEEL_HZ,
@@ -394,6 +419,81 @@ def decode_keypad_frame(data: bytes) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# GPS09 Pro decode functions
+# ---------------------------------------------------------------------------
+
+def decode_gps_frame(data: bytes) -> dict:
+    """Decode GPS position frame (0x6A4, 8 bytes).
+
+    Returns:
+        dict with keys: latitude (degrees), longitude (degrees).
+    """
+    if len(data) < 8:
+        raise ValueError(f"GPS frame too short: {len(data)} bytes (need 8)")
+
+    lat_raw = struct.unpack_from(">i", data, GPS_LAT_OFFSET)[0]
+    lon_raw = struct.unpack_from(">i", data, GPS_LON_OFFSET)[0]
+    return {
+        "latitude": lat_raw * GPS_COORD_SCALE,
+        "longitude": lon_raw * GPS_COORD_SCALE,
+    }
+
+
+def decode_gps_ext_frame(data: bytes) -> dict:
+    """Decode GPS extended frame (0x6A5, 8 bytes).
+
+    Returns:
+        dict with keys: altitude_m, speed_mps, heading, satellites, fix_quality.
+    """
+    if len(data) < 8:
+        raise ValueError(f"GPS ext frame too short: {len(data)} bytes (need 8)")
+
+    altitude_m = struct.unpack_from(">h", data, GPS_ALT_OFFSET)[0] * GPS_ALT_SCALE
+    speed_mps = struct.unpack_from(">H", data, GPS_SPEED_OFFSET)[0] * GPS_SPEED_SCALE
+    heading = struct.unpack_from(">H", data, GPS_HEADING_OFFSET)[0] * GPS_HEADING_SCALE
+    satellites = data[GPS_SATS_OFFSET]
+    fix_quality = data[GPS_FIX_OFFSET]
+
+    return {
+        "altitude_m": altitude_m,
+        "speed_mps": speed_mps,
+        "heading": heading,
+        "satellites": satellites,
+        "fix_quality": fix_quality,
+    }
+
+
+def decode_imu_frame(data: bytes) -> dict:
+    """Decode IMU accelerometer frame (0x6A6, 8 bytes).
+
+    Returns:
+        dict with keys: accel_x, accel_y, accel_z (all in g).
+    """
+    if len(data) < 6:
+        raise ValueError(f"IMU frame too short: {len(data)} bytes (need 6)")
+
+    accel_x = struct.unpack_from(">h", data, IMU_AX_OFFSET)[0] * IMU_ACCEL_SCALE
+    accel_y = struct.unpack_from(">h", data, IMU_AY_OFFSET)[0] * IMU_ACCEL_SCALE
+    accel_z = struct.unpack_from(">h", data, IMU_AZ_OFFSET)[0] * IMU_ACCEL_SCALE
+    return {"accel_x": accel_x, "accel_y": accel_y, "accel_z": accel_z}
+
+
+def decode_imu_gyro_frame(data: bytes) -> dict:
+    """Decode IMU gyroscope frame (0x6A7, 8 bytes).
+
+    Returns:
+        dict with keys: gyro_x, gyro_y, gyro_z (all in deg/s).
+    """
+    if len(data) < 6:
+        raise ValueError(f"IMU gyro frame too short: {len(data)} bytes (need 6)")
+
+    gyro_x = struct.unpack_from(">h", data, IMU_GX_OFFSET)[0] * IMU_GYRO_SCALE
+    gyro_y = struct.unpack_from(">h", data, IMU_GY_OFFSET)[0] * IMU_GYRO_SCALE
+    gyro_z = struct.unpack_from(">h", data, IMU_GZ_OFFSET)[0] * IMU_GYRO_SCALE
+    return {"gyro_x": gyro_x, "gyro_y": gyro_y, "gyro_z": gyro_z}
+
+
+# ---------------------------------------------------------------------------
 # G5 Neo 4 encode functions (for testing / mock generation)
 # ---------------------------------------------------------------------------
 
@@ -449,6 +549,44 @@ def encode_sensor_frame(
 def encode_keypad_frame(state: int, prev_state: int) -> bytes:
     """Encode keypad frame for testing."""
     return struct.pack(">BB", state, prev_state) + b"\x00" * 6
+
+
+# ---------------------------------------------------------------------------
+# GPS09 Pro encode functions (for testing / mock generation)
+# ---------------------------------------------------------------------------
+
+def encode_gps_frame(latitude: float, longitude: float) -> bytes:
+    """Encode GPS position frame (0x6A4) for testing."""
+    raw_lat = int(round(latitude / GPS_COORD_SCALE))
+    raw_lon = int(round(longitude / GPS_COORD_SCALE))
+    return struct.pack(">ii", raw_lat, raw_lon)
+
+
+def encode_gps_ext_frame(
+    altitude_m: float, speed_mps: float, heading: float,
+    satellites: int, fix_quality: int,
+) -> bytes:
+    """Encode GPS extended frame (0x6A5) for testing."""
+    raw_alt = int(round(altitude_m / GPS_ALT_SCALE))
+    raw_speed = int(round(speed_mps / GPS_SPEED_SCALE))
+    raw_heading = int(round(heading / GPS_HEADING_SCALE))
+    return struct.pack(">hHHBB", raw_alt, raw_speed, raw_heading, satellites, fix_quality)
+
+
+def encode_imu_frame(accel_x: float, accel_y: float, accel_z: float) -> bytes:
+    """Encode IMU accelerometer frame (0x6A6) for testing."""
+    raw_ax = int(round(accel_x / IMU_ACCEL_SCALE))
+    raw_ay = int(round(accel_y / IMU_ACCEL_SCALE))
+    raw_az = int(round(accel_z / IMU_ACCEL_SCALE))
+    return struct.pack(">hhh", raw_ax, raw_ay, raw_az) + b"\x00\x00"
+
+
+def encode_imu_gyro_frame(gyro_x: float, gyro_y: float, gyro_z: float) -> bytes:
+    """Encode IMU gyroscope frame (0x6A7) for testing."""
+    raw_gx = int(round(gyro_x / IMU_GYRO_SCALE))
+    raw_gy = int(round(gyro_y / IMU_GYRO_SCALE))
+    raw_gz = int(round(gyro_z / IMU_GYRO_SCALE))
+    return struct.pack(">hhh", raw_gx, raw_gy, raw_gz) + b"\x00\x00"
 
 
 def encode_led_output(
@@ -560,6 +698,19 @@ class CanListenerThread(threading.Thread):
         elif arb_id == KEYPAD_FRAME_ID:
             d = decode_keypad_frame(data)
             self._bridge.update_keypad(**d)
+        # GPS09 Pro frames
+        elif arb_id == GPS_FRAME_ID:
+            d = decode_gps_frame(data)
+            self._bridge.update_gps(**d)
+        elif arb_id == GPS_EXT_FRAME_ID:
+            d = decode_gps_ext_frame(data)
+            self._bridge.update_gps_ext(**d)
+        elif arb_id == IMU_FRAME_ID:
+            d = decode_imu_frame(data)
+            self._bridge.update_imu(**d)
+        elif arb_id == IMU_GYRO_FRAME_ID:
+            d = decode_imu_gyro_frame(data)
+            self._bridge.update_imu_gyro(**d)
 
 
 # ---------------------------------------------------------------------------
@@ -696,6 +847,23 @@ class MockCanGenerator(QObject):
         self._inj_duty = 30.0
         self._oil_psi = 55.0
 
+        # GPS09 Pro — simulated Laguna Seca circuit
+        self._gps_lat = 36.5842     # Laguna Seca start/finish
+        self._gps_lon = -121.7528
+        self._gps_alt = 321.0       # meters
+        self._gps_heading = 135.0   # SE
+        self._gps_speed_mps = 0.0
+        self._gps_angle = 0.0       # circuit progress (radians)
+
+        # IMU state
+        self._imu_ax = 0.0
+        self._imu_ay = 0.0
+        self._imu_az = 1.0  # 1g at rest (gravity)
+        self._imu_gx = 0.0
+        self._imu_gy = 0.0
+        self._imu_gz = 0.0
+        self._prev_heading = 135.0
+
         # SI Drive state
         self._si_drive = 0  # Intelligent
         self._si_drive_timer = 0.0
@@ -729,6 +897,15 @@ class MockCanGenerator(QObject):
         self._sens_timer.setInterval(1000 // MOCK_SENSOR_HZ)
         self._sens_timer.timeout.connect(self._sensor_tick)
 
+        # GPS09 Pro timers
+        self._gps_timer = QTimer(self)
+        self._gps_timer.setInterval(1000 // MOCK_GPS_HZ)
+        self._gps_timer.timeout.connect(self._gps_tick)
+
+        self._imu_timer = QTimer(self)
+        self._imu_timer.setInterval(1000 // MOCK_IMU_HZ)
+        self._imu_timer.timeout.connect(self._imu_tick)
+
     def start(self) -> None:
         self._diff_timer.start()
         self._ctx_timer.start()
@@ -738,6 +915,8 @@ class MockCanGenerator(QObject):
             self._gd_timer.start()
             self._si_timer.start()
             self._sens_timer.start()
+            self._gps_timer.start()
+            self._imu_timer.start()
         log.info("Mock CAN generator started (ECU: %s)", ACTIVE_ECU)
 
     def stop(self) -> None:
@@ -748,6 +927,8 @@ class MockCanGenerator(QObject):
         self._gd_timer.stop()
         self._si_timer.stop()
         self._sens_timer.stop()
+        self._gps_timer.stop()
+        self._imu_timer.stop()
 
     def _diff_tick(self) -> None:
         self._t += 0.02  # 50 Hz
@@ -991,6 +1172,87 @@ class MockCanGenerator(QObject):
             iat_ext_c=iat_ext,
             ethanol_ext_pct=max(0.0, ethanol_ext),
             oil_psi=self._oil_psi,
+        )
+
+    def _gps_tick(self) -> None:
+        """Mock GPS — simulate laps around Laguna Seca oval approximation."""
+        dt = 1.0 / MOCK_GPS_HZ
+
+        # Speed follows vehicle speed (convert km/h to m/s)
+        self._gps_speed_mps = self._speed / 3.6
+
+        # Advance around a ~3.6 km circuit at current speed
+        # Circuit modeled as an oval, radius ~573m (circumference ~3600m)
+        circuit_radius = 573.0
+        if self._gps_speed_mps > 0.1:
+            angular_speed = self._gps_speed_mps / circuit_radius
+            self._gps_angle += angular_speed * dt
+            if self._gps_angle > 2 * math.pi:
+                self._gps_angle -= 2 * math.pi
+
+        # Oval track position relative to Laguna Seca center
+        lat_radius = 0.0028   # ~310m in latitude degrees
+        lon_radius = 0.0035   # ~310m in longitude degrees (cos(36.5°) adjusted)
+        self._gps_lat = 36.5842 + lat_radius * math.sin(self._gps_angle)
+        self._gps_lon = -121.7528 + lon_radius * math.cos(self._gps_angle)
+
+        # Heading follows tangent of oval
+        self._prev_heading = self._gps_heading
+        self._gps_heading = (math.degrees(self._gps_angle) + 90.0) % 360.0
+
+        # Altitude varies slightly around track
+        self._gps_alt = 321.0 + 15.0 * math.sin(self._gps_angle * 2)
+
+        self._bridge.update_gps(
+            latitude=self._gps_lat,
+            longitude=self._gps_lon,
+        )
+        self._bridge.update_gps_ext(
+            altitude_m=self._gps_alt,
+            speed_mps=self._gps_speed_mps,
+            heading=self._gps_heading,
+            satellites=12,
+            fix_quality=2,  # 3D fix
+        )
+
+    def _imu_tick(self) -> None:
+        """Mock IMU — derive from vehicle dynamics."""
+        dt = 1.0 / MOCK_IMU_HZ
+
+        # Longitudinal acceleration from speed change (approximate)
+        speed_mps = self._speed / 3.6
+        accel_from_throttle = (self._throttle - 50.0) / 50.0 * 0.5  # ~0.5g full throttle
+        brake_decel = self._brake_press / 80.0 * 1.2  # ~1.2g max braking at 80 bar
+        self._imu_ax = accel_from_throttle - brake_decel + random.uniform(-0.02, 0.02)
+
+        # Lateral acceleration from cornering (use existing dynamics lateral_g)
+        self._imu_ay = self._lat_g + random.uniform(-0.02, 0.02)
+
+        # Vertical — 1g + bumps
+        self._imu_az = 1.0 + random.uniform(-0.05, 0.05)
+
+        # Gyro — yaw rate from heading change, roll/pitch from dynamics
+        heading_delta = self._gps_heading - self._prev_heading
+        if heading_delta > 180:
+            heading_delta -= 360
+        elif heading_delta < -180:
+            heading_delta += 360
+        self._imu_gz = heading_delta / dt if dt > 0 else 0.0  # deg/s
+
+        # Roll rate approximated from lateral g change
+        self._imu_gx = self._lat_g * 5.0 + random.uniform(-0.5, 0.5)
+        # Pitch rate approximated from longitudinal g change
+        self._imu_gy = self._imu_ax * 3.0 + random.uniform(-0.5, 0.5)
+
+        self._bridge.update_imu(
+            accel_x=self._imu_ax,
+            accel_y=self._imu_ay,
+            accel_z=self._imu_az,
+        )
+        self._bridge.update_imu_gyro(
+            gyro_x=self._imu_gx,
+            gyro_y=self._imu_gy,
+            gyro_z=self._imu_gz,
         )
 
 

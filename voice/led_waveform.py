@@ -19,6 +19,7 @@ from typing import Optional
 
 from can.can_config import (
     LED_COUNT,
+    LED_MODE_GFORCE,
     LED_MODE_KITT,
     LED_MODE_OFF,
     LED_MODE_RPM,
@@ -180,6 +181,54 @@ class LEDWaveformGenerator:
 
         return LEDFrame(
             mode=LED_MODE_WARMUP,
+            brightnesses=brightnesses,
+            color_r=r, color_g=g, color_b=b,
+        )
+
+    def g_force_frame(self, accel_x: float, accel_y: float) -> LEDFrame:
+        """Generate G-force visualization LED pattern.
+
+        Maps combined lateral+longitudinal G-force to LED brightness,
+        spreading from center outward as force increases.
+
+        Args:
+            accel_x: Longitudinal acceleration in g.
+            accel_y: Lateral acceleration in g.
+
+        Returns:
+            LEDFrame with G-force magnitude mapped to brightness and color.
+        """
+        combined_g = math.sqrt(accel_x ** 2 + accel_y ** 2)
+
+        # Number of lit LEDs scales with G-force (0g = 0, 2g = all 10)
+        lit_count = min(LED_COUNT, int(combined_g * 5))
+        center = LED_COUNT // 2
+
+        brightnesses = [0] * LED_COUNT
+        for i in range(lit_count):
+            # Spread from center outward
+            offset = i // 2
+            if i % 2 == 0:
+                idx = center + offset
+            else:
+                idx = center - 1 - offset
+            if 0 <= idx < LED_COUNT:
+                # Brightness scales with G (brighter at higher G)
+                brightnesses[idx] = min(255, int(128 + combined_g * 80))
+
+        # Color: green < 0.5g, amber 0.5-1.0g, red > 1.0g
+        if combined_g < 0.5:
+            r, g, b = 0, 200, 0
+        elif combined_g < 1.0:
+            t = (combined_g - 0.5) * 2.0  # 0..1
+            r = int(255 * t)
+            g = int(200 * (1.0 - t * 0.35))
+            b = 0
+        else:
+            r, g, b = 255, 0, 0
+
+        return LEDFrame(
+            mode=LED_MODE_GFORCE,
             brightnesses=brightnesses,
             color_r=r, color_g=g, color_b=b,
         )

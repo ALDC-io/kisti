@@ -13,6 +13,7 @@ Alert severity levels:
 from __future__ import annotations
 
 import logging
+import math
 import time
 from dataclasses import dataclass, field
 from enum import IntEnum
@@ -78,6 +79,13 @@ COOLDOWN_RPM_THRESHOLD = 1200.0
 # Minimum RPM to consider engine running (for alert suppression)
 ENGINE_RUNNING_RPM = 500.0
 
+# G-force thresholds (combined lateral + longitudinal)
+HIGH_G_ADVISORY = 1.0   # g — spirited driving
+HIGH_G_WARNING = 1.3    # g — aggressive, potential loss of control
+
+# GPS staleness
+GPS_STALE_TIMEOUT_S = 2.0  # seconds without GPS frame
+
 # Debounce: minimum time between repeated alerts of the same type (seconds)
 ALERT_DEBOUNCE_S = 30.0
 
@@ -142,6 +150,8 @@ class AlertEngine(QObject):
         self._check_cooldown_needed(state)
         self._check_warmup_state(state)
         self._check_grip(state)
+        self._check_high_g(state)
+        self._check_gps_stale(state)
 
     def _check_oil_pressure(self, state: DiffState) -> None:
         """Oil pressure alerts. Checks dedicated 150 PSI sensor (0x6B1)
@@ -286,6 +296,50 @@ class AlertEngine(QObject):
                 message=f"Surface condition: {state.surface_state.label}. Grip reduced.",
                 short_message=f"Grip: {state.surface_state.label}",
             ))
+
+    def _check_high_g(self, state: DiffState) -> None:
+        """High G-force alert from IMU accelerometer."""
+        if state.is_imu_stale():
+            return
+        combined_g = math.sqrt(state.imu_accel_x ** 2 + state.imu_accel_y ** 2)
+        if combined_g >= HIGH_G_WARNING:
+            self._fire(Alert(
+                alert_type="high_g_warning",
+                severity=AlertSeverity.WARNING,
+                message=f"High G-force: {combined_g:.1f}g. Approaching grip limit.",
+                short_message=f"G: {combined_g:.1f}g",
+                value=combined_g,
+            ))
+        elif combined_g >= HIGH_G_ADVISORY:
+            self._fire(Alert(
+                alert_type="high_g_advisory",
+                severity=AlertSeverity.ADVISORY,
+                message=f"G-force at {combined_g:.1f}g. Spirited driving detected.",
+                short_message=f"G: {combined_g:.1f}g",
+                value=combined_g,
+            ))
+
+    def _check_gps_stale(self, state: DiffState) -> None:
+        """GPS signal loss alert — fires on transition from live to stale."""
+        was_live = self._last_alert.get("_gps_was_live", False)
+        is_stale = state.is_gps_stale(timeout=GPS_STALE_TIMEOUT_S)
+
+        if was_live and is_stale:
+            self._fire(Alert(
+                alert_type="gps_signal_lost",
+                severity=AlertSeverity.WARNING,
+                message="GPS signal lost. Position tracking unavailable.",
+                short_message="GPS lost",
+            ))
+        elif not is_stale and not was_live:
+            self._fire(Alert(
+                alert_type="gps_signal_acquired",
+                severity=AlertSeverity.INFO,
+                message="GPS signal acquired. Tracking position.",
+                short_message="GPS lock",
+            ))
+
+        self._last_alert["_gps_was_live"] = not is_stale
 
     def _fire(self, alert: Alert) -> None:
         """Fire an alert if not debounced."""

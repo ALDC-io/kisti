@@ -187,6 +187,27 @@ class DiffState:
     keypad_state: int = 0             # Current button bitfield
     keypad_prev_state: int = 0        # Previous button bitfield
 
+    # GPS09 Pro — GPS (0x6A4, 0x6A5)
+    gps_latitude: float = 0.0         # degrees (WGS84)
+    gps_longitude: float = 0.0        # degrees (WGS84)
+    gps_altitude_m: float = 0.0       # meters above sea level
+    gps_speed_mps: float = 0.0        # m/s
+    gps_heading: float = 0.0          # degrees (0-360, true north)
+    gps_satellites: int = 0           # satellite count
+    gps_fix_quality: int = 0          # 0=none, 1=2D, 2=3D
+
+    # GPS09 Pro — IMU (0x6A6, 0x6A7)
+    imu_accel_x: float = 0.0          # g (longitudinal, +ve = acceleration)
+    imu_accel_y: float = 0.0          # g (lateral, +ve = right)
+    imu_accel_z: float = 0.0          # g (vertical, +ve = up = 1.0 at rest)
+    imu_gyro_x: float = 0.0           # deg/s (roll rate)
+    imu_gyro_y: float = 0.0           # deg/s (pitch rate)
+    imu_gyro_z: float = 0.0           # deg/s (yaw rate)
+
+    # Lap timing (computed from GPS + track definition)
+    lap_count: int = 0
+    lap_time_ms: int = 0
+
     # Warm-up state (computed, not from CAN)
     warmup_state: WarmUpState = WarmUpState.COLD
 
@@ -201,6 +222,10 @@ class DiffState:
     generic_dash_3_ts: float = 0.0
     sensor_frame_ts: float = 0.0
     keypad_frame_ts: float = 0.0
+    gps_frame_ts: float = 0.0
+    gps_ext_frame_ts: float = 0.0
+    imu_frame_ts: float = 0.0
+    imu_gyro_frame_ts: float = 0.0
 
     # CAN bus connection status
     can_connected: bool = False
@@ -239,6 +264,20 @@ class DiffState:
             return True
         t = now if now is not None else time.monotonic()
         return (t - self.generic_dash_1_ts) > timeout
+
+    def is_gps_stale(self, now: Optional[float] = None, timeout: float = 1.0) -> bool:
+        """True if no GPS frame received within timeout seconds (default 1s for 10 Hz)."""
+        if self.gps_frame_ts == 0.0:
+            return True
+        t = now if now is not None else time.monotonic()
+        return (t - self.gps_frame_ts) > timeout
+
+    def is_imu_stale(self, now: Optional[float] = None, timeout: float = 0.5) -> bool:
+        """True if no IMU frame received within timeout seconds."""
+        if self.imu_frame_ts == 0.0:
+            return True
+        t = now if now is not None else time.monotonic()
+        return (t - self.imu_frame_ts) > timeout
 
     def is_any_stale(self, now: Optional[float] = None, timeout: float = 0.5) -> bool:
         return self.is_diff_stale(now, timeout) or self.is_context_stale(now, timeout)
@@ -453,6 +492,54 @@ class DiffStateBridge(QObject):
         self.state_changed.emit()
         if pressed_buttons:
             self.keypad_pressed.emit(pressed_buttons)
+
+    def update_gps(self, latitude: float, longitude: float) -> None:
+        """Called from CAN listener with decoded GPS position frame (0x6A4)."""
+        with self._lock:
+            self._state.gps_latitude = latitude
+            self._state.gps_longitude = longitude
+            self._state.gps_frame_ts = time.monotonic()
+            self._state.can_connected = True
+        self.state_changed.emit()
+
+    def update_gps_ext(
+        self,
+        altitude_m: float,
+        speed_mps: float,
+        heading: float,
+        satellites: int,
+        fix_quality: int,
+    ) -> None:
+        """Called from CAN listener with decoded GPS extended frame (0x6A5)."""
+        with self._lock:
+            self._state.gps_altitude_m = altitude_m
+            self._state.gps_speed_mps = speed_mps
+            self._state.gps_heading = heading
+            self._state.gps_satellites = satellites
+            self._state.gps_fix_quality = fix_quality
+            self._state.gps_ext_frame_ts = time.monotonic()
+            self._state.can_connected = True
+        self.state_changed.emit()
+
+    def update_imu(self, accel_x: float, accel_y: float, accel_z: float) -> None:
+        """Called from CAN listener with decoded IMU accelerometer frame (0x6A6)."""
+        with self._lock:
+            self._state.imu_accel_x = accel_x
+            self._state.imu_accel_y = accel_y
+            self._state.imu_accel_z = accel_z
+            self._state.imu_frame_ts = time.monotonic()
+            self._state.can_connected = True
+        self.state_changed.emit()
+
+    def update_imu_gyro(self, gyro_x: float, gyro_y: float, gyro_z: float) -> None:
+        """Called from CAN listener with decoded IMU gyroscope frame (0x6A7)."""
+        with self._lock:
+            self._state.imu_gyro_x = gyro_x
+            self._state.imu_gyro_y = gyro_y
+            self._state.imu_gyro_z = gyro_z
+            self._state.imu_gyro_frame_ts = time.monotonic()
+            self._state.can_connected = True
+        self.state_changed.emit()
 
     def set_disconnected(self) -> None:
         """Mark CAN bus as disconnected."""
