@@ -681,11 +681,7 @@ class KistiModeWidget(QWidget):
         self._waveform.update()  # Force immediate repaint to zero
 
     def _envelope_tick(self):
-        """Advance to the correct envelope frame based on elapsed wall-clock time.
-
-        Using elapsed time instead of tick-counting keeps the waveform locked
-        to the audio even when the Qt event loop is slow (GNOME, dialogs, etc.).
-        """
+        """Advance to the correct envelope frame based on elapsed wall-clock time."""
         if not self._envelope_playing or not self._envelope:
             self._envelope_timer.stop()
             self._waveform.set_amplitude(0.0)
@@ -698,7 +694,12 @@ class KistiModeWidget(QWidget):
             self._waveform.set_amplitude(0.0)
             return
 
-        self._waveform.set_amplitude(self._envelope[frame])
+        amp = self._envelope[frame]
+        self._waveform.set_amplitude(amp)
+        # Log first frame only to confirm envelope is driving waveform
+        if frame == 5:
+            klog.info("_envelope_tick: frame=%d amp=%.2f active=%s use_real=%s",
+                      frame, amp, self._waveform._active, self._waveform._use_real_amplitude)
 
     def _warmup_piper(self):
         """Background: warm up Piper model by synthesizing a discarded phrase."""
