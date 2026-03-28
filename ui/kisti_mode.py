@@ -650,14 +650,12 @@ class KistiModeWidget(QWidget):
 
     def _on_audio_ready(self, envelope: list, duration_s: float):
         """Envelope pre-computed — store it and wait for playback_started."""
-        klog.info("_on_audio_ready: %d frames, %.1fs", len(envelope), duration_s)
         self._envelope = envelope
         self._envelope_idx = 0
         self._envelope_playing = False
 
     def _on_audio_started(self):
         """Audio is NOW playing — start envelope timer and release typewriter."""
-        klog.info("_on_audio_started: envelope=%d frames, waveform activating", len(self._envelope))
         self._envelope_idx = 0
         self._envelope_playing = True
         self._audio_playing = True
@@ -698,12 +696,7 @@ class KistiModeWidget(QWidget):
             self._waveform.set_amplitude(0.0)
             return
 
-        amp = self._envelope[frame]
-        self._waveform.set_amplitude(amp)
-        # Log frames 15, 30, 60 to confirm envelope drives waveform past silence
-        if frame in (15, 30, 60):
-            klog.info("_envelope_tick: frame=%d/%d amp=%.2f levels=%s",
-                      frame, len(self._envelope), amp, self._waveform._levels)
+        self._waveform.set_amplitude(self._envelope[frame])
 
     def _warmup_piper(self):
         """Background: warm up Piper model by synthesizing a discarded phrase."""
