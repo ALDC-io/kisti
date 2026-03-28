@@ -827,21 +827,8 @@ class KistiModeWidget(QWidget):
                 self._queue_lines([msg], urgency=urgency)
                 time.sleep(3)
 
-            # No ECU — always follow up with a quip about the obvious problem
-            if not ecu_ok:
-                time.sleep(4)
-                no_ecu_quips = [
-                    "Not entirely sure how we plan to drive without an engine computer, but I admire the optimism.",
-                    "No ECU, no fuel, no spark. But hey, at least the dash looks nice.",
-                    "I can co-drive all day, but the engine might need some encouragement first.",
-                    "We appear to be a very expensive paperweight at the moment.",
-                    "Pushing it downhill is technically an option. I have calculated the route.",
-                    "The good news is the stereo works. The bad news is everything else.",
-                    "I have run the numbers. Zero horsepower. Bold strategy.",
-                ]
-                self._queue_lines([random.choice(no_ecu_quips)])
-
         # Driving conditions summary — translate weather into driver language
+        grip_line = None
         if ambient:
             t = ambient["temp_c"]
             h = ambient["humidity_pct"]
@@ -875,9 +862,23 @@ class KistiModeWidget(QWidget):
             elif da > 3000:
                 power_note = " High altitude, engine will make less power."
 
-            weather_line = f"{grip}, {reason}.{power_note}"
+            grip_line = f"{grip}, {reason}.{power_note}"
             time.sleep(4)
-            self._queue_lines([weather_line])
+            self._queue_lines([grip_line])
+
+        # No ECU — tie the grip report and the missing ECU together
+        if not ecu_ok:
+            time.sleep(4)
+            no_ecu_quips = [
+                f"Of course, {'good grip' if grip_line and 'Good' in grip_line else 'grip'} does not help much without an engine computer.",
+                "Not that any of that matters without an ECU. Just saying.",
+                "Perfect conditions to sit in the driveway, apparently.",
+                "All dressed up and nowhere to go. Literally.",
+                "I can report on conditions all day. Moving through them is another story.",
+                "The weather is ready. The car, not so much.",
+                "Conditions noted. Now if only we had combustion.",
+            ]
+            self._queue_lines([random.choice(no_ecu_quips)])
 
     def _check_say_file(self):
         """Check for externally injected speech or questions.
