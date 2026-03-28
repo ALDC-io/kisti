@@ -146,6 +146,21 @@ CREATE TABLE IF NOT EXISTS car_profile_cache (
     configuration JSON,
     last_synced TIMESTAMP
 );
+
+-- Maintenance / service event history
+CREATE TABLE IF NOT EXISTS service_events (
+    event_id TEXT PRIMARY KEY,
+    timestamp TIMESTAMP,
+    event_type TEXT,
+    odometer_km INTEGER,
+    engine_km INTEGER,
+    description TEXT NOT NULL,
+    parts TEXT,
+    cost DOUBLE,
+    provider TEXT,
+    notes TEXT,
+    synced BOOLEAN DEFAULT FALSE
+);
 """
 
 
@@ -468,7 +483,8 @@ class DuckDBStore:
     def db_stats(self) -> dict:
         """Get database statistics."""
         stats = {}
-        for table in ["sessions", "telemetry", "thermal_state", "events", "alerts", "segments", "summaries", "ambient_conditions"]:
+        for table in ["sessions", "telemetry", "thermal_state", "events", "alerts",
+                       "segments", "summaries", "ambient_conditions", "service_events"]:
             count = self._conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
             stats[table] = count
 
@@ -478,3 +494,65 @@ class DuckDBStore:
         stats["unsynced_sessions"] = unsynced
 
         return stats
+
+    # -------------------------------------------------------------------
+    # Service event logging (maintenance history)
+    # -------------------------------------------------------------------
+
+    def record_service_event(
+        self,
+        event_type: str,
+        description: str,
+        odometer_km: int = 0,
+        engine_km: int = 0,
+        parts: Optional[str] = None,
+        cost: Optional[float] = None,
+        provider: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> str:
+        """Record a maintenance/service event. Returns event_id.
+
+        event_type: 'oil_change', 'brake_service', 'part_install',
+                    'tire_rotation', 'inspection', 'repair', 'tune', etc.
+        """
+        event_id = _new_id()
+        self._conn.execute(
+            """INSERT INTO service_events (
+                event_id, timestamp, event_type, odometer_km, engine_km,
+                description, parts, cost, provider, notes, synced
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE)""",
+            [event_id, _now(), event_type, odometer_km, engine_km,
+             description, parts, cost, provider, notes],
+        )
+        log.info("Service event recorded: %s [%s] %s", event_id[:8], event_type, description[:50])
+        return event_id
+
+    def get_service_events(self, limit: int = 20) -> list[dict]:
+        """Get recent service events, newest first."""
+        rows = self._conn.execute(
+            "SELECT event_id, timestamp, event_type, odometer_km, engine_km, "
+            "description, parts, cost, provider, notes, synced "
+            "FROM service_events ORDER BY timestamp DESC LIMIT ?",
+            [limit],
+        ).fetchall()
+        return [
+            {
+                "event_id": r[0], "timestamp": r[1], "event_type": r[2],
+                "odometer_km": r[3], "engine_km": r[4], "description": r[5],
+                "parts": r[6], "cost": r[7], "provider": r[8],
+                "notes": r[9], "synced": r[10],
+            }
+            for r in rows
+        ]
+
+    def get_service_history_context(self, max_events: int = 5) -> str:
+        """Build service history string for LLM context."""
+        events = self.get_service_events(limit=max_events)
+        if not events:
+            return ""
+        lines = []
+        for e in events:
+            date_str = e["timestamp"].strftime("%Y-%m-%d") if hasattr(e["timestamp"], "strftime") else str(e["timestamp"])[:10]
+            parts_str = f" Parts: {e['parts']}" if e.get("parts") else ""
+            lines.append(f"- {date_str} [{e['event_type']}] {e['description']}{parts_str}")
+        return "\n".join(lines)

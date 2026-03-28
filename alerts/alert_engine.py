@@ -21,6 +21,7 @@ from typing import Optional
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
+from data.build_record import BASELINES
 from model.vehicle_state import DiffState, DiffStateBridge, SIDriveMode, WarmUpState
 
 log = logging.getLogger("kisti.alerts")
@@ -51,23 +52,25 @@ class Alert:
 
 
 # ---------------------------------------------------------------------------
-# Threshold definitions
+# Threshold definitions — sourced from BaselineTargets (data/build_record.py)
 # ---------------------------------------------------------------------------
 
-# Oil Pressure (PSI)
-OIL_PRESS_WARNING_PSI = 25.0
-OIL_PRESS_CRITICAL_PSI = 15.0
+# Oil Pressure (PSI) — from IAG 750 build spec
+OIL_PRESS_WARNING_PSI = BASELINES.oil_idle_warm_high   # 25.0 PSI
+OIL_PRESS_CRITICAL_PSI = BASELINES.oil_idle_warm_low   # 15.0 PSI
 
-# Oil Temperature (°C)
+# Oil Temperature (°C) — no baseline target; conservative limit for EJ257
 OIL_TEMP_WARNING_C = 130.0
 
-# Coolant Temperature (°C)
-COOLANT_TEMP_WARNING_C = 105.0
-COOLANT_TEMP_CRITICAL_C = 115.0
+# Coolant Temperature (°C) — from build spec (with cyl 4 cooling mod)
+COOLANT_TEMP_WARNING_C = BASELINES.coolant_alert       # 105.0°C
+COOLANT_TEMP_CRITICAL_C = 115.0                        # 10°C above alert
 
-# Fuel Pressure (kPa) — low fuel pressure is dangerous under boost
-FUEL_PRESS_WARNING_KPA = 250.0
-FUEL_PRESS_CRITICAL_KPA = 200.0
+# Fuel Pressure (kPa) — derived from build spec (43.5 PSI base = ~300 kPa)
+# Warning at ~83% of base, critical at ~67% of base
+_FUEL_BASE_KPA = BASELINES.fuel_base_psi * 6.89476     # PSI → kPa
+FUEL_PRESS_WARNING_KPA = _FUEL_BASE_KPA * 0.83         # ~249 kPa
+FUEL_PRESS_CRITICAL_KPA = _FUEL_BASE_KPA * 0.67        # ~201 kPa
 
 # Battery Voltage
 BATTERY_LOW_V = 12.5

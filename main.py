@@ -50,6 +50,8 @@ def main():
     parser.add_argument("--no-voice", action="store_true", help="Disable voice pipeline")
     parser.add_argument("--no-sync", action="store_true", help="Disable cloud sync")
     parser.add_argument("--no-duckdb", action="store_true", help="Disable DuckDB recording")
+    parser.add_argument("--no-memory", action="store_true", help="Disable edge memory system")
+    parser.add_argument("--no-zeus-sync", action="store_true", help="Disable Zeus memory sync")
     parser.add_argument("--demo", action="store_true", help="Enable demo mode (idle chatter)")
     parser.add_argument("--sim-ambient", action="store_true",
                         help="Run ambient weather simulation (scripted scenario, ~90s)")
@@ -172,6 +174,56 @@ def main():
         except Exception as exc:
             log.warning("DuckDB failed to initialize: %s", exc)
             db_store = None
+
+    # Edge memory system (optional, requires DuckDB)
+    edge_memory = None
+    embedder = None
+    if not args.no_memory and db_store is not None:
+        try:
+            from data.edge_embedder import EdgeEmbedder
+            from data.edge_memory import EdgeMemory
+
+            embedder = EdgeEmbedder()
+            if embedder.start():
+                log.info("ONNX embedder ready: all-MiniLM-L6-v2 INT8 (384-dim)")
+            else:
+                log.info("ONNX embedder unavailable — memory search uses keyword fallback")
+                embedder = None
+
+            edge_memory = EdgeMemory(db_store=db_store, embedder=embedder)
+            edge_memory.initialize()
+            log.info("Edge memory system ready")
+        except Exception as exc:
+            log.warning("Edge memory failed to initialize: %s", exc)
+            edge_memory = None
+
+    # Zeus memory sync (optional, requires edge_memory)
+    zeus_sync = None
+    if not args.no_zeus_sync and edge_memory is not None:
+        try:
+            from sync.zeus_memory_sync import ZeusMemorySyncWorker
+            api_key = os.environ.get("ZEUS_API_KEY", "")
+            if api_key:
+                zeus_sync = ZeusMemorySyncWorker(edge_memory=edge_memory, api_key=api_key)
+                zeus_sync.start()
+
+                if voice_mgr:
+                    zeus_sync.sync_complete.connect(
+                        lambda n: voice_mgr.speak(
+                            f"Memory sync complete. {n} memor{'ies' if n > 1 else 'y'} uploaded."
+                        )
+                    )
+
+                log.info("Zeus memory sync enabled")
+            else:
+                log.info("ZEUS_API_KEY not set — Zeus memory sync disabled")
+        except Exception as exc:
+            log.warning("Zeus memory sync failed to start: %s", exc)
+
+    # Inject edge memory into voice pipeline
+    if voice_mgr and edge_memory:
+        voice_mgr.set_edge_memory(edge_memory)
+        log.info("Voice 'remember' commands + memory context enabled")
 
     # Cloud sync (optional)
     sync_mgr = None
@@ -396,10 +448,12 @@ def main():
 
     window.show()
 
-    log.info("KiSTI running — SI Drive: %s, Voice: %s, DuckDB: %s, Sync: %s, CAN Out: %s, Ambient: %s",
+    log.info("KiSTI running — SI Drive: %s, Voice: %s, DuckDB: %s, Memory: %s, Zeus: %s, Sync: %s, CAN Out: %s, Ambient: %s",
              mode_mgr.si_drive_mode.label,
              "ON" if voice_mgr else "OFF",
              "ON" if db_store else "OFF",
+             "ON" if edge_memory else "OFF",
+             "ON" if zeus_sync else "OFF",
              "ON" if sync_mgr else "OFF",
              "ON" if can_output else "OFF",
              "SIM" if args.sim_ambient else ("YOCTO" if ambient_source else "OFF"))
@@ -417,8 +471,12 @@ def main():
         mock.stop()
     if voice_mgr:
         voice_mgr.stop()
+    if zeus_sync:
+        zeus_sync.stop()
     if sync_mgr:
         sync_mgr.stop()
+    if embedder:
+        embedder.stop()
     if db_store:
         if session_id:
             db_store.end_session(session_id)

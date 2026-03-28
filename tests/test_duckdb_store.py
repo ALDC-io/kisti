@@ -184,5 +184,64 @@ class TestDBStats:
         stats = store.db_stats()
         assert "sessions" in stats
         assert "telemetry" in stats
+        assert "service_events" in stats
         assert "unsynced_sessions" in stats
         assert stats["sessions"] == 0
+
+
+class TestServiceEvents:
+
+    def test_record_service_event(self, store):
+        eid = store.record_service_event(
+            event_type="oil_change",
+            description="Motul 300V 5W-40, 5L",
+            odometer_km=113800,
+            engine_km=64,
+            parts="Motul 300V 5W-40 x5, OEM filter",
+            cost=185.0,
+            provider="DIY",
+        )
+        assert len(eid) == 36
+
+    def test_get_service_events(self, store):
+        store.record_service_event("oil_change", "First oil change", odometer_km=114000)
+        store.record_service_event("brake_service", "Pad replacement", odometer_km=114200)
+        events = store.get_service_events()
+        assert len(events) == 2
+        # Most recent first
+        assert events[0]["event_type"] == "brake_service"
+        assert events[1]["event_type"] == "oil_change"
+
+    def test_service_event_fields(self, store):
+        eid = store.record_service_event(
+            event_type="part_install",
+            description="Replaced front brake pads",
+            odometer_km=115000,
+            engine_km=1264,
+            parts="EBC Yellowstuff DP41210R",
+            cost=220.50,
+            provider="Boost Barn",
+            notes="Driver side caliper sticky — cleaned slide pins",
+        )
+        events = store.get_service_events()
+        e = events[0]
+        assert e["event_id"] == eid
+        assert e["event_type"] == "part_install"
+        assert e["odometer_km"] == 115000
+        assert e["cost"] == 220.50
+        assert e["provider"] == "Boost Barn"
+        assert e["notes"] is not None
+
+    def test_service_history_context(self, store):
+        store.record_service_event("oil_change", "Motul 300V", odometer_km=113800)
+        ctx = store.get_service_history_context()
+        assert "oil_change" in ctx
+        assert "Motul 300V" in ctx
+
+    def test_service_history_context_empty(self, store):
+        assert store.get_service_history_context() == ""
+
+    def test_service_stats_included(self, store):
+        store.record_service_event("oil_change", "Test oil change")
+        stats = store.db_stats()
+        assert stats["service_events"] == 1
