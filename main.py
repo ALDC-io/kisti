@@ -350,11 +350,15 @@ def main():
                 _sim_idx[0] += 1
                 log.info("SIM VOICE [%d/%d]: %s", _sim_idx[0], len(_SIM_QUERIES), q)
                 window.queue_speech(f"Driver says: {q}", urgency="normal")
-                # Small delay then send to LLM
+                # Run LLM off main thread to avoid UI freeze
+                import threading
                 from PySide6.QtCore import QTimer as _QTV
-                _QTV.singleShot(4000, lambda: voice_mgr.handle_voice_query(q))
+                def _run_query():
+                    import time as _t; _t.sleep(4)  # wait for "Driver says" to play
+                    voice_mgr.handle_voice_query(q)
+                threading.Thread(target=_run_query, daemon=True).start()
                 # Schedule next query after response has time to play
-                _QTV.singleShot(20000, _sim_next_query)
+                _QTV.singleShot(25000, _sim_next_query)
             else:
                 log.info("SIM VOICE: All queries complete")
                 window.queue_speech("Voice simulation complete.")
