@@ -355,11 +355,11 @@ class _KittWaveform(QWidget):
                 right = max(0, min(int(center * 0.65), right))
 
             self._levels = [left, center, right]
+            # Force synchronous paint when actively animating (compositorless X11)
+            self.repaint()
         else:
             self._levels = [0, 0, 0]
-        # repaint() forces synchronous paint — required in compositorless X11
-        # where update() batches may not flush the backing store
-        self.repaint()
+            self.update()
 
     def paintEvent(self, event):
         p = QPainter(self)
@@ -490,7 +490,7 @@ class _ScanBar(QWidget):
                 self._direction = -1
             elif self._pos <= 0.0:
                 self._direction = 1
-            self.repaint()
+            self.update()
 
     def paintEvent(self, event):
         p = QPainter(self)
