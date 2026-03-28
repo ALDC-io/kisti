@@ -341,6 +341,20 @@ def main():
             "What should I watch out for today?",
             "How is the DCCD performing?",
             "Give me a systems check.",
+            "What is my coolant temperature?",
+            "How are the tires holding up?",
+            "What is the boost pressure right now?",
+            "Tell me about the drivetrain.",
+            "What is the fuel pressure?",
+            "How is battery voltage?",
+            "What is the intake air temperature?",
+            "Am I running on E85 or pump gas?",
+            "What is the lambda reading?",
+            "Tell me about the brakes.",
+            "What RPM should I shift at?",
+            "How is the oil temperature?",
+            "What is my current speed?",
+            "Analyze that last run.",
         ]
         _sim_idx = [0]
 
@@ -357,8 +371,8 @@ def main():
                     import time as _t; _t.sleep(4)  # wait for "Driver says" to play
                     voice_mgr.handle_voice_query(q)
                 threading.Thread(target=_run_query, daemon=True).start()
-                # Schedule next query after response has time to play
-                _QTV.singleShot(25000, _sim_next_query)
+                # Schedule next query — tight pacing to stress test
+                _QTV.singleShot(15000, _sim_next_query)
             else:
                 log.info("SIM VOICE: All queries complete")
                 window.queue_speech("Voice simulation complete.")
