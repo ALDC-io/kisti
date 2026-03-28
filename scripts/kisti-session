@@ -22,6 +22,10 @@ LOG="/tmp/kisti-session.log"
 
 echo "$(date) KiSTI session starting" > "$LOG"
 
+# Guard: kill any existing KiSTI instance (GDM can double-launch on autologin)
+pkill -f 'python3 main.py' 2>/dev/null || true
+sleep 1
+
 # Black background, no screen blanking
 xsetroot -solid black 2>/dev/null || true
 xset s off -dpms 2>/dev/null || true
