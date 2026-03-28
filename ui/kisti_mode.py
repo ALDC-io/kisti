@@ -827,10 +827,19 @@ class KistiModeWidget(QWidget):
                 self._queue_lines([msg], urgency=urgency)
                 time.sleep(3)
 
-            # Easter egg: 1 in 4 chance after "No ECU detected"
-            if not ecu_ok and random.randint(1, 4) == 1:
+            # No ECU — always follow up with a quip about the obvious problem
+            if not ecu_ok:
                 time.sleep(4)
-                self._queue_lines(["Just when I thought I was out... they pull me back in."])
+                no_ecu_quips = [
+                    "Not entirely sure how we plan to drive without an engine computer, but I admire the optimism.",
+                    "No ECU, no fuel, no spark. But hey, at least the dash looks nice.",
+                    "I can co-drive all day, but the engine might need some encouragement first.",
+                    "We appear to be a very expensive paperweight at the moment.",
+                    "Pushing it downhill is technically an option. I have calculated the route.",
+                    "The good news is the stereo works. The bad news is everything else.",
+                    "I have run the numbers. Zero horsepower. Bold strategy.",
+                ]
+                self._queue_lines([random.choice(no_ecu_quips)])
 
         # Driving conditions summary — translate weather into driver language
         if ambient:
