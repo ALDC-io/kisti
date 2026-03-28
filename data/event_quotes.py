@@ -310,6 +310,46 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Most impressive.",                                         # Vader
     ],
 
+    # ===== WEATHER / AMBIENT CONDITIONS =====
+
+    "pressure_falling": [
+        "Barometric pressure dropping. Weather front inbound.",       # Original
+        "The weather is changing. Stay alert.",                       # Original
+        "Storm clouds gathering. At least metaphorically.",          # Original
+        "I sense a disturbance in the atmosphere.",                   # Star Wars riff
+    ],
+
+    "pressure_rising": [
+        "Pressure rising. Conditions should stabilise.",              # Original
+        "The weather is clearing. Good conditions ahead.",            # Original
+        "High pressure moving in. Should be a good drive.",          # Original
+    ],
+
+    "temp_dropping": [
+        "Temperature falling. Grip may decrease.",                    # Original
+        "It is getting cold out there. Tires will be slower to warm.", # Original
+        "Winter is coming.",                                          # Game of Thrones
+        "Cold front. Expect reduced grip until tires come in.",       # Original
+    ],
+
+    "temp_rising": [
+        "Temperature climbing. Good for grip.",                       # Original
+        "Warming up out there. Tires should come in faster.",        # Original
+        "The heat is on.",                                            # Various
+    ],
+
+    "humidity_rising": [
+        "Humidity rising. Watch for moisture on the surface.",        # Original
+        "Getting damp out there. Reduced grip possible.",            # Original
+        "Moisture in the air. Condensation risk increasing.",        # Original
+    ],
+
+    "humidity_dropping": [
+        "Humidity dropping. Drier conditions ahead.",                 # Original
+        "The air is drying out. Better for grip.",                   # Original
+        "Less moisture. Should be good for traction.",               # Original
+    ],
+
     # ===== RARE / EASTER EGGS (low probability) =====
 
     "easter_egg": [

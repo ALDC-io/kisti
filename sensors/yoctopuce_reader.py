@@ -22,6 +22,12 @@ log = logging.getLogger("kisti.sensors.yoctopuce")
 
 POLL_INTERVAL_MS = 1000  # 1 Hz — ambient conditions change slowly
 
+# Delta thresholds for "significant change" detection.
+# These fire voice alerts so the driver knows conditions shifted.
+PRESSURE_DELTA_HPA = 5.0    # weather system movement
+TEMP_DELTA_C = 3.0           # warm/cold front arrival
+HUMIDITY_DELTA_PCT = 15.0    # condensation / hydroplaning risk
+
 
 @dataclass
 class AmbientReading:
@@ -32,6 +38,16 @@ class AmbientReading:
     density_altitude_ft: float = 0.0
     dew_point_c: float = 0.0
     available: bool = False
+
+
+@dataclass
+class AmbientChange:
+    """Describes a significant ambient condition change."""
+    event: str              # e.g., "pressure_falling", "temp_dropping"
+    message: str            # driver-friendly description
+    old_value: float
+    new_value: float
+    delta: float
 
 
 def _dew_point(temp_c: float, rh_pct: float) -> float:
@@ -63,7 +79,8 @@ def _density_altitude(pressure_hpa: float, temp_c: float) -> float:
 class YoctopuceReader(QObject):
     """Polls Yoctopuce Yocto-Meteo-V2 for ambient weather data."""
 
-    reading_updated = Signal(object)  # emits AmbientReading
+    reading_updated = Signal(object)    # emits AmbientReading (every poll)
+    condition_changed = Signal(object)  # emits AmbientChange (on significant delta)
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
@@ -73,6 +90,7 @@ class YoctopuceReader(QObject):
         self._pres_sensor = None
         self._serial: str = ""
         self._last_reading = AmbientReading()
+        self._baseline: Optional[AmbientReading] = None  # set on first valid read
 
         self._timer = QTimer(self)
         self._timer.setInterval(POLL_INTERVAL_MS)
@@ -153,6 +171,68 @@ class YoctopuceReader(QObject):
             self._last_reading = reading
             self.reading_updated.emit(reading)
 
+            # Check for significant condition changes
+            self._check_deltas(reading)
+
         except Exception as exc:
             log.debug("Yoctopuce poll error: %s", exc)
             self._last_reading = AmbientReading(available=False)
+
+    def _check_deltas(self, reading: AmbientReading) -> None:
+        """Compare current reading against baseline; emit condition_changed on significant delta."""
+        if self._baseline is None:
+            self._baseline = reading
+            return
+
+        b = self._baseline
+
+        # Pressure change — weather system movement
+        p_delta = reading.pressure_hpa - b.pressure_hpa
+        if abs(p_delta) >= PRESSURE_DELTA_HPA:
+            direction = "falling" if p_delta < 0 else "rising"
+            if p_delta < 0:
+                msg = "Pressure falling. Weather system moving in."
+            else:
+                msg = "Pressure rising. Conditions stabilising."
+            self.condition_changed.emit(AmbientChange(
+                event=f"pressure_{direction}",
+                message=msg,
+                old_value=b.pressure_hpa,
+                new_value=reading.pressure_hpa,
+                delta=p_delta,
+            ))
+            self._baseline = reading
+            return  # one change per poll cycle to avoid voice spam
+
+        # Temperature change — grip / engine performance shift
+        t_delta = reading.temperature_c - b.temperature_c
+        if abs(t_delta) >= TEMP_DELTA_C:
+            if t_delta < 0:
+                msg = "Temperature dropping. Track conditions may worsen."
+            else:
+                msg = "Temperature rising. Grip should improve."
+            self.condition_changed.emit(AmbientChange(
+                event="temp_dropping" if t_delta < 0 else "temp_rising",
+                message=msg,
+                old_value=b.temperature_c,
+                new_value=reading.temperature_c,
+                delta=t_delta,
+            ))
+            self._baseline = reading
+            return
+
+        # Humidity change — condensation / hydroplaning risk
+        h_delta = reading.humidity_pct - b.humidity_pct
+        if abs(h_delta) >= HUMIDITY_DELTA_PCT:
+            if h_delta > 0:
+                msg = "Humidity rising. Increased condensation risk."
+            else:
+                msg = "Humidity dropping. Drier conditions ahead."
+            self.condition_changed.emit(AmbientChange(
+                event="humidity_rising" if h_delta > 0 else "humidity_dropping",
+                message=msg,
+                old_value=b.humidity_pct,
+                new_value=reading.humidity_pct,
+                delta=h_delta,
+            ))
+            self._baseline = reading
