@@ -342,7 +342,8 @@ class VoiceManager(QObject):
         if s.speed_kph > 0:
             lines.append(f"Speed: {s.speed_kph:.0f} km/h, Gear: {s.gear}")
         if s.map_kpa > 0:
-            lines.append(f"Boost: {s.map_kpa - 101.3:.0f} kPa")
+            boost_psi = (s.map_kpa - 101.3) * 0.145038
+            lines.append(f"Boost: {boost_psi:.1f} PSI")
         if s.coolant_temp > 0:
             lines.append(f"Coolant: {s.coolant_temp:.0f}°C")
         if s.oil_temp_c > 0:
