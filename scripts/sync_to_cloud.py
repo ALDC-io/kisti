@@ -32,6 +32,20 @@ DB_PATH = Path("/data/duckdb/kisti.duckdb")
 DEV_DB_PATH = Path("/tmp/kisti_test.duckdb")
 
 
+def _open_db_readonly(db_path: Path):
+    """Open DuckDB read-only, copying if locked by another process."""
+    import duckdb
+    try:
+        return duckdb.connect(str(db_path), read_only=True)
+    except Exception:
+        # KiSTI likely holds the lock — copy the file and read from copy
+        import shutil
+        copy_path = Path(tempfile.mkdtemp()) / "kisti_copy.duckdb"
+        shutil.copy2(db_path, copy_path)
+        log.info("DB locked, reading from copy: %s", copy_path)
+        return duckdb.connect(str(copy_path), read_only=True)
+
+
 def _rclone_copy(local_path: Path, remote_path: str) -> bool:
     """Upload a file or directory to Nextcloud via rclone."""
     try:
@@ -65,7 +79,7 @@ def sync_weather(db_path: Path) -> int:
         log.info("No DuckDB at %s — skipping weather sync", db_path)
         return 0
 
-    conn = duckdb.connect(str(db_path), read_only=True)
+    conn = _open_db_readonly(db_path)
 
     count = conn.execute("SELECT COUNT(*) FROM ambient_conditions").fetchone()[0]
     if count == 0:
@@ -158,7 +172,7 @@ def sync_memories(db_path: Path) -> int:
         log.info("No DuckDB at %s — skipping memory sync", db_path)
         return 0
 
-    conn = duckdb.connect(str(db_path), read_only=True)
+    conn = _open_db_readonly(db_path)
 
     # Check if memories table exists
     tables = [r[0] for r in conn.execute(
