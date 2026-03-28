@@ -290,6 +290,9 @@ class _KittWaveform(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMinimumSize(120, 100)
+        # Compositorless X11: tell Qt we paint our entire rect every frame.
+        # Without this, backing store flush is unreliable without a compositor.
+        self.setAttribute(Qt.WA_OpaquePaintEvent)
         self._active = False
         self._levels = [0, 0, 0]
         self._prev_center = 0       # Track previous center for decay
@@ -464,6 +467,7 @@ class _ScanBar(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedHeight(4)
+        self.setAttribute(Qt.WA_OpaquePaintEvent)
         self._pos = 0.0
         self._direction = 1
         self._active = True
