@@ -696,10 +696,10 @@ class KistiModeWidget(QWidget):
 
         amp = self._envelope[frame]
         self._waveform.set_amplitude(amp)
-        # Log first frame only to confirm envelope is driving waveform
-        if frame == 5:
-            klog.info("_envelope_tick: frame=%d amp=%.2f active=%s use_real=%s",
-                      frame, amp, self._waveform._active, self._waveform._use_real_amplitude)
+        # Log frames 15, 30, 60 to confirm envelope drives waveform past silence
+        if frame in (15, 30, 60):
+            klog.info("_envelope_tick: frame=%d/%d amp=%.2f levels=%s",
+                      frame, len(self._envelope), amp, self._waveform._levels)
 
     def _warmup_piper(self):
         """Background: warm up Piper model by synthesizing a discarded phrase."""
