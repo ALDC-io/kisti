@@ -43,49 +43,86 @@ class EngineSpec:
     machined_stamps: tuple = ("22222", "91 BB", "16 BB")
 
     # Bottom end
-    head_studs: str = "ARP Custom Age"
-    oil_pickup: str = "IAG Oil Pickup + Windage Tray"
+    head_studs: str = "ARP Custom Age DOHC"
+    oil_pickup: str = "IAG Upper Windage Tray & Oil Pickup"
+    rear_main_seal: str = "OEM"
+    oil_pan_gasket: str = "O-Ring Single"
+    engine_mounts: str = "STI Group N (left + right)"
 
     # Valvetrain
-    intake_valves: str = "GSC 36mm"
-    exhaust_valves: str = "GSC 32mm"
-    valve_guides: str = "Bronze"
-    springs: str = "Beehive + Titanium Retainers"
-    valve_seals: str = "Viton"
+    intake_valves: str = "GSC P-D 36mm Chrome Polished (Std)"
+    exhaust_valves: str = "GSC P-D 32mm Chrome Polished Super Alloy (Std)"
+    valve_guides: str = "GSC Manganese Bronze Intake + Exhaust Stopper Style"
+    springs: str = "GSC P-D EJ257 Beehive + Titanium Retainer Kit (factory spring seats)"
+    valve_seals: str = "GSC Viton 6mm Stem Seal Set"
+    rockers: str = "GSKT-Rocker x4"
 
     # Induction
-    intercooler: str = "COBB Front Mount"
-    tgv_housings: str = "PrecisionWorks Billet"
-    turbo_inlet: str = "Perrin Turbo Inlet Hose"
-    map_sensor: str = "4-Bar"
+    intercooler: str = "COBB Front Mount Intercooler"
+    tgv_housings: str = "PrecisionWorks Billet TGV Housing"
+    turbo_inlet: str = "Perrin Turbo Inlet Hose Black"
+    map_sensor: str = "Cobb 4 Bar Map Sensor Upgrade Kit"
     iat_sensor: str = "GM IAT (relocated to FMIC)"
+    air_pump_delete: str = "BB Air Pump Delete Plates"
+    ebcs: str = "3 Port EBCS (swapped WRX to STI)"
 
     # Fuel
     injectors: str = "ID1300"
-    fuel_pump: str = "Deatschwerks DW300C"
+    injector_pigtails: str = "Injector Pigtails x4"
+    fuel_pump: str = "Deatschwerks DW300C Series (under rear passenger seat)"
     fuel_rails: str = "IAG PTFE"
     fuel_regulator: str = "Aeromotive FPR"
     flex_fuel_sensor: bool = True
+    flex_fuel_tune: str = "Standalone Flex Fuel Protune (10.72 hrs, E100)"
 
     # Turbo
-    turbo: str = "BCP X400 (~400 WHP class)"
+    turbo: str = "BCP X400 Turbocharger 400WHP"
+
+    # Exhaust gaskets (Grimmspeed)
+    uppipe_gasket: str = "Grimmspeed Uppipe To Turbo"
+    lower_uppipe_gasket: str = "Grimmspeed Lower Uppipe"
+    exhaust_manifold_gasket: str = "Grimmspeed Head To Exhaust Manifold Dual Port"
+    downpipe_gasket: str = "Grimmspeed Downpipe To Catback 2 Bolt 3 Inch"
+    turbo_oil_line_gaskets: str = "Turbocharger Oil Line Gasket x2"
 
     # Cooling / reliability
     cyl4_cooling_mod: bool = True
-    radiator: str = "CSF Aluminum"
-    oil_separator: str = "IAG AOS"
-    timing_service: str = "Belt, water pump, thermostat"
+    radiator: str = "CSF Race Spec 2 Row Aluminum Black"
+    oil_separator: str = "IAG Air/Oil Separator (AOS) Black"
+    timing_service: str = "Belt, water pump, thermostat RE/RE"
     gasket_refresh: bool = True
+    coolant: str = "Super Blue Coolant (12L)"
+    engine_oil: str = "Motul X-Clean 5W40 (5L)"
+
+    # Drivetrain
+    clutch: str = "Competition Clutch Stage 2 Steelback Brass Plus"
+    flywheel: str = "ACT Lightweight Flywheel"
+    clutch_line: str = "Clutch Masters Steel Clutch Line"
+    trans_fluid: str = "Motul 75W90 Gear Oil (5L)"
+    diff_fluid: str = "Motul 75W90 LS (Limited Slip) (1L)"
+    brake_fluid: str = "Pentosin Super DOT 4"
+
+    # Suspension / chassis
+    front_swaybar: str = "GR Front Swaybar (swapped)"
+    rear_swaybar: str = "GR/VA Rear Swaybar (swapped)"
+    front_struts: str = "KYB Suspension Front L+R"
+    lower_mounts: str = "Fortune Auto Lower Mounts"
+    spark_plugs: str = "New (brand TBD on work order)"
 
     # Sensors (KiSTI critical)
-    oil_pressure_sensor: str = "0-150 PSI"
-    fuel_pressure_sensor: str = "0-100 PSI"
+    oil_pressure_sensor: str = "Prosport 0-150 PSI + Galley Plug 1/8 NPT"
+    fuel_pressure_sensor: str = "0-100 PSI (wired to passenger side TGV plug)"
 
     # Electronics
     ecu: str = "Link G5 Neo 4"
     pdm: str = "Link Razor PDM"
     keypad: str = "Link CAN Keypad (8 button)"
     dash: str = "AiM Strada 7\" Street Edition"
+
+    # Build cost
+    total_cost: float = 29_607.44
+    labour_rate: float = 140.00
+    machine_shop_fees: float = 950.00
 
 
 ENGINE = EngineSpec()
@@ -149,13 +186,17 @@ def build_detail() -> str:
     """Full build detail for persona responses."""
     return f"""IAG Performance 750 Closed Deck Forged Short Block, serial #{ENGINE.serial}.
 EJ257-based, {ENGINE.power_capability_bhp} bhp hardware capability, currently tuned {ENGINE.current_tune_whp} WHP.
-VIN: {ENGINE.vin}. Built by Boost Barn Motorsports (WO #{ENGINE.work_order}).
+VIN: {ENGINE.vin}. Built by Boost Barn Motorsports (WO #{ENGINE.work_order}). Total build cost: ${ENGINE.total_cost:,.2f}.
 
-Bottom end: {ENGINE.config}, {ENGINE.head_studs} head studs, {ENGINE.oil_pickup}.
+Bottom end: {ENGINE.config}, {ENGINE.head_studs} head studs, {ENGINE.oil_pickup}. {ENGINE.engine_mounts} engine mounts.
 Valvetrain: {ENGINE.intake_valves} intake, {ENGINE.exhaust_valves} exhaust, {ENGINE.valve_guides} guides, {ENGINE.springs}, {ENGINE.valve_seals} seals.
-Fuel: {ENGINE.injectors} injectors, {ENGINE.fuel_pump} pump, {ENGINE.fuel_rails} rails, {ENGINE.fuel_regulator}. Flex fuel sensor installed.
-Turbo: {ENGINE.turbo}. Induction: {ENGINE.intercooler} FMIC, {ENGINE.tgv_housings} TGV housings, {ENGINE.turbo_inlet}.
-Cooling: {ENGINE.radiator} radiator, Cylinder 4 cooling mod, {ENGINE.oil_separator}. Full timing service + gasket refresh.
+Fuel: {ENGINE.injectors} injectors, {ENGINE.fuel_pump} pump, {ENGINE.fuel_rails} rails, {ENGINE.fuel_regulator}. {ENGINE.flex_fuel_tune}.
+Turbo: {ENGINE.turbo}. Induction: {ENGINE.intercooler}, {ENGINE.tgv_housings}, {ENGINE.turbo_inlet}. {ENGINE.ebcs}.
+Drivetrain: {ENGINE.clutch}, {ENGINE.flywheel}, {ENGINE.clutch_line}.
+Exhaust: Grimmspeed gasket set (uppipe, exhaust manifold, downpipe to catback).
+Cooling: {ENGINE.radiator}, Cylinder 4 cooling mod, {ENGINE.oil_separator}. Full timing service + gasket refresh.
+Suspension: {ENGINE.front_swaybar}, {ENGINE.rear_swaybar}, {ENGINE.front_struts}, {ENGINE.lower_mounts}.
+Fluids: {ENGINE.engine_oil}, {ENGINE.trans_fluid}, {ENGINE.diff_fluid}, {ENGINE.brake_fluid}, {ENGINE.coolant}.
 Sensors: {ENGINE.oil_pressure_sensor} oil, {ENGINE.fuel_pressure_sensor} fuel, {ENGINE.map_sensor} MAP, {ENGINE.iat_sensor}.
 Electronics: {ENGINE.ecu}, {ENGINE.pdm}, {ENGINE.keypad}, {ENGINE.dash}.
 
