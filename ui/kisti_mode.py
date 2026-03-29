@@ -864,20 +864,13 @@ class KistiModeWidget(QWidget):
                 power_note = " High altitude, engine will make less power."
 
             grip_line = f"{grip}, {reason}.{power_note}"
-            time.sleep(4)
+            time.sleep(2)
             self._queue_lines([grip_line])
 
-        # No ECU — deliver the no-ECU fact, then a random movie/TV quote
+        # No ECU — drop a random movie/TV quote as a one-liner
+        # (the "No ECU" issue was already spoken above from the issues list)
         if not ecu_ok:
-            time.sleep(4)
-            no_ecu_lines = [
-                "No ECU detected.",
-                "Still waiting on that engine computer.",
-                "ECU offline.",
-            ]
-            self._queue_lines([random.choice(no_ecu_lines)])
-            time.sleep(3)
-            # Random movie/TV quote as a one-liner after the weather+no-ECU report
+            time.sleep(2)
             from data.event_quotes import EVENT_QUOTES
             _idle_pools = [
                 EVENT_QUOTES.get("engine_ready", []),
