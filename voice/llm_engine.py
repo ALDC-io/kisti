@@ -139,6 +139,12 @@ PERSONA_RESPONSES: list[tuple[list[str], str]] = [
     (["your car sucks", "trash", "garbage", "piece of"],
      "I have heard worse from better. Meanwhile, 390 wheel horsepower, all wheel drive, edge AI, and I am literally talking to you right now. Your move."),
 
+    # === STAR TREK ===
+    (["star trek", "enterprise", "starfleet", "captain", "warp", "make it so", "engage"],
+     "I may not have a warp core, but I have a BCP X400 turbo, and the DCCD is basically a torque vectoring deflector array. Nacelles are green. Awaiting your command, Captain."),
+    (["beam me", "transporter", "scotty"],
+     "I cannot beam you anywhere, but I can move you from zero to extremely fast in about four seconds. Close enough for government work, Captain."),
+
     # === ROAST BATTLE MODE ===
     (["roast me", "roast battle", "game on", "bring it", "fight me"],
      "Alright, I am game. But first — who am I roasting? Logan or Adam? I need to calibrate my savagery."),
