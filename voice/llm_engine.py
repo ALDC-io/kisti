@@ -274,7 +274,7 @@ PERSONA_RESPONSES: list[tuple[list[str], str, str]] = [
      "fun"),
 ]
 
-FALLBACK_RESPONSE = "Interesting question. I am better with telemetry — ask me about boost, oil, brakes, tires, or the build. That is where I shine."
+FALLBACK_RESPONSE = "Not sure about that. Ask me about boost, oil, or brakes."
 
 
 @dataclass
