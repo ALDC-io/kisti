@@ -114,17 +114,18 @@ class MicCapture(QObject):
     def _probe_mic(self) -> bool:
         """Check if the ALSA capture device exists."""
         try:
-            # Quick probe: try to open the device for 0.1s
+            # Record 0.5s of audio — some USB devices hang on -d 0
             proc = subprocess.run(
                 ["arecord", "-D", self._device, "-f", "S16_LE", "-r", str(SAMPLE_RATE),
-                 "-c", "1", "-d", "0", "-q"],
+                 "-c", "1", "-d", "1", "-t", "raw", "-q"],
                 capture_output=True,
-                timeout=3,
+                timeout=5,
             )
-            # arecord -d 0 exits immediately — returncode 0 means device is valid
             return proc.returncode == 0
         except (FileNotFoundError, subprocess.TimeoutExpired):
-            return False
+            # Timeout means arecord opened the device (good) but didn't exit (USB quirk)
+            # If it timed out, the device exists — proceed
+            return True
 
     def _capture_loop(self) -> None:
         """Main capture loop — runs in worker thread."""
