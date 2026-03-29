@@ -78,6 +78,8 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "The last American hero. Shall we?",                        # Vanishing Point (Super Soul)
         "Shake and bake!",                                          # Talladega Nights
         "You are only as good as your last race. So let us make it count.", # Rush riff
+        "All primary systems nominal, Captain. Warp core is cold but standing by.", # Star Trek techno
+        "Deflector array online. Intercooler at ambient. Awaiting your command.", # Star Trek techno
     ],
 
     "boost_full": [
@@ -94,6 +96,9 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "If you ain't first, you are last.",                        # Talladega Nights (Ricky Bobby)
         "This baby can take corners at eighty and barely flex.",    # Gone in 60 Seconds riff
         "More power!",                                              # Days of Thunder riff
+        "Warp plasma is flowing through the primary injection manifold. All nacelles are green.", # Star Trek techno
+        "Captain, the dilithium matrix is holding. Turbo containment field at maximum.", # Star Trek techno
+        "Rerouting auxiliary power through the intercooler array. Charge temps nominal.", # Star Trek techno
     ],
 
     "redline": [
@@ -109,6 +114,8 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "There is nothing wrong with this car except it is going way too fast.", # Vanishing Point
         "You are clear to go. Drop the hammer.",                    # Days of Thunder
         "This ain't no Sunday drive.",                              # Smokey and the Bandit
+        "Captain, the EJ warp core is approaching critical resonance. She is giving everything she has got.", # Star Trek techno
+        "I am reading a tachyon surge in the primary combustion chambers. Recommend maintaining current heading.", # Star Trek techno
     ],
 
     "launch_control": [
@@ -123,6 +130,8 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Slingshot engaged.",                                       # Days of Thunder
         "Eastbound and down, loaded up and truckin'.",              # Smokey and the Bandit (theme)
         "I am not locked in here with you. You are locked in here with me.", # Watchmen (but works for launch)
+        "Engineering to bridge. Diverting all power to the propulsion array. Engage.", # Star Trek techno
+        "Antimatter injection sequence initiated. Turbo containment at one hundred percent. Punch it.", # Star Trek techno
     ],
 
     "rpm_limiter": [
@@ -133,6 +142,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "A wise man knows his limits. A smart one does not test them.", # Rush (Lauda) riff
         "You break her, you bought her. And she cost a fortune.",   # Gone in 60 Seconds riff
         "The car is talking to you. Listen to it.",                 # Days of Thunder (Harry)
+        "Warning. Structural integrity of the warp core is at tolerance limits. Recommend reducing to impulse.", # Star Trek techno
     ],
 
     # ===== DRIVING DYNAMICS =====
@@ -148,6 +158,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "You never had me. You never had your car.",                # F&F (Dom to Brian)
         "That is not driving. That is an art form.",                # Baby Driver riff
         "There is a God. He rides in the passenger seat.",          # Vanishing Point riff
+        "Inertial dampeners compensating. The DCCD torque vectoring matrix is redistributing load across all four nacelles.", # Star Trek techno
     ],
 
     "hard_braking": [
@@ -156,6 +167,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Brace, brace, brace.",                                    # Aviation
         "Trust the brakes.",                                        # Original
         "Azarath Metrion Zinthos!",                                 # Teen Titans (Raven)
+        "Emergency power to forward shields. Activating regenerative braking on all four nacelles.", # Star Trek techno
     ],
 
     "oversteer_detected": [
@@ -165,6 +177,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Counter steer. Smooth hands.",                             # Original
         "Straighten up and fly right, cousin!",                     # Dukes of Hazzard (Bo/Luke)
         "I do not do fear.",                                        # Teen Titans (Robin)
+        "Shields failing on the rear quarter. The structural integrity field is compensating but I cannot guarantee hull integrity.", # Star Trek techno
     ],
 
     "traction_loss": [
@@ -176,6 +189,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "I said a ten second car, not a ten second spin.",          # F&F riff
         "Bumpy road? You should try the Hazzard County shortcut.",  # Smokey and the Bandit riff
         "Kowalski would be proud. Or terrified.",                   # Vanishing Point
+        "Captain, we have lost traction on the port nacelles. Transferring power to starboard. Brace for lateral drift.", # Star Trek techno
     ],
 
     "perfect_corner": [
@@ -189,6 +203,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Wicked cool!",                                             # Teen Titans (Beast Boy)
         "You just painted a masterpiece on asphalt.",               # Baby Driver riff
         "That is how McQueen would have done it.",                  # Bullitt riff
+        "Navigation confirms optimal flight path through the gravitational anomaly. Textbook maneuver, Lieutenant.", # Star Trek techno
     ],
 
     "speed_200_kph": [
@@ -202,6 +217,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "We have got a long way to go, and a short time to get there.", # Smokey and the Bandit (theme)
         "Ride or die? I pick ride.",                                # F&F
         "I owe you a ten second car.",                              # F&F (Dom to Brian)
+        "We have crossed the transwarp threshold. All propulsion systems are operating beyond design specifications.", # Star Trek techno
     ],
 
     # ===== SI DRIVE MODE CHANGES =====
@@ -244,6 +260,8 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Danger, Will Robinson.",                                   # Lost in Space
         "Bo, you better pull over before this thing blows sky high.",  # Dukes of Hazzard
         "This is not going to end well. Even I can feel that.",     # Teen Titans (Raven)
+        "Captain, the warp core coolant system is failing. Recommend emergency shutdown before we breach containment.", # Star Trek techno
+        "Detecting a plasma leak in the primary thermal management array. Core temperature exceeding safe parameters.", # Star Trek techno
     ],
 
     "oil_pressure_low": [
@@ -252,12 +270,14 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "We need to shut it down. Now.",                            # Original
         "Danger, Will Robinson!",                                   # Lost in Space
         "You come at the king, you best not miss. And right now, oil pressure is missing.",  # Sopranos/Wire riff
+        "Engineering, we have a pressure drop in the primary lubrication conduit. Divert flow from the secondary manifold, now.", # Star Trek techno
     ],
 
     "oil_temp_high": [
         "Things are heating up.",                                   # Various
         "It is getting hot in here.",                               # Various
         "Thermal alert. Consider a cool down lap.",                 # Original
+        "Captain, the bio-neural gel packs in the lubrication system are overheating. Recommend a cool-down orbit.", # Star Trek techno
     ],
 
     "engine_cold": [
@@ -267,6 +287,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "I have been designed to protect human life.",              # KITT
         "These pretzels are making me thirsty. And this engine is making me cold.",  # Seinfeld
         "Already in a bad way, and we have not even started.",      # Peaky Blinders
+        "Warp core temperature is below minimum operating threshold. The dilithium crystals need time to align.", # Star Trek techno
     ],
 
     "cooldown_needed": [
@@ -276,6 +297,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Cool down lap. Protect the investment.",                   # Original
         "Serenity now!",                                            # Seinfeld (Frank Costanza)
         "Could we BE driving any harder? Cool it down.",            # Friends (Chandler)
+        "Bridge, recommend dropping to impulse power. The warp core needs a thermal cycle to restore containment integrity.", # Star Trek techno
     ],
 
     # ===== SURFACE / GRIP =====
@@ -309,6 +331,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "I live my life a quarter mile at a time.",                 # F&F
         "Alright. Let us cook.",                                    # Breaking Bad (Jesse)
         "How you doing?",                                           # Friends (Joey)
+        "Captain's log, stardate today. Beginning sensor sweep. All stations report ready.", # Star Trek techno
     ],
 
     "session_end": [
@@ -317,6 +340,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "The data never lies.",                                     # Original
         "And that is a show about nothing.",                        # Seinfeld
         "Woke up this morning, got yourself some data.",            # Sopranos (theme riff)
+        "End of mission. Downloading sensor logs to memory core. Computer, save and close.", # Star Trek techno
     ],
 
     "best_lap": [
@@ -330,6 +354,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "It does not matter if you win by an inch or a mile. Winning is winning.", # F&F (Dom)
         "Happiness is an empty road and a full tank.",              # Vanishing Point riff
         "The driver was flawless. I would know.",                   # Rush (Lauda) riff
+        "Sensors confirm optimal trajectory through all waypoints. Starfleet would be impressed.", # Star Trek techno
     ],
 
     "lap_degradation": [
