@@ -25,6 +25,8 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Right away, Michael.",                                     # KITT
         "Miss me?",                                                 # Various
         "Just some good ol' boys. Never meanin' no harm.",          # Dukes of Hazzard
+        "When there is trouble, you know who to call. Teen Titans!", # Teen Titans theme
+        "T-E-E-N T-I-T-A-N-S. Teen Titans. Let us go!",           # Teen Titans theme
     ],
 
     "ecu_connected": [
@@ -36,6 +38,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "All systems online. Let us do this.",                      # Original
         "By order of the Peaky Blinders.",                          # Peaky Blinders
         "I am the one who knocks.",                                 # Breaking Bad
+        "From their tower, they can see it all. Titans, go!",      # Teen Titans theme
     ],
 
     "ecu_disconnected": [
@@ -78,6 +81,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Punch it.",                                                # Star Wars
         "Full power to engines.",                                   # Star Trek
         "Yee-haw! Them Duke boys are at it again.",                 # Dukes of Hazzard
+        "Booyah!",                                                  # Teen Titans (Cyborg)
     ],
 
     "redline": [
@@ -87,6 +91,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Roads? Where we are going, we do not need roads.",         # Back to the Future
         "Faster. Faster. Faster!",                                  # Original
         "Them Dukes! Them Dukes!",                                  # Dukes of Hazzard (Rosco)
+        "Booyah! That is what I am talking about!",                 # Teen Titans (Cyborg)
     ],
 
     "launch_control": [
@@ -112,6 +117,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "It does not matter if you win by an inch or a mile.",     # F&F
         "Now this is pod racing!",                                  # Star Wars
         "Looks like them Duke boys are in a whole heap of trouble.",  # Dukes of Hazzard (Balladeer)
+        "We have got to save the world. Again.",                    # Teen Titans (Robin)
     ],
 
     "hard_braking": [
@@ -119,6 +125,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Do not panic.",                                            # Hitchhiker's Guide
         "Brace, brace, brace.",                                    # Aviation
         "Trust the brakes.",                                        # Original
+        "Azarath Metrion Zinthos!",                                 # Teen Titans (Raven)
     ],
 
     "oversteer_detected": [
@@ -127,6 +134,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Hold the line!",                                           # Various
         "Counter steer. Smooth hands.",                             # Original
         "Straighten up and fly right, cousin!",                     # Dukes of Hazzard (Bo/Luke)
+        "I do not do fear.",                                        # Teen Titans (Robin)
     ],
 
     "traction_loss": [
@@ -134,6 +142,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "You almost had me? You never had me.",                     # F&F
         "The dark side of the Force is a pathway to many abilities some consider to be unnatural.",  # Palpatine
         "Now that is what I call a Hazzard County slide.",          # Dukes of Hazzard
+        "Dude! Not cool!",                                          # Teen Titans (Beast Boy)
     ],
 
     "perfect_corner": [
@@ -144,6 +153,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "That is gold, Jerry! Gold!",                               # Seinfeld (Kenny Bania)
         "You are goddamn right.",                                   # Breaking Bad
         "Oh. My. God.",                                             # Friends (Janice)
+        "Wicked cool!",                                             # Teen Titans (Beast Boy)
     ],
 
     "speed_200_kph": [
@@ -194,6 +204,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "I would not advise that, Michael.",                        # KITT
         "Danger, Will Robinson.",                                   # Lost in Space
         "Bo, you better pull over before this thing blows sky high.",  # Dukes of Hazzard
+        "This is not going to end well. Even I can feel that.",     # Teen Titans (Raven)
     ],
 
     "oil_pressure_low": [
