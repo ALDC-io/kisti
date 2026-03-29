@@ -19,7 +19,7 @@ from typing import Optional
 
 log = logging.getLogger("kisti.voice.stt")
 
-WHISPER_MODEL_NAME = "tiny.en"
+WHISPER_MODEL_NAME = "base.en"
 SAMPLE_RATE = 16000
 CHUNK_DURATION_S = 2.0  # VAD chunk size
 MIN_AUDIO_S = 0.5       # reject clips shorter than this
