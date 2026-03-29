@@ -60,7 +60,7 @@ sudo -n ip link set can0 up type can bitrate 1000000 2>/dev/null || true
 
 # Pre-load LLM to GPU BEFORE KiSTI starts (CUDA allocates cleanly)
 echo "$(date) Pre-loading LLM to GPU..." >> "$LOG"
-curl -sf http://localhost:11434/api/chat -d '{"model":"llama3.2:3b","messages":[{"role":"user","content":"ready"}],"stream":false,"options":{"num_predict":1}}' >> "$LOG" 2>&1
+curl -sf --max-time 30 http://localhost:11434/api/chat -d '{"model":"llama3.2:3b","messages":[{"role":"user","content":"ready"}],"stream":false,"options":{"num_predict":1}}' >> "$LOG" 2>&1 || echo "$(date) LLM pre-load failed (non-fatal)" >> "$LOG"
 echo "$(date) LLM loaded" >> "$LOG"
 
 # Launch KiSTI fullscreen — when it exits, session ends → back to GDM
