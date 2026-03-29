@@ -1,13 +1,11 @@
 """KiSTI - Microphone Capture with Voice Activity Detection
 
-Continuous audio capture from USB microphone via ALSA (arecord subprocess).
-Uses webrtcvad for lightweight VAD — no GPU, no PulseAudio dependency.
+Continuous audio capture from USB microphone via PulseAudio (parecord).
+Uses Silero VAD for high-accuracy speech boundary detection — dramatically
+reduces Whisper hallucinations by tightly clipping speech segments.
 
 When speech is detected, the complete utterance is emitted as raw PCM for
-WhisperTRT transcription.
-
-Designed for the Jetson Orin Nano minimal X session where PulseAudio is killed
-and audio is routed direct to ALSA.
+Whisper transcription.
 """
 
 from __future__ import annotations
@@ -23,19 +21,25 @@ from PySide6.QtCore import QObject, Signal
 
 log = logging.getLogger("kisti.voice.mic")
 
-SAMPLE_RATE = 16000       # WhisperTRT expects 16kHz
-FRAME_DURATION_MS = 30    # webrtcvad frame size (10, 20, or 30 ms)
-FRAME_BYTES = SAMPLE_RATE * 2 * FRAME_DURATION_MS // 1000  # 960 bytes per 30ms frame
+SAMPLE_RATE = 16000       # Whisper expects 16kHz
+# Silero VAD processes 512-sample chunks at 16kHz (32ms)
+SILERO_CHUNK_SAMPLES = 512
+SILERO_CHUNK_BYTES = SILERO_CHUNK_SAMPLES * 2  # 16-bit = 2 bytes/sample
+FRAME_DURATION_MS = 32    # Silero chunk duration
+FRAME_BYTES = SILERO_CHUNK_BYTES  # 1024 bytes per chunk
 
-# VAD tuning for in-car environment (engine noise, road noise)
-VAD_MODE = 3              # 0=least aggressive, 3=most aggressive. 3 = in-car noise rejection
-SPEECH_START_FRAMES = 8   # ~240ms of voiced frames to trigger speech start
-SPEECH_END_FRAMES = 12    # ~360ms of silence to end utterance (tighter for faster response)
+# VAD tuning for in-car environment
+SPEECH_THRESHOLD = 0.5    # Silero confidence threshold (0-1). Higher = stricter
+SPEECH_START_FRAMES = 6   # ~192ms of speech to trigger capture start
+SPEECH_END_FRAMES = 12    # ~384ms of silence to end utterance
 MAX_UTTERANCE_S = 10.0    # Hard cap — prevent runaway capture
 MIN_UTTERANCE_S = 0.3     # Ignore very short bursts (clicks, bumps)
 
-# Pre-roll: keep N frames before speech detection fires, so we don't clip the start
-PRE_ROLL_FRAMES = 5       # ~150ms lookback
+# Pre-roll: keep N frames before speech detection fires
+PRE_ROLL_FRAMES = 5       # ~160ms lookback
+
+# Legacy constants for test compatibility
+VAD_MODE = 3
 
 
 class MicCapture(QObject):
@@ -72,13 +76,21 @@ class MicCapture(QObject):
         if self._running:
             return
 
-        # Check for webrtcvad
+        # Initialize Silero VAD (CPU ONNX — no GPU needed)
         try:
-            import webrtcvad
-            self._vad = webrtcvad.Vad(VAD_MODE)
+            from silero_vad import load_silero_vad
+            self._vad = load_silero_vad()
+            self._vad_type = "silero"
+            log.info("Silero VAD loaded (CPU ONNX)")
         except ImportError:
-            log.warning("webrtcvad not installed — mic capture disabled (pip install webrtcvad)")
-            return
+            try:
+                import webrtcvad
+                self._vad = webrtcvad.Vad(VAD_MODE)
+                self._vad_type = "webrtcvad"
+                log.warning("Silero VAD not available — falling back to webrtcvad")
+            except ImportError:
+                log.warning("No VAD available — mic capture disabled")
+                return
 
         # Resolve ALSA device names to PulseAudio source names
         # (PA holds all ALSA devices, so arecord can't access them directly)
@@ -182,32 +194,44 @@ class MicCapture(QObject):
             proc.wait(timeout=2)
 
     def _vad_process(self, proc: subprocess.Popen) -> None:
-        """Read frames from arecord stdout and detect speech utterances."""
-        pre_roll: list[bytes] = []  # Circular buffer for pre-roll
+        """Read frames from parecord stdout and detect speech utterances."""
+        import torch
+        import numpy as np
+
+        pre_roll: list[bytes] = []
         speech_buffer: list[bytes] = []
         voiced_count = 0
         silent_count = 0
         in_speech = False
         speech_start_time = 0.0
+        use_silero = self._vad_type == "silero"
 
         while self._running and proc.poll() is None:
             frame = proc.stdout.read(FRAME_BYTES)
             if len(frame) < FRAME_BYTES:
                 break
 
-            # Skip processing while paused (TTS playing — echo suppression)
             if self._paused:
                 voiced_count = 0
                 silent_count = 0
                 in_speech = False
                 speech_buffer.clear()
                 pre_roll.clear()
+                if use_silero:
+                    self._vad.reset_states()
                 continue
 
-            is_speech = self._vad.is_speech(frame, SAMPLE_RATE)
+            # Detect speech
+            if use_silero:
+                audio_float = torch.from_numpy(
+                    np.frombuffer(frame, dtype=np.int16).astype(np.float32) / 32768.0
+                )
+                confidence = self._vad(audio_float, SAMPLE_RATE).item()
+                is_speech = confidence > SPEECH_THRESHOLD
+            else:
+                is_speech = self._vad.is_speech(frame, SAMPLE_RATE)
 
             if not in_speech:
-                # Waiting for speech to start
                 pre_roll.append(frame)
                 if len(pre_roll) > PRE_ROLL_FRAMES:
                     pre_roll.pop(0)
@@ -218,18 +242,15 @@ class MicCapture(QObject):
                     voiced_count = 0
 
                 if voiced_count >= SPEECH_START_FRAMES:
-                    # Speech detected — start capturing
                     in_speech = True
                     silent_count = 0
                     speech_start_time = time.monotonic()
-                    # Include pre-roll so we don't clip the beginning
                     speech_buffer = list(pre_roll)
                     speech_buffer.append(frame)
                     pre_roll.clear()
                     self.listening_started.emit()
                     log.debug("Speech start detected")
             else:
-                # In speech — accumulate frames
                 speech_buffer.append(frame)
 
                 if is_speech:
@@ -239,13 +260,11 @@ class MicCapture(QObject):
 
                 elapsed = time.monotonic() - speech_start_time
 
-                # End conditions: enough silence or max duration
                 if silent_count >= SPEECH_END_FRAMES or elapsed >= MAX_UTTERANCE_S:
                     in_speech = False
                     voiced_count = 0
                     silent_count = 0
 
-                    # Check minimum duration
                     duration = len(speech_buffer) * FRAME_DURATION_MS / 1000.0
                     if duration >= MIN_UTTERANCE_S:
                         pcm = b"".join(speech_buffer)
@@ -255,6 +274,8 @@ class MicCapture(QObject):
                         log.debug("Discarding short utterance: %.1fs", duration)
 
                     speech_buffer.clear()
+                    if use_silero:
+                        self._vad.reset_states()
                     self.listening_stopped.emit()
 
     @property

@@ -342,8 +342,8 @@ class TestMicCapture:
     def test_constants(self):
         """Mic capture constants are consistent."""
         assert MIC_SAMPLE_RATE == 16000
-        assert FRAME_BYTES == 960  # 16000 * 2 * 30 / 1000
-        assert SPEECH_START_FRAMES == 8
+        assert FRAME_BYTES == 1024  # Silero VAD: 512 samples * 2 bytes
+        assert SPEECH_START_FRAMES == 6
         assert SPEECH_END_FRAMES == 12
         assert VAD_MODE == 3  # Most aggressive — in-car noise rejection
 
