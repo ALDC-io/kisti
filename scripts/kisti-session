@@ -67,7 +67,7 @@ echo "$(date) LLM loaded" >> "$LOG"
 echo "$(date) Launching KiSTI" >> "$LOG"
 cd "$KISTI_DIR"
 # Detect USB mic (KTMicro adapter) — card number may shift on replug
-MIC_CARD=$(arecord -l 2>/dev/null | grep -i 'USB.*MIC\|USB.*Audio\|USB.*Adapter' | head -1 | grep -oP 'card \K\d+')
+MIC_CARD=$(arecord -l 2>/dev/null | grep -i 'USB.*MIC\|USB.*Audio\|USB.*Adapter' | head -1 | grep -oP 'card \K\d+' || true)
 if [ -n "$MIC_CARD" ]; then
     MIC_DEVICE="plughw:${MIC_CARD},0"
     echo "$(date) USB mic detected: $MIC_DEVICE" >> "$LOG"
