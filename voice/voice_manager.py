@@ -38,8 +38,11 @@ CHUNK_SIZE = 1024  # samples per audio read
 WAKE_WORDS = [
     "hey kisti", "hey ki", "kisti",
     # Common Whisper misheards of "KiSTI"
-    "keys to", "keeps to", "key stee", "keisti", "kisti",
+    "keys to", "keeps to", "key stee", "keisti",
     "christy", "cristy", "kisty", "heykisti",
+    "ki sti", "kist", "key sti", "kissty",
+    # Phrases that imply talking to KiSTI (Whisper often drops the wake word)
+    "can you hear me", "are you there", "are you listening",
 ]
 QUIET_COMMANDS = ["quiet please kisti", "quiet please", "quiet kisti", "be quiet"]
 RESUME_COMMANDS = ["hey kisti"]
@@ -355,7 +358,7 @@ class VoiceManager(QObject):
                         if idx >= 0:
                             query = text[idx + len(w):].strip(" ,.")
                             break
-                if query and len(query.split()) >= 3:
+                if query and len(query.split()) >= 2:
                     self.handle_voice_query(query)
                 else:
                     # Just the wake word (or wake word + 1-2 hallucinated words)
