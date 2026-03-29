@@ -24,6 +24,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "I will be back.",                                          # Terminator
         "Right away, Michael.",                                     # KITT
         "Miss me?",                                                 # Various
+        "Just some good ol' boys. Never meanin' no harm.",          # Dukes of Hazzard
     ],
 
     "ecu_connected": [
@@ -33,6 +34,8 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "I feel the need. The need for speed.",                     # Top Gun
         "We are back in business.",                                 # Various
         "All systems online. Let us do this.",                      # Original
+        "By order of the Peaky Blinders.",                          # Peaky Blinders
+        "I am the one who knocks.",                                 # Breaking Bad
     ],
 
     "ecu_disconnected": [
@@ -40,6 +43,8 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "I have a bad feeling about this.",                         # Star Wars
         "Houston, we have a problem.",                              # Apollo 13
         "I find your lack of faith disturbing.",                    # Vader
+        "We were on a break!",                                      # Friends (Ross)
+        "Gabagool? Over here!",                                     # Sopranos
     ],
 
     "wifi_reconnected": [
@@ -61,6 +66,8 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "This is the way.",                                         # Mandalorian
         "I do not break down. I am a Knight Industries vehicle.",   # KITT
         "Ready when you are.",                                      # Original
+        "It is go time. Science, bitch!",                           # Breaking Bad (Jesse)
+        "Big day. Big day.",                                        # Peaky Blinders (Tommy)
     ],
 
     "boost_full": [
@@ -70,6 +77,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Free your mind.",                                          # Matrix
         "Punch it.",                                                # Star Wars
         "Full power to engines.",                                   # Star Trek
+        "Yee-haw! Them Duke boys are at it again.",                 # Dukes of Hazzard
     ],
 
     "redline": [
@@ -78,6 +86,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Witness me!",                                              # Mad Max
         "Roads? Where we are going, we do not need roads.",         # Back to the Future
         "Faster. Faster. Faster!",                                  # Original
+        "Them Dukes! Them Dukes!",                                  # Dukes of Hazzard (Rosco)
     ],
 
     "launch_control": [
@@ -85,12 +94,14 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Light speed, too slow. We need ludicrous speed.",          # Spaceballs
         "Hold on to something.",                                    # Various
         "I live my life a quarter mile at a time.",                 # F&F
+        "Now you watch this. Them Duke boys about to fly.",         # Dukes of Hazzard (Balladeer)
     ],
 
     "rpm_limiter": [
         "She cannot take much more of this, Captain!",              # Star Trek
         "Michael, I would not advise that.",                        # KITT
         "I have been designed to protect human life.",              # KITT
+        "Bo, if you blow this engine, Uncle Jesse will skin us alive.",  # Dukes of Hazzard
     ],
 
     # ===== DRIVING DYNAMICS =====
@@ -100,6 +111,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "That is not flying. That is falling with style.",          # Toy Story
         "It does not matter if you win by an inch or a mile.",     # F&F
         "Now this is pod racing!",                                  # Star Wars
+        "Looks like them Duke boys are in a whole heap of trouble.",  # Dukes of Hazzard (Balladeer)
     ],
 
     "hard_braking": [
@@ -114,12 +126,14 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Never tell me the odds.",                                  # Han Solo
         "Hold the line!",                                           # Various
         "Counter steer. Smooth hands.",                             # Original
+        "Straighten up and fly right, cousin!",                     # Dukes of Hazzard (Bo/Luke)
     ],
 
     "traction_loss": [
         "I have a bad feeling about this.",                         # Star Wars
         "You almost had me? You never had me.",                     # F&F
         "The dark side of the Force is a pathway to many abilities some consider to be unnatural.",  # Palpatine
+        "Now that is what I call a Hazzard County slide.",          # Dukes of Hazzard
     ],
 
     "perfect_corner": [
@@ -127,6 +141,9 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "The Force is strong with this one.",                       # Vader
         "That was beautiful.",                                      # Original
         "Textbook.",                                                # Original
+        "That is gold, Jerry! Gold!",                               # Seinfeld (Kenny Bania)
+        "You are goddamn right.",                                   # Breaking Bad
+        "Oh. My. God.",                                             # Friends (Janice)
     ],
 
     "speed_200_kph": [
@@ -134,6 +151,8 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Faster than light? No. But fast enough.",                  # Original
         "It is not possible. No. It is necessary.",                 # Interstellar
         "Ludicrous speed!",                                         # Spaceballs
+        "Tread lightly.",                                           # Breaking Bad (Walt)
+        "I am in the empire business.",                             # Breaking Bad
     ],
 
     # ===== SI DRIVE MODE CHANGES =====
@@ -143,6 +162,8 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "In my experience, there is no such thing as luck.",        # Obi-Wan
         "Patience, young padawan.",                                 # Star Wars
         "Smooth is fast. Fast is smooth.",                          # Original
+        "Not that there is anything wrong with that.",              # Seinfeld
+        "Could this car BE any smarter?",                           # Friends (Chandler)
     ],
 
     "mode_sport": [
@@ -150,6 +171,8 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Alright. Let us do this.",                                 # Various
         "The game is on.",                                          # Sherlock Holmes
         "Ride or die, remember?",                                   # F&F
+        "Today I settle all family business.",                      # Sopranos (Godfather nod)
+        "Men do not change. They only get sharper.",                # Peaky Blinders
     ],
 
     "mode_sport_sharp": [
@@ -159,6 +182,8 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Let them fight.",                                          # Godzilla
         "Unleash hell.",                                            # Gladiator
         "No mercy.",                                                # Cobra Kai
+        "Say my name.",                                             # Breaking Bad (Heisenberg)
+        "No fighting. No fighting.",                                # Peaky Blinders (Tommy)
     ],
 
     # ===== THERMAL / ALERTS =====
@@ -168,6 +193,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "She cannot take much more of this!",                       # Star Trek
         "I would not advise that, Michael.",                        # KITT
         "Danger, Will Robinson.",                                   # Lost in Space
+        "Bo, you better pull over before this thing blows sky high.",  # Dukes of Hazzard
     ],
 
     "oil_pressure_low": [
@@ -175,6 +201,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "I have a bad feeling about this.",                         # Star Wars
         "We need to shut it down. Now.",                            # Original
         "Danger, Will Robinson!",                                   # Lost in Space
+        "You come at the king, you best not miss. And right now, oil pressure is missing.",  # Sopranos/Wire riff
     ],
 
     "oil_temp_high": [
@@ -188,6 +215,8 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "In the dead of winter, the warmth of a good engine is everything.",  # Original
         "Patience. Let her warm up.",                               # Original
         "I have been designed to protect human life.",              # KITT
+        "These pretzels are making me thirsty. And this engine is making me cold.",  # Seinfeld
+        "Already in a bad way, and we have not even started.",      # Peaky Blinders
     ],
 
     "cooldown_needed": [
@@ -195,6 +224,8 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "After all, tomorrow is another day.",                      # Gone with the Wind
         "Rest now. You have earned it.",                            # Original
         "Cool down lap. Protect the investment.",                   # Original
+        "Serenity now!",                                            # Seinfeld (Frank Costanza)
+        "Could we BE driving any harder? Cool it down.",            # Friends (Chandler)
     ],
 
     # ===== SURFACE / GRIP =====
@@ -204,6 +235,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Slippery when wet. Respect the surface.",                  # Original
         "Be mindful of your thoughts. They betray you.",            # Obi-Wan
         "Smooth inputs. The car will tell you what it needs.",      # Original
+        "Them back roads get mighty slick after a rain.",           # Dukes of Hazzard (Balladeer)
     ],
 
     "surface_cold": [
@@ -225,12 +257,16 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Recording. Every data point matters.",                     # Original
         "This is the way.",                                         # Mandalorian
         "I live my life a quarter mile at a time.",                 # F&F
+        "Alright. Let us cook.",                                    # Breaking Bad (Jesse)
+        "How you doing?",                                           # Friends (Joey)
     ],
 
     "session_end": [
         "Session complete. Processing data.",                       # Original
         "That is a wrap.",                                          # Film industry
         "The data never lies.",                                     # Original
+        "And that is a show about nothing.",                        # Seinfeld
+        "Woke up this morning, got yourself some data.",            # Sopranos (theme riff)
     ],
 
     "best_lap": [
@@ -239,6 +275,8 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "That was your moment. I felt it.",                         # Original
         "Personal best. The data confirms it.",                     # Original
         "Life finds a way.",                                        # Jurassic Park
+        "I am not in danger. I am the danger.",                     # Breaking Bad
+        "That is what I do. I drink and I know things.",            # Game of Thrones crossover
     ],
 
     "lap_degradation": [
@@ -246,6 +284,8 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Your eyes can deceive you. Don't trust them.",             # Obi-Wan
         "Pace yourself. The session is long.",                      # Original
         "Why do we fall? So we can learn to pick ourselves up.",    # Batman
+        "You know what the worst part is? I never even learned to properly degrade.",  # Seinfeld riff
+        "That is it. I am going to the bad place.",                 # Good Place crossover
     ],
 
     "post_session_analysis": [
@@ -273,6 +313,8 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "We are running on fumes.",                                 # Various
         "Fuel low. Find a station.",                                # Original
         "I suggest a strategic retreat to the nearest fuel depot.",  # Original
+        "No gas, no gas. You know how much that costs?",            # Seinfeld riff
+        "Pivot! Pivot to a gas station!",                           # Friends (Ross)
     ],
 
     "fuel_pressure_low": [
