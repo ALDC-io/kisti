@@ -219,6 +219,14 @@ class VoiceManager(QObject):
 
         lower = transcription.lower().strip()
 
+        # "Say X" command → repeat back immediately (TTS latency test)
+        if lower.startswith("say "):
+            phrase = transcription[len("say "):].strip()
+            if phrase:
+                log.info("Say command: '%s'", phrase)
+                self.response_ready.emit(phrase)
+                return
+
         # Check for "remember" commands → store in edge memory
         if lower.startswith("remember ") and self._edge_memory:
             content = transcription[len("remember "):].strip()

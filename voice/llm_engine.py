@@ -154,7 +154,7 @@ PERSONA_RESPONSES: list[tuple[list[str], str]] = [
      "Adam! Let us do this. You bring the jokes, I will bring the data. And when I roast you, just remember — it is not personal. It is computational."),
 ]
 
-FALLBACK_RESPONSE = "I don't have specific data on that yet, but I'm always learning. Try asking about my brakes, turbo, oil, tires, or who I am."
+FALLBACK_RESPONSE = "Interesting question. I am better with telemetry — ask me about boost, oil, brakes, tires, or the build. That is where I shine."
 
 
 @dataclass
