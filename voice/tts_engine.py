@@ -21,9 +21,9 @@ log = logging.getLogger("kisti.voice.tts")
 
 # Default paths on Jetson
 PIPER_BINARY = Path("/data/piper/piper")
-PIPER_VOICE = Path("/data/piper/en_US-lessac-medium.onnx")
-PIPER_CONFIG = Path("/data/piper/en_US-lessac-medium.onnx.json")
-SAMPLE_RATE = 22050  # Piper default
+PIPER_VOICE = Path("/data/piper/en_US-danny-low.onnx")
+PIPER_CONFIG = Path("/data/piper/en_US-danny-low.onnx.json")
+SAMPLE_RATE = 16000  # Danny model sample rate
 LED_COUNT = 10
 
 # TTS pronunciation substitutions — applied before synthesis.
