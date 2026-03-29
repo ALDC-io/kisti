@@ -84,7 +84,7 @@ class TestTTSEngine:
 
         assert isinstance(result, TTSResult)
         assert len(result.audio_pcm) > 0
-        assert result.sample_rate == 22050
+        assert result.sample_rate == 16000
         assert result.duration_s > 0
         assert len(result.amplitude_envelope) > 0
         # Envelope values should be normalized 0-1
