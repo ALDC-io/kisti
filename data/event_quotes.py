@@ -65,23 +65,35 @@ EVENT_QUOTES: dict[str, list[str]] = {
     # ===== ENGINE / PERFORMANCE =====
 
     "engine_ready": [
-        "All systems green. Let us ride.",                          # Original
-        "This is the way.",                                         # Mandalorian
-        "I do not break down. I am a Knight Industries vehicle.",   # KITT
+        "All systems green. Where we headed?",                      # Original (cinematic opener)
         "Ready when you are.",                                      # Original
+        "I do not break down. I am a Knight Industries vehicle.",   # KITT
         "It is go time. Science, bitch!",                           # Breaking Bad (Jesse)
         "Big day. Big day.",                                        # Peaky Blinders (Tommy)
+        "When you are through shifting, I will tell you where to go.", # Smokey and the Bandit (Bandit)
+        "I just love the smell of napalm in the morning. Or is that exhaust? Either way, let us ride.", # Original (Apocalypse Now riff)
+        "There is a point at seven thousand RPM where everything fades.", # Ford v Ferrari (Shelby)
+        "I live my life a quarter mile at a time. For those ten seconds, I am free.", # F&F (Dom)
+        "Eleanor is ready. Let us go.",                             # Gone in 60 Seconds
+        "The last American hero. Shall we?",                        # Vanishing Point (Super Soul)
+        "Shake and bake!",                                          # Talladega Nights
+        "You are only as good as your last race. So let us make it count.", # Rush riff
     ],
 
     "boost_full": [
         "To infinity, and beyond!",                                 # Toy Story
         "I feel the need. The need for speed.",                     # Top Gun
         "Turbo boost, Michael?",                                    # KITT
-        "Free your mind.",                                          # Matrix
         "Punch it.",                                                # Star Wars
         "Full power to engines.",                                   # Star Trek
         "Yee-haw! Them Duke boys are at it again.",                 # Dukes of Hazzard
         "Booyah!",                                                  # Teen Titans (Cyborg)
+        "Give me some NOS, partner.",                               # F&F (Jesse)
+        "What do you say we kick the tires and light the fires?",   # Smokey and the Bandit riff
+        "Pedal to the metal, baby!",                                # Vanishing Point
+        "If you ain't first, you are last.",                        # Talladega Nights (Ricky Bobby)
+        "This baby can take corners at eighty and barely flex.",    # Gone in 60 Seconds riff
+        "More power!",                                              # Days of Thunder riff
     ],
 
     "redline": [
@@ -92,14 +104,25 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Faster. Faster. Faster!",                                  # Original
         "Them Dukes! Them Dukes!",                                  # Dukes of Hazzard (Rosco)
         "Booyah! That is what I am talking about!",                 # Teen Titans (Cyborg)
+        "No more running. This time we ride.",                      # F&F (Dom)
+        "I am a driver. That is what I do.",                        # Drive
+        "There is nothing wrong with this car except it is going way too fast.", # Vanishing Point
+        "You are clear to go. Drop the hammer.",                    # Days of Thunder
+        "This ain't no Sunday drive.",                              # Smokey and the Bandit
     ],
 
     "launch_control": [
         "Punch it, Chewie!",                                       # Star Wars
         "Light speed, too slow. We need ludicrous speed.",          # Spaceballs
         "Hold on to something.",                                    # Various
-        "I live my life a quarter mile at a time.",                 # F&F
         "Now you watch this. Them Duke boys about to fly.",         # Dukes of Hazzard (Balladeer)
+        "Granny shiftin', not double clutchin' like you should.",   # F&F (Dom)
+        "Go, baby, go!",                                            # Gone in 60 Seconds (Memphis)
+        "Gentlemen, start your engines.",                            # NASCAR/Indy tradition
+        "When the strategy is right, the car will fly.",            # Rush (Lauda)
+        "Slingshot engaged.",                                       # Days of Thunder
+        "Eastbound and down, loaded up and truckin'.",              # Smokey and the Bandit (theme)
+        "I am not locked in here with you. You are locked in here with me.", # Watchmen (but works for launch)
     ],
 
     "rpm_limiter": [
@@ -107,6 +130,9 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Michael, I would not advise that.",                        # KITT
         "I have been designed to protect human life.",              # KITT
         "Bo, if you blow this engine, Uncle Jesse will skin us alive.",  # Dukes of Hazzard
+        "A wise man knows his limits. A smart one does not test them.", # Rush (Lauda) riff
+        "You break her, you bought her. And she cost a fortune.",   # Gone in 60 Seconds riff
+        "The car is talking to you. Listen to it.",                 # Days of Thunder (Harry)
     ],
 
     # ===== DRIVING DYNAMICS =====
@@ -114,10 +140,14 @@ EVENT_QUOTES: dict[str, list[str]] = {
     "high_lateral_g": [
         "Roads? Where we are going, we do not need roads.",         # Back to the Future
         "That is not flying. That is falling with style.",          # Toy Story
-        "It does not matter if you win by an inch or a mile.",     # F&F
+        "It does not matter if you win by an inch or a mile.",     # F&F (Dom)
         "Now this is pod racing!",                                  # Star Wars
         "Looks like them Duke boys are in a whole heap of trouble.",  # Dukes of Hazzard (Balladeer)
         "We have got to save the world. Again.",                    # Teen Titans (Robin)
+        "The twenty seven time grand prix winner knows a thing or two about turning.", # Rush riff
+        "You never had me. You never had your car.",                # F&F (Dom to Brian)
+        "That is not driving. That is an art form.",                # Baby Driver riff
+        "There is a God. He rides in the passenger seat.",          # Vanishing Point riff
     ],
 
     "hard_braking": [
@@ -139,10 +169,13 @@ EVENT_QUOTES: dict[str, list[str]] = {
 
     "traction_loss": [
         "I have a bad feeling about this.",                         # Star Wars
-        "You almost had me? You never had me.",                     # F&F
+        "You almost had me? You never had me.",                     # F&F (Dom)
         "The dark side of the Force is a pathway to many abilities some consider to be unnatural.",  # Palpatine
         "Now that is what I call a Hazzard County slide.",          # Dukes of Hazzard
         "Dude! Not cool!",                                          # Teen Titans (Beast Boy)
+        "I said a ten second car, not a ten second spin.",          # F&F riff
+        "Bumpy road? You should try the Hazzard County shortcut.",  # Smokey and the Bandit riff
+        "Kowalski would be proud. Or terrified.",                   # Vanishing Point
     ],
 
     "perfect_corner": [
@@ -154,6 +187,8 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "You are goddamn right.",                                   # Breaking Bad
         "Oh. My. God.",                                             # Friends (Janice)
         "Wicked cool!",                                             # Teen Titans (Beast Boy)
+        "You just painted a masterpiece on asphalt.",               # Baby Driver riff
+        "That is how McQueen would have done it.",                  # Bullitt riff
     ],
 
     "speed_200_kph": [
@@ -163,6 +198,10 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Ludicrous speed!",                                         # Spaceballs
         "Tread lightly.",                                           # Breaking Bad (Walt)
         "I am in the empire business.",                             # Breaking Bad
+        "You see that shaker on the hood? That is not for show.",   # Vanishing Point riff
+        "We have got a long way to go, and a short time to get there.", # Smokey and the Bandit (theme)
+        "Ride or die? I pick ride.",                                # F&F
+        "I owe you a ten second car.",                              # F&F (Dom to Brian)
     ],
 
     # ===== SI DRIVE MODE CHANGES =====
@@ -288,6 +327,9 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Life finds a way.",                                        # Jurassic Park
         "I am not in danger. I am the danger.",                     # Breaking Bad
         "That is what I do. I drink and I know things.",            # Game of Thrones crossover
+        "It does not matter if you win by an inch or a mile. Winning is winning.", # F&F (Dom)
+        "Happiness is an empty road and a full tank.",              # Vanishing Point riff
+        "The driver was flawless. I would know.",                   # Rush (Lauda) riff
     ],
 
     "lap_degradation": [
