@@ -39,6 +39,7 @@ TTS_SUBSTITUTIONS: dict[str, str] = {
     " BHP": " brake horsepower",
     " bhp": " brake horsepower",
     "DCCD": "D C C D",
+    " STI": " S T I",
     "ECU": "E C U",
     "IAG": "I A G",
     "FMIC": "front mount intercooler",
