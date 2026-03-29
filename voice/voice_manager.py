@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import queue
 import struct
+import subprocess
 import threading
 import time
 from enum import IntEnum
@@ -86,6 +87,8 @@ class VoiceManager(QObject):
         self._speak_queue: queue.Queue[str] = queue.Queue(maxsize=10)
         self._worker_thread: Optional[threading.Thread] = None
         self._running = False
+        self._aplay_proc: Optional[subprocess.Popen] = None
+        self._interrupted = False
 
         # Telemetry snapshot for LLM context
         self._telemetry_snapshot: Optional[DiffState] = None
@@ -278,9 +281,14 @@ class VoiceManager(QObject):
 
         Runs STT then checks for wake word. If the utterance contains a
         wake word (or KiSTI is already in LISTENING state), routes to LLM.
+
+        During SPEAKING state: only listen for wake word (barge-in).
+        Stops current TTS playback when wake word detected.
         """
-        if self._state in (VoiceState.OFF, VoiceState.SPEAKING):
+        if self._state == VoiceState.OFF:
             return
+
+        speaking = self._state == VoiceState.SPEAKING
 
         # Transcribe on a worker thread to avoid blocking Qt
         def _process():
@@ -292,8 +300,16 @@ class VoiceManager(QObject):
             lower = text.lower()
             log.info("STT: '%s' (%.2fs latency, conf=%.1f)", text[:60], result.latency_s, result.confidence)
 
-            # Check for wake word — if found, strip it and process the rest
             has_wake_word = any(w in lower for w in WAKE_WORDS)
+
+            # During TTS playback, only respond to wake word (barge-in)
+            if speaking:
+                if has_wake_word:
+                    log.info("Barge-in detected — interrupting TTS")
+                    self._interrupt_playback()
+                else:
+                    return  # Ignore TTS echo
+
             if has_wake_word or self._state == VoiceState.LISTENING:
                 # Strip wake word prefix from the query
                 query = text
@@ -311,14 +327,19 @@ class VoiceManager(QObject):
 
         threading.Thread(target=_process, daemon=True, name="kisti-stt-worker").start()
 
+    def _interrupt_playback(self) -> None:
+        """Stop current TTS playback (barge-in)."""
+        proc = self._aplay_proc
+        if proc and proc.poll() is None:
+            proc.terminate()
+            log.info("TTS playback interrupted")
+        self._interrupted = True
+
     def _do_speak(self, text: str) -> None:
         """Synthesize and play speech with LED waveform."""
         self._set_state(VoiceState.SPEAKING)
+        self._interrupted = False
         self.speaking_text.emit(text)
-
-        # Pause mic capture during speech (echo suppression)
-        if self._mic:
-            self._mic.pause()
 
         # Synthesize
         result = self._tts.speak(text)
@@ -327,22 +348,22 @@ class VoiceManager(QObject):
         if self._si_drive_mode == SIDriveMode.INTELLIGENT:
             frames = self._led.waveform_from_envelope(result.amplitude_envelope)
             for frame in frames:
-                if not self._running:
+                if not self._running or self._interrupted:
                     break
                 self.led_frame_ready.emit(frame)
                 time.sleep(1.0 / 30.0)
 
-        # Play audio (via sounddevice or pyaudio)
-        self._play_audio(result.audio_pcm, result.sample_rate)
-
-        # Resume mic capture
-        if self._mic:
-            self._mic.resume()
+        # Play audio — keep mic active for barge-in
+        if not self._interrupted:
+            self._play_audio(result.audio_pcm, result.sample_rate)
 
         self._set_state(VoiceState.IDLE)
 
     def _play_audio(self, audio_pcm: bytes, sample_rate: int) -> None:
-        """Play PCM audio via ALSA direct to HDMI."""
+        """Play PCM audio via ALSA direct to HDMI.
+
+        Stores aplay process in self._aplay_proc so barge-in can terminate it.
+        """
         import subprocess as _sp
         import tempfile
         import wave
@@ -354,13 +375,15 @@ class VoiceManager(QObject):
                 wf.setsampwidth(2)
                 wf.setframerate(sample_rate)
                 wf.writeframes(audio_pcm)
-            _sp.run(
+            self._aplay_proc = _sp.Popen(
                 ["aplay", "-D", "plughw:0,3", wav_path],
-                stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, timeout=60,
+                stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
             )
+            self._aplay_proc.wait(timeout=60)
         except Exception as exc:
             log.warning("Audio playback failed: %s", exc)
         finally:
+            self._aplay_proc = None
             import os
             try:
                 os.unlink(wav_path)

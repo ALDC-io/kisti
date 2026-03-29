@@ -878,6 +878,13 @@ class KistiModeWidget(QWidget):
                 "I can report on conditions all day. Moving through them is another story.",
                 "The weather is ready. The car, not so much.",
                 "Conditions noted. Now if only we had combustion.",
+                "We are going nowhere. Fast. This reminds me of when Uncle Rodney came over.",
+                "Great day for a drive. In theory.",
+                "I have telemetry readiness. What I lack is an engine to telemeter.",
+                "Conditions are perfect for spirited driving. Or spirited sitting. Your call.",
+                "Everything checks out. Except the part where we actually move.",
+                "The tarmac awaits. The ECU does not.",
+                "If enthusiasm were horsepower, we would be fine.",
             ]
             self._queue_lines([random.choice(no_ecu_quips)])
 

@@ -125,7 +125,7 @@ else
     echo "torch2trt already installed."
 fi
 
-# 3d. onnxruntime (needed for Silero VAD in whisper_trt)
+# 3d. onnxruntime + onnx + onnx_graphsurgeon (needed for TRT engine build)
 if ! python3 -c "import onnxruntime" 2>/dev/null; then
     echo ""
     echo "--- Installing onnxruntime ---"
@@ -133,6 +133,15 @@ if ! python3 -c "import onnxruntime" 2>/dev/null; then
     echo "onnxruntime installed."
 else
     echo "onnxruntime already installed."
+fi
+# onnx_graphsurgeon requires onnx<1.17 (1.17+ removed float32_to_bfloat16)
+if ! python3 -c "import onnx_graphsurgeon" 2>/dev/null; then
+    echo ""
+    echo "--- Installing onnx + onnx_graphsurgeon (pinned for TRT compat) ---"
+    pip3 install 'onnx<1.17' 'onnx_graphsurgeon==0.5.2' 2>&1
+    echo "onnx + onnx_graphsurgeon installed."
+else
+    echo "onnx_graphsurgeon already installed."
 fi
 
 # 3e. whisper_trt (NVIDIA's TensorRT-optimized Whisper)
@@ -150,15 +159,16 @@ else
 fi
 
 # 3f. Build TRT engine (one-time conversion, ~5-10 min)
-if [ ! -d /data/whisper/base.en ] || [ -z "$(ls -A /data/whisper/base.en 2>/dev/null)" ]; then
+if [ ! -f /data/whisper/base.en ]; then
     echo ""
     echo "--- Building WhisperTRT engine (base.en) ---"
     echo "This converts the Whisper model to TensorRT. Takes ~5-10 min..."
+    mkdir -p /data/whisper
     python3 -c "
+from whisper.model import MultiHeadAttention
+MultiHeadAttention.use_sdpa = False  # PyTorch 2.8+ compat
 from whisper_trt import load_trt_model
-import os
-os.makedirs('/data/whisper/base.en', exist_ok=True)
-model = load_trt_model('base.en', '/data/whisper/base.en')
+model = load_trt_model('base.en', path='/data/whisper/base.en')
 print('WhisperTRT engine built successfully!')
 " 2>&1
     echo "TRT engine saved to /data/whisper/base.en"
@@ -206,6 +216,17 @@ if [ -f "$KISTI_DIR/scripts/kisti-session" ]; then
     echo "  kisti-session updated."
 fi
 
+# Allow passwordless sudo for GDM restart + reboot (remote management)
+SUDOERS_FILE="/etc/sudoers.d/kisti-aldc"
+if [ ! -f "$SUDOERS_FILE" ]; then
+    echo "Installing sudoers rule for remote GDM/reboot management..."
+    echo 'aldc ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart gdm3, /usr/bin/systemctl restart gdm*, /sbin/reboot, /usr/sbin/alsactl store *' | sudo tee "$SUDOERS_FILE" > /dev/null
+    sudo chmod 0440 "$SUDOERS_FILE"
+    sudo visudo -cf "$SUDOERS_FILE" && echo "  Sudoers rule installed." || { echo "  Sudoers syntax error — removing."; sudo rm -f "$SUDOERS_FILE"; }
+else
+    echo "Sudoers rule already installed."
+fi
+
 # Install desktop entry if missing
 if [ ! -f /usr/share/xsessions/kisti-session.desktop ] && [ -f "$KISTI_DIR/scripts/kisti-session.desktop" ]; then
     echo "Installing kisti-session.desktop..."
@@ -230,6 +251,14 @@ aplay -l 2>/dev/null | grep -E 'card|device' || echo "  No playback devices"
 echo "Audio capture:"
 arecord -l 2>/dev/null | grep -E 'card|device' || echo "  No capture devices"
 
+# Set USB mic gain to 30% — 100% clips and Whisper can't transcribe distorted audio
+MIC_CARD=$(arecord -l 2>/dev/null | grep -i 'USB.*MIC\|USB.*Audio\|USB.*Adapter' | head -1 | grep -oP 'card \K\d+' || true)
+if [ -n "$MIC_CARD" ]; then
+    amixer -c "$MIC_CARD" cset numid=3 30 2>/dev/null && \
+        echo "  USB mic (card $MIC_CARD) gain set to 30%" || \
+        echo "  USB mic gain set failed (non-fatal)"
+fi
+
 echo "Display:"
 xrandr 2>/dev/null | head -3 || echo "  No display (headless)"
 
@@ -252,16 +281,17 @@ echo "=== Setup Complete ==="
 echo ""
 echo "Installed:"
 python3 -c "import torch; print(f'  PyTorch {torch.__version__} (CUDA={torch.cuda.is_available()})')" 2>/dev/null || echo "  PyTorch: NOT INSTALLED"
-python3 -c "from whisper_trt import load_trt_model; print('  WhisperTRT: OK')" 2>/dev/null || echo "  WhisperTRT: NOT INSTALLED"
-python3 -c "import whisper; print('  openai-whisper: OK')" 2>/dev/null || echo "  openai-whisper: NOT INSTALLED"
-python3 -c "import torch2trt; print('  torch2trt: OK')" 2>/dev/null || echo "  torch2trt: NOT INSTALLED"
+python3 -c "import whisper; print('  openai-whisper: OK (STT via CUDA)')" 2>/dev/null || echo "  openai-whisper: NOT INSTALLED"
+python3 -c "from whisper_trt import load_trt_model; print('  WhisperTRT: OK (available but not used — CUDA conflict with Ollama)')" 2>/dev/null || echo "  WhisperTRT: not installed (not needed)"
+python3 -c "import torch2trt; print('  torch2trt: OK')" 2>/dev/null || echo "  torch2trt: not installed (not needed)"
 echo "  Ollama: $(ollama --version 2>/dev/null || echo 'not found')"
 [ -f /data/piper/piper ] && echo "  Piper TTS: OK" || echo "  Piper TTS: NOT INSTALLED"
-[ -d /data/whisper/base.en ] && [ -n "$(ls -A /data/whisper/base.en 2>/dev/null)" ] && \
-    echo "  WhisperTRT engine: /data/whisper/base.en" || echo "  WhisperTRT engine: NOT BUILT"
+echo ""
+echo "Restarting GDM to launch KiSTI session..."
+sudo systemctl restart gdm3
+echo "GDM restarted — KiSTI should auto-login and launch."
 echo ""
 echo "Manual steps if needed:"
 echo "  1. Pull LLM: OLLAMA_MODELS=/data/ollama ollama pull llama3.2:3b"
 echo "  2. Run system config: sudo bash $KISTI_DIR/scripts/jetson/install-system.sh"
-echo "  3. Reboot to activate GDM session: sudo reboot"
-echo "  4. Test: cd $KISTI_DIR && python3 main.py --platform offscreen"
+echo "  3. Test: cd $KISTI_DIR && python3 main.py --platform offscreen"

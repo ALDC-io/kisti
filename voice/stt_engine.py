@@ -1,27 +1,54 @@
-"""KiSTI - Speech-to-Text Engine (WhisperTRT)
+"""KiSTI - Speech-to-Text Engine (Whisper)
 
-Wraps WhisperTRT (NVIDIA TensorRT-optimized Whisper) for offline STT
-on the Jetson Orin Nano. Falls back to a mock for testing/development.
+Wraps OpenAI Whisper for offline STT on the Jetson Orin Nano.
+Uses PyTorch CUDA (not TensorRT) to share GPU context with Ollama.
+Falls back to a mock for testing/development.
 
-WhisperTRT base.en: 23x real-time on Orin Nano, 439 MB VRAM.
+tiny.en on Orin Nano: ~12x real-time with CUDA, ~0.16s for 2s audio.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
+import re
 import time
 import wave
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
 log = logging.getLogger("kisti.voice.stt")
 
-# Default paths on Jetson
-WHISPER_MODEL_PATH = Path("/data/whisper/base.en")
+WHISPER_MODEL_NAME = "tiny.en"
 SAMPLE_RATE = 16000
 CHUNK_DURATION_S = 2.0  # VAD chunk size
+MIN_AUDIO_S = 0.5       # reject clips shorter than this
+
+
+def _is_hallucination(text: str) -> bool:
+    """Detect common Whisper hallucination patterns."""
+    lower = text.lower().strip()
+    if not lower:
+        return True
+    # Repeated words/phrases: "Okay. Okay. Okay." or "Thank you. Thank you."
+    words = re.findall(r'\b\w+\b', lower)
+    if len(words) >= 4:
+        unique = set(words)
+        if len(unique) <= 2:
+            return True
+    # Common hallucination phrases on silence
+    hallucinations = [
+        "thank you for watching",
+        "thanks for watching",
+        "please subscribe",
+        "i'm going to go ahead",
+        "so i'm going to",
+        "you",  # single word "You" on noise
+    ]
+    for h in hallucinations:
+        if lower == h or lower.startswith(h):
+            return True
+    return False
 
 
 @dataclass
@@ -35,7 +62,11 @@ class TranscriptionResult:
 
 
 class STTEngine:
-    """WhisperTRT-based speech-to-text engine for Jetson.
+    """Whisper-based speech-to-text engine for Jetson.
+
+    Uses openai-whisper with CUDA (shares GPU context with Ollama).
+    TensorRT engines use a separate CUDA context that conflicts with
+    Ollama's llama.cpp, causing illegal memory access errors.
 
     Usage:
         engine = STTEngine()
@@ -46,31 +77,34 @@ class STTEngine:
 
     def __init__(
         self,
-        model_path: Path = WHISPER_MODEL_PATH,
+        model_name: str = WHISPER_MODEL_NAME,
         language: str = "en",
         use_vad: bool = True,
     ) -> None:
-        self._model_path = model_path
+        self._model_name = model_name
         self._language = language
         self._use_vad = use_vad
         self._model = None
+        self._backend: Optional[str] = None
         self._running = False
 
     def start(self) -> None:
-        """Load WhisperTRT model into GPU memory."""
+        """Load Whisper model into GPU memory."""
         if self._running:
             return
 
         try:
-            # Try to import whisper_trt (NVIDIA's TensorRT Whisper)
-            from whisper_trt import load_trt_model  # type: ignore[import-untyped]
-            self._model = load_trt_model(str(self._model_path))
-            log.info("WhisperTRT loaded from %s", self._model_path)
+            import whisper  # type: ignore[import-untyped]
+            import torch
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            self._model = whisper.load_model(self._model_name, device=device)
+            self._backend = f"whisper-{device}"
+            log.info("Whisper %s loaded on %s", self._model_name, device)
         except ImportError:
-            log.warning("whisper_trt not available — using mock STT")
+            log.warning("openai-whisper not available — using mock STT")
             self._model = None
         except Exception as exc:
-            log.warning("Failed to load WhisperTRT: %s — using mock STT", exc)
+            log.warning("Failed to load Whisper: %s — using mock STT", exc)
             self._model = None
 
         self._running = True
@@ -78,6 +112,7 @@ class STTEngine:
     def stop(self) -> None:
         """Unload model from GPU memory."""
         self._model = None
+        self._backend = None
         self._running = False
         log.info("STT engine stopped")
 
@@ -93,14 +128,34 @@ class STTEngine:
         start_time = time.monotonic()
         duration_s = len(audio_pcm) / (SAMPLE_RATE * 2)  # 16-bit = 2 bytes/sample
 
+        # Reject very short clips (cause Whisper errors)
+        if duration_s < MIN_AUDIO_S:
+            return TranscriptionResult(
+                text="", duration_s=duration_s,
+                latency_s=time.monotonic() - start_time,
+                confidence=0.0, is_final=True,
+            )
+
         if self._model is not None:
             try:
                 import numpy as np  # type: ignore[import-untyped]
                 audio_np = np.frombuffer(audio_pcm, dtype=np.int16).astype(np.float32) / 32768.0
-                result = self._model.transcribe(audio_np)
+                result = self._model.transcribe(
+                    audio_np,
+                    language=self._language,
+                    fp16=self._backend == "whisper-cuda",
+                )
                 text = result.get("text", "").strip()
                 latency = time.monotonic() - start_time
-                log.debug("STT: %.1fs audio → '%.50s' in %.2fs", duration_s, text, latency)
+
+                if _is_hallucination(text):
+                    log.debug("STT hallucination filtered: '%s'", text[:60])
+                    return TranscriptionResult(
+                        text="", duration_s=duration_s,
+                        latency_s=latency, confidence=0.0, is_final=True,
+                    )
+
+                log.debug("STT: %.1fs audio -> '%.50s' in %.2fs", duration_s, text, latency)
                 return TranscriptionResult(
                     text=text,
                     duration_s=duration_s,
@@ -109,7 +164,7 @@ class STTEngine:
                     is_final=True,
                 )
             except Exception as exc:
-                log.warning("WhisperTRT transcription failed: %s", exc)
+                log.warning("Whisper transcription failed: %s", exc)
 
         # Mock fallback
         latency = time.monotonic() - start_time
@@ -133,5 +188,5 @@ class STTEngine:
 
     @property
     def is_real(self) -> bool:
-        """True if using real WhisperTRT (not mock)."""
+        """True if using real Whisper (not mock)."""
         return self._model is not None
