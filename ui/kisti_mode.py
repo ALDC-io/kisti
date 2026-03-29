@@ -788,7 +788,7 @@ class KistiModeWidget(QWidget):
         except Exception:
             pass
         if not ollama_ok:
-            issues.append(("alert", "Local AI not responding."))
+            log.info("Ollama not running — persona-first mode, no LLM fallback")
 
         # Ambient weather — read from bridge (populated by YoctopuceReader at 1Hz)
         # Wait up to 3s for the first sensor reading to arrive
