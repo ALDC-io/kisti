@@ -80,6 +80,11 @@ def main():
         print("Or:  python3 main.py --platform eglfs")
         sys.exit(1)
 
+    # Graceful shutdown on SIGTERM/SIGINT (systemd sends SIGTERM on stop)
+    import signal
+    _original_sigterm = signal.getsignal(signal.SIGTERM)
+    _original_sigint = signal.getsignal(signal.SIGINT)
+
     # Import Qt after environment is configured
     from PySide6.QtWidgets import QApplication
 
@@ -90,6 +95,10 @@ def main():
     from ui.main_window import MainWindow
 
     app = QApplication(sys.argv)
+
+    # Wire signal handlers now that QApplication exists
+    signal.signal(signal.SIGTERM, lambda *_: app.quit())
+    signal.signal(signal.SIGINT, lambda *_: app.quit())
 
     # Core: CAN bus bridge
     bridge = DiffStateBridge()
@@ -141,18 +150,28 @@ def main():
             )
             voice_mgr.start()
 
-            # Wire mode changes to voice manager
-            mode_mgr.si_drive_changed.connect(
-                lambda m: voice_mgr.set_si_drive_mode(
-                    __import__("model.vehicle_state", fromlist=["SIDriveMode"]).SIDriveMode(m)
-                )
-            )
+            # Wire mode changes to voice manager + personality quotes
+            from model.vehicle_state import SIDriveMode
+            from data.event_quotes import get_alert_quote, get_event_quote_with_chance
+
+            def _on_mode_change(m):
+                mode = SIDriveMode(m)
+                voice_mgr.set_si_drive_mode(mode)
+                quote = get_event_quote_with_chance(f"mode_{mode.name.lower()}", chance=0.5)
+                if quote:
+                    voice_mgr.speak(quote)
+
+            mode_mgr.si_drive_changed.connect(_on_mode_change)
             mode_mgr.voice_toggle.connect(voice_mgr.toggle_voice)
 
-            # Wire alerts to voice
-            alert_eng.alert_fired.connect(
-                lambda a: voice_mgr.speak_alert(a.message, a.severity.label)
-            )
+            # Wire alerts to voice + personality quotes
+            def _on_alert(a):
+                voice_mgr.speak_alert(a.message, a.severity.label)
+                quote = get_alert_quote(a.alert_type)
+                if quote:
+                    voice_mgr.speak(quote)
+
+            alert_eng.alert_fired.connect(_on_alert)
 
             # Wire analyze run (K3) to voice query
             mode_mgr.analyze_run.connect(

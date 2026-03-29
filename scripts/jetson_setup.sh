@@ -1,20 +1,24 @@
 #!/bin/bash
 # KiSTI Jetson Orin Nano Setup Script
 #
-# Installs all AI dependencies on the Jetson:
+# Installs ALL dependencies on the Jetson:
 # - Ollama (LLM inference)
 # - Piper TTS (ARM64 binary + voice model)
-# - DuckDB Python package
-# - python-can (CAN bus library)
-# - sounddevice (audio I/O)
-# - numpy (signal processing)
+# - WhisperTRT (STT — PyTorch + torch2trt + openai-whisper + whisper_trt)
+# - Python packages (DuckDB, python-can, PySide6, webrtcvad, etc.)
+# - System config (disable conflicting kisti.service, install kisti-session)
 #
-# Run as: sudo -u aldc bash /path/to/jetson_setup.sh
+# Run as: bash ~/repos/kisti/scripts/jetson_setup.sh
+# Some steps require sudo (will prompt for password).
 # Requires: /data mounted (NVMe)
+#
+# Idempotent — safe to re-run. Skips already-installed components.
 
 set -e
 
+KISTI_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 echo "=== KiSTI Jetson Setup ==="
+echo "Repo: $KISTI_DIR"
 
 # Check /data exists
 if [ ! -d /data ]; then
@@ -26,9 +30,12 @@ fi
 mkdir -p /data/ollama /data/whisper /data/piper /data/sync_queue /data/duckdb /data/sessions
 echo "Data directories created."
 
-# --- Ollama ---
+# ===================================================================
+# 1. Ollama (LLM inference)
+# ===================================================================
 if ! command -v ollama &>/dev/null; then
-    echo "Installing Ollama..."
+    echo ""
+    echo "--- Installing Ollama ---"
     curl -fsSL https://ollama.com/install.sh | sh
     echo "Ollama installed."
 else
@@ -47,74 +54,214 @@ sudo systemctl daemon-reload
 sudo systemctl restart ollama 2>/dev/null || true
 echo "Ollama configured for /data/ollama"
 
-# --- Piper TTS ---
+# ===================================================================
+# 2. Piper TTS (offline voice synthesis)
+# ===================================================================
 PIPER_VERSION="2023.11.14-2"
 PIPER_DIR="/data/piper"
 if [ ! -f "$PIPER_DIR/piper" ]; then
-    echo "Installing Piper TTS..."
+    echo ""
+    echo "--- Installing Piper TTS ---"
     cd /tmp
     wget -q "https://github.com/rhasspy/piper/releases/download/${PIPER_VERSION}/piper_linux_aarch64.tar.gz"
     tar xzf piper_linux_aarch64.tar.gz -C "$PIPER_DIR" --strip-components=1
     rm piper_linux_aarch64.tar.gz
     chmod +x "$PIPER_DIR/piper"
-    echo "Piper TTS installed."
 
-    # Download voice model
     echo "Downloading Piper voice model (en_US-lessac-medium)..."
     wget -q -O "$PIPER_DIR/en_US-lessac-medium.onnx" \
         "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx"
     wget -q -O "$PIPER_DIR/en_US-lessac-medium.onnx.json" \
         "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json"
-    echo "Voice model downloaded."
+    echo "Piper TTS installed."
 else
     echo "Piper TTS already installed."
 fi
 
-# --- Python packages ---
-echo "Installing Python packages..."
-pip3 install --break-system-packages --quiet \
+# ===================================================================
+# 3. WhisperTRT (GPU-accelerated speech-to-text)
+# ===================================================================
+# Chain: PyTorch → openai-whisper → torch2trt → whisper_trt → build TRT engine
+# Total ~3 GB disk. First-run engine build takes ~5-10 min on Orin Nano.
+
+TORCH_INDEX="https://pypi.jetson-ai-lab.io/jp6/cu126"
+
+# 3a. PyTorch (Jetson-specific CUDA wheel)
+if ! python3 -c "import torch; print(f'PyTorch {torch.__version__} CUDA={torch.cuda.is_available()}')" 2>/dev/null; then
+    echo ""
+    echo "--- Installing PyTorch (Jetson CUDA wheel) ---"
+    echo "This is ~2 GB, may take a few minutes..."
+    pip3 install torch torchvision --index-url="$TORCH_INDEX" 2>&1 || {
+        echo "WARN: jetson-ai-lab.io index failed, trying .dev mirror..."
+        pip3 install torch torchvision --index-url="https://pypi.jetson-ai-lab.dev/jp6/cu126" 2>&1
+    }
+    python3 -c "import torch; print(f'  PyTorch {torch.__version__} CUDA={torch.cuda.is_available()}')"
+else
+    python3 -c "import torch; print(f'PyTorch {torch.__version__} already installed (CUDA={torch.cuda.is_available()})')"
+fi
+
+# 3b. openai-whisper (model definitions + tokenizer)
+if ! python3 -c "import whisper" 2>/dev/null; then
+    echo ""
+    echo "--- Installing openai-whisper ---"
+    pip3 install openai-whisper 2>&1
+    echo "openai-whisper installed."
+else
+    echo "openai-whisper already installed."
+fi
+
+# 3c. torch2trt (NVIDIA's PyTorch → TensorRT converter)
+if ! python3 -c "import torch2trt" 2>/dev/null; then
+    echo ""
+    echo "--- Installing torch2trt from source ---"
+    cd /tmp
+    rm -rf torch2trt
+    git clone https://github.com/NVIDIA-AI-IOT/torch2trt.git
+    cd torch2trt
+    python3 setup.py install --user 2>&1
+    cd /tmp && rm -rf torch2trt
+    echo "torch2trt installed."
+else
+    echo "torch2trt already installed."
+fi
+
+# 3d. onnxruntime (needed for Silero VAD in whisper_trt)
+if ! python3 -c "import onnxruntime" 2>/dev/null; then
+    echo ""
+    echo "--- Installing onnxruntime ---"
+    pip3 install onnxruntime 2>&1
+    echo "onnxruntime installed."
+else
+    echo "onnxruntime already installed."
+fi
+
+# 3e. whisper_trt (NVIDIA's TensorRT-optimized Whisper)
+if ! python3 -c "from whisper_trt import load_trt_model" 2>/dev/null; then
+    echo ""
+    echo "--- Installing whisper_trt from source ---"
+    cd /tmp
+    rm -rf whisper_trt
+    git clone https://github.com/NVIDIA-AI-IOT/whisper_trt.git
+    cd whisper_trt
+    pip3 install -e . 2>&1
+    echo "whisper_trt installed."
+else
+    echo "whisper_trt already installed."
+fi
+
+# 3f. Build TRT engine (one-time conversion, ~5-10 min)
+if [ ! -d /data/whisper/base.en ] || [ -z "$(ls -A /data/whisper/base.en 2>/dev/null)" ]; then
+    echo ""
+    echo "--- Building WhisperTRT engine (base.en) ---"
+    echo "This converts the Whisper model to TensorRT. Takes ~5-10 min..."
+    python3 -c "
+from whisper_trt import load_trt_model
+import os
+os.makedirs('/data/whisper/base.en', exist_ok=True)
+model = load_trt_model('base.en', '/data/whisper/base.en')
+print('WhisperTRT engine built successfully!')
+" 2>&1
+    echo "TRT engine saved to /data/whisper/base.en"
+else
+    echo "WhisperTRT engine already exists at /data/whisper/base.en"
+fi
+
+# ===================================================================
+# 4. Python packages (core KiSTI deps)
+# ===================================================================
+echo ""
+echo "--- Installing Python packages ---"
+pip3 install \
     duckdb \
     python-can \
     sounddevice \
     numpy \
-    PySide6
-
+    PySide6 \
+    webrtcvad \
+    psutil \
+    2>&1
 echo "Python packages installed."
 
-# --- Set Jetson to max performance ---
-echo "Setting Jetson to max performance mode..."
+# ===================================================================
+# 5. System config (process management)
+# ===================================================================
+echo ""
+echo "--- System configuration ---"
+
+# Disable kisti.service if enabled (conflicts with GDM kisti-session)
+if systemctl is-enabled kisti.service &>/dev/null; then
+    echo "Disabling kisti.service (GDM kisti-session is the intended startup)..."
+    sudo systemctl stop kisti.service 2>/dev/null || true
+    sudo systemctl disable kisti.service
+    echo "  kisti.service disabled."
+else
+    echo "kisti.service already disabled (good)."
+fi
+
+# Install/update kisti-session script
+if [ -f "$KISTI_DIR/scripts/kisti-session" ]; then
+    echo "Installing kisti-session to /usr/local/bin/..."
+    sudo cp "$KISTI_DIR/scripts/kisti-session" /usr/local/bin/kisti-session
+    sudo chmod +x /usr/local/bin/kisti-session
+    echo "  kisti-session updated."
+fi
+
+# Install desktop entry if missing
+if [ ! -f /usr/share/xsessions/kisti-session.desktop ] && [ -f "$KISTI_DIR/scripts/kisti-session.desktop" ]; then
+    echo "Installing kisti-session.desktop..."
+    sudo cp "$KISTI_DIR/scripts/kisti-session.desktop" /usr/share/xsessions/
+    echo "  Desktop entry installed."
+fi
+
+# ===================================================================
+# 6. Performance + hardware check
+# ===================================================================
+echo ""
+echo "--- Setting max performance mode ---"
 sudo nvpmodel -m 0 2>/dev/null || echo "nvpmodel not available"
 sudo jetson_clocks 2>/dev/null || echo "jetson_clocks not available"
 
-# --- ALSA USB audio check ---
 echo ""
-echo "=== Audio devices ==="
-aplay -l 2>/dev/null || echo "No playback devices found"
-arecord -l 2>/dev/null || echo "No capture devices found"
+echo "=== Hardware Check ==="
 
-echo ""
-echo "=== Display ==="
-xrandr 2>/dev/null || echo "No display (headless)"
+echo "Audio playback:"
+aplay -l 2>/dev/null | grep -E 'card|device' || echo "  No playback devices"
 
-echo ""
-echo "=== GPU ==="
-nvidia-smi 2>/dev/null | head -5 || echo "nvidia-smi not available"
+echo "Audio capture:"
+arecord -l 2>/dev/null | grep -E 'card|device' || echo "  No capture devices"
 
-# --- CAN bus interface ---
-echo ""
-echo "=== CAN Bus ==="
+echo "Display:"
+xrandr 2>/dev/null | head -3 || echo "  No display (headless)"
+
+echo "GPU:"
+nvidia-smi 2>/dev/null | head -5 || echo "  nvidia-smi not available"
+
 if ip link show can0 &>/dev/null; then
     sudo ip link set can0 up type can bitrate 1000000 2>/dev/null && \
-        echo "CAN interface can0 up at 1 Mbps" || \
-        echo "CAN interface can0 found but failed to bring up"
+        echo "CAN: can0 up at 1 Mbps" || \
+        echo "CAN: can0 found but failed to bring up"
 else
-    echo "No CAN interface (can0 not found — connect USB-CAN adapter)"
+    echo "CAN: no can0 (connect USB-CAN adapter)"
 fi
 
+# ===================================================================
+# Summary
+# ===================================================================
 echo ""
 echo "=== Setup Complete ==="
-echo "Next steps:"
-echo "  1. Pull LLM model: OLLAMA_MODELS=/data/ollama ollama pull llama3.2:3b"
-echo "  2. Connect USB-CAN adapter"
-echo "  3. Connect USB audio adapter"
-echo "  4. Test: python3 main.py --platform offscreen"
+echo ""
+echo "Installed:"
+python3 -c "import torch; print(f'  PyTorch {torch.__version__} (CUDA={torch.cuda.is_available()})')" 2>/dev/null || echo "  PyTorch: NOT INSTALLED"
+python3 -c "from whisper_trt import load_trt_model; print('  WhisperTRT: OK')" 2>/dev/null || echo "  WhisperTRT: NOT INSTALLED"
+python3 -c "import whisper; print('  openai-whisper: OK')" 2>/dev/null || echo "  openai-whisper: NOT INSTALLED"
+python3 -c "import torch2trt; print('  torch2trt: OK')" 2>/dev/null || echo "  torch2trt: NOT INSTALLED"
+echo "  Ollama: $(ollama --version 2>/dev/null || echo 'not found')"
+[ -f /data/piper/piper ] && echo "  Piper TTS: OK" || echo "  Piper TTS: NOT INSTALLED"
+[ -d /data/whisper/base.en ] && [ -n "$(ls -A /data/whisper/base.en 2>/dev/null)" ] && \
+    echo "  WhisperTRT engine: /data/whisper/base.en" || echo "  WhisperTRT engine: NOT BUILT"
+echo ""
+echo "Manual steps if needed:"
+echo "  1. Pull LLM: OLLAMA_MODELS=/data/ollama ollama pull llama3.2:3b"
+echo "  2. Run system config: sudo bash $KISTI_DIR/scripts/jetson/install-system.sh"
+echo "  3. Reboot to activate GDM session: sudo reboot"
+echo "  4. Test: cd $KISTI_DIR && python3 main.py --platform offscreen"

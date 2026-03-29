@@ -11,7 +11,8 @@
 
 set -e
 
-LOCKFILE="/tmp/kisti-session.lock"
+# Use XDG_RUNTIME_DIR for lock (survives /tmp clears, per-user, race-safe)
+LOCKFILE="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/kisti-session.lock"
 
 # Singleton: flock is atomic — if another instance holds the lock, exit immediately.
 exec 9>"$LOCKFILE"

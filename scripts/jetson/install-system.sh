@@ -34,7 +34,17 @@ systemctl daemon-reload
 systemctl enable kisti-accountsservice.service
 echo "  Done — kisti-session persists across GDM restarts"
 
-# 4. KiSTI X session (if not already installed)
+# 4. Disable kisti.service (conflicts with GDM kisti-session)
+if systemctl is-enabled kisti.service &>/dev/null; then
+    echo "Disabling kisti.service (GDM session is the intended startup path)..."
+    systemctl stop kisti.service 2>/dev/null || true
+    systemctl disable kisti.service
+    echo "  Done — kisti.service disabled"
+else
+    echo "kisti.service already disabled or not installed"
+fi
+
+# 5. KiSTI X session (if not already installed)
 KISTI_REPO="$(dirname "$(dirname "$SCRIPT_DIR")")"
 if [ ! -f /usr/local/bin/kisti-session ]; then
     echo "Installing KiSTI X session..."
@@ -46,7 +56,7 @@ else
     echo "KiSTI X session already installed"
 fi
 
-# 5. rclone (for Nextcloud sync)
+# 6. rclone (for Nextcloud sync)
 if ! command -v rclone &>/dev/null; then
     echo "Installing rclone..."
     apt install -y rclone

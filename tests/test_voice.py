@@ -377,3 +377,91 @@ class TestMicCapture:
         assert mic._paused
         mic.resume()
         assert not mic._paused
+
+
+# ========================================================================
+# Event Quotes tests
+# ========================================================================
+
+from data.event_quotes import (
+    get_event_quote, get_event_quote_with_chance,
+    get_alert_quote, ALERT_TYPE_TO_EVENT, EVENT_QUOTES,
+)
+
+
+class TestEventQuotes:
+    def test_known_event_returns_quote(self):
+        """Known event keys always return a quote."""
+        quote = get_event_quote("engine_ready")
+        assert quote is not None
+        assert isinstance(quote, str)
+        assert len(quote) > 0
+
+    def test_unknown_event_returns_none(self):
+        assert get_event_quote("nonexistent_event") is None
+
+    def test_all_events_have_quotes(self):
+        """Every key in EVENT_QUOTES has at least one quote."""
+        for key, quotes in EVENT_QUOTES.items():
+            assert len(quotes) > 0, f"Event '{key}' has no quotes"
+
+    def test_chance_zero_never_fires(self):
+        """Chance=0.0 always returns None."""
+        for _ in range(20):
+            assert get_event_quote_with_chance("engine_ready", chance=0.0) is None
+
+    def test_chance_one_always_fires(self):
+        """Chance=1.0 always returns a quote for known events."""
+        for _ in range(20):
+            assert get_event_quote_with_chance("engine_ready", chance=1.0) is not None
+
+    def test_default_chance_is_thirty_percent(self):
+        """Default chance fires roughly 30% (statistical — allow wide margin)."""
+        import random
+        random.seed(42)
+        hits = sum(1 for _ in range(200) if get_event_quote_with_chance("boost_full") is not None)
+        assert 20 < hits < 120  # ~30% of 200 = ~60, wide margin for randomness
+
+
+class TestAlertQuotes:
+    def test_direct_match_alert(self):
+        """Alert types that match event keys directly work."""
+        # engine_ready is both an alert_type and event key
+        quote = get_alert_quote("engine_ready", chance=1.0)
+        assert quote is not None
+
+    def test_mapped_alert_type(self):
+        """Alert types in ALERT_TYPE_TO_EVENT resolve correctly."""
+        quote = get_alert_quote("oil_pressure_critical", chance=1.0)
+        assert quote is not None
+        # Should resolve to oil_pressure_low quotes
+        assert quote in EVENT_QUOTES["oil_pressure_low"]
+
+    def test_coolant_critical_maps(self):
+        quote = get_alert_quote("coolant_critical", chance=1.0)
+        assert quote is not None
+        assert quote in EVENT_QUOTES["coolant_overtemp"]
+
+    def test_unmapped_unknown_returns_none(self):
+        """Unknown alert types with no mapping return None."""
+        assert get_alert_quote("totally_unknown_alert", chance=1.0) is None
+
+    def test_all_mapped_types_resolve(self):
+        """Every entry in ALERT_TYPE_TO_EVENT resolves to a valid event key."""
+        for alert_type, event_key in ALERT_TYPE_TO_EVENT.items():
+            assert event_key in EVENT_QUOTES, (
+                f"ALERT_TYPE_TO_EVENT['{alert_type}'] -> '{event_key}' not in EVENT_QUOTES"
+            )
+
+    def test_weather_alerts_direct(self):
+        """Weather alert types match event keys directly (no mapping needed)."""
+        for alert_type in ["pressure_falling", "pressure_rising", "temp_dropping",
+                           "temp_rising", "humidity_rising", "humidity_dropping"]:
+            quote = get_alert_quote(alert_type, chance=1.0)
+            assert quote is not None, f"No quote for weather alert: {alert_type}"
+
+    def test_mode_change_quotes(self):
+        """SI Drive mode event keys have quotes."""
+        for mode in ["mode_intelligent", "mode_sport", "mode_sport_sharp"]:
+            quote = get_event_quote(mode)
+            assert quote is not None, f"No quote for mode: {mode}"

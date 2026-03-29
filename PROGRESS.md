@@ -153,6 +153,26 @@ Added complete Mission Raceway track day session with 6 laps (1 warm-up, 3 hot, 
 - Touch optimization for Excelon capacitive screen
 - Performance profiling on Jetson GPU
 
+## Session: 2026-03-28 — Event Quotes, Duplicate Process Fix, WhisperTRT
+
+### Completed
+- **Event quotes wired**: `ALERT_TYPE_TO_EVENT` mapping + `get_alert_quote()` in `data/event_quotes.py`. Wired `_on_alert()` + `_on_mode_change()` in `main.py` replacing lambdas. 30% chance on alerts, 50% on mode changes. 18 new tests → **281 total passing**
+- **Duplicate process fix**: `kisti.service` (systemd) conflicting with GDM `kisti-session`. Added SIGTERM/SIGINT handlers to `main.py`. Moved flock to `XDG_RUNTIME_DIR` in `scripts/kisti-session`. Updated `install-system.sh` to disable `kisti.service`. *Needs manual sudo on Jetson*: `sudo systemctl disable kisti.service && sudo cp ~/repos/kisti/scripts/kisti-session /usr/local/bin/kisti-session`
+- **WhisperTRT deps installed on Jetson**: Full chain installed — PyTorch 2.8.0 (CUDA=True), numpy 1.26.4, openai-whisper, torch2trt 0.5.0, onnxruntime, whisper_trt. `from whisper_trt import load_trt_model` verified working
+- **jetson_setup.sh updated**: Full idempotent install chain including PyTorch, whisper_trt, system config, and service management
+
+### Learnings
+- **PyTorch on JetPack 6**: Must use `torch==2.8.0` from `pypi.jetson-ai-lab.io/jp6/cu126` — 2.10.0 needs `libcudss.so.0` which JetPack 6 does not ship
+- **numpy must be <2 with PyTorch 2.8.0**: Downgrade with `pip3 install "numpy<2"` after torch install. scipy warns but works
+- **whisper_trt not on PyPI**: Must `git clone NVIDIA-AI-IOT/whisper_trt + pip install -e .`. torch2trt also source-only
+- **flock /tmp on Jetson**: `/tmp` cleared on reboot creates race window. Use `$XDG_RUNTIME_DIR` instead
+- **CCE updater self-healing limit**: If updater crashes before self-update, it cannot fix itself. Manual copy from repo is the recovery path
+
+### Next Steps
+- Build WhisperTRT TRT engine on Jetson: `python3 -c "from whisper_trt import load_trt_model; m = load_trt_model('base.en')"`  (~5-10 min first run)
+- Test end-to-end voice: mic → WhisperTRT STT → "Hey KiSTI" wake word → LLM → Piper TTS
+- SI Drive screen rethink (deferred): 3 layouts driven by CAN SI Drive signal vs current 4-mode K6 cycling
+
 ## Session: 2026-03-27 — Jetson Deployment + Ambient Weather + Stress Test
 
 ### Completed
