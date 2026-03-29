@@ -66,6 +66,16 @@ echo "$(date) LLM loaded" >> "$LOG"
 # Launch KiSTI fullscreen — when it exits, session ends → back to GDM
 echo "$(date) Launching KiSTI" >> "$LOG"
 cd "$KISTI_DIR"
-python3 main.py --fullscreen >> "$LOG" 2>&1
+# Detect USB mic (KTMicro adapter) — card number may shift on replug
+MIC_CARD=$(arecord -l 2>/dev/null | grep -i 'USB.*MIC\|USB.*Audio\|USB.*Adapter' | head -1 | grep -oP 'card \K\d+')
+if [ -n "$MIC_CARD" ]; then
+    MIC_DEVICE="plughw:${MIC_CARD},0"
+    echo "$(date) USB mic detected: $MIC_DEVICE" >> "$LOG"
+else
+    MIC_DEVICE="default"
+    echo "$(date) No USB mic found, using default" >> "$LOG"
+fi
+
+python3 main.py --fullscreen --mic-device "$MIC_DEVICE" >> "$LOG" 2>&1
 
 echo "$(date) KiSTI session ended" >> "$LOG"
