@@ -80,7 +80,18 @@ class MicCapture(QObject):
             log.warning("webrtcvad not installed — mic capture disabled (pip install webrtcvad)")
             return
 
-        # Check for ALSA capture device
+        # Resolve ALSA device names to PulseAudio source names
+        # (PA holds all ALSA devices, so arecord can't access them directly)
+        if self._device.startswith(("plughw:", "hw:", "default")):
+            pa_source = self._find_pa_usb_source()
+            if pa_source:
+                log.info("Resolved ALSA '%s' → PA source '%s'", self._device, pa_source)
+                self._device = pa_source
+            else:
+                log.info("No USB PA source found, using default")
+                self._device = ""  # empty = default PA source
+
+        # Check for capture device
         if not self._probe_mic():
             log.warning("No capture device found — mic capture disabled")
             return
@@ -111,20 +122,35 @@ class MicCapture(QObject):
         """Resume capture after TTS playback ends."""
         self._paused = False
 
-    def _probe_mic(self) -> bool:
-        """Check if the ALSA capture device exists."""
+    @staticmethod
+    def _find_pa_usb_source() -> str:
+        """Find PulseAudio source name for USB mic."""
         try:
-            # Record 0.5s of audio — some USB devices hang on -d 0
-            proc = subprocess.run(
-                ["arecord", "-D", self._device, "-f", "S16_LE", "-r", str(SAMPLE_RATE),
-                 "-c", "1", "-d", "1", "-t", "raw", "-q"],
-                capture_output=True,
-                timeout=5,
+            result = subprocess.run(
+                ["pactl", "list", "sources", "short"],
+                capture_output=True, text=True, timeout=5,
             )
-            return proc.returncode == 0
+            for line in result.stdout.splitlines():
+                lower = line.lower()
+                if ("usb" in lower or "mic" in lower) and "monitor" not in lower:
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        return parts[1]
+        except Exception:
+            pass
+        return ""
+
+    def _probe_mic(self) -> bool:
+        """Check if the capture device exists via PulseAudio."""
+        try:
+            cmd = ["parecord", "--raw", "--rate", str(SAMPLE_RATE),
+                   "--channels", "1", "--format", "s16le",
+                   "--process-time-msec=500"]
+            if self._device:
+                cmd.extend(["--device", self._device])
+            proc = subprocess.run(cmd, capture_output=True, timeout=3)
+            return True
         except (FileNotFoundError, subprocess.TimeoutExpired):
-            # Timeout means arecord opened the device (good) but didn't exit (USB quirk)
-            # If it timed out, the device exists — proceed
             return True
 
     def _capture_loop(self) -> None:
@@ -138,10 +164,13 @@ class MicCapture(QObject):
                     time.sleep(2.0)  # Back off before retry
 
     def _run_arecord(self) -> None:
-        """Stream audio from arecord and run VAD on each frame."""
+        """Stream audio from parecord (PulseAudio) and run VAD on each frame."""
+        cmd = ["parecord", "--raw", "--rate", str(SAMPLE_RATE),
+               "--channels", "1", "--format", "s16le"]
+        if self._device:
+            cmd.extend(["--device", self._device])
         proc = subprocess.Popen(
-            ["arecord", "-D", self._device, "-f", "S16_LE", "-r", str(SAMPLE_RATE),
-             "-c", "1", "-t", "raw", "-q"],
+            cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
         )

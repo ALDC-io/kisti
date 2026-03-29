@@ -70,16 +70,22 @@ echo "$(date) LLM loaded" >> "$LOG"
 # Launch KiSTI fullscreen — when it exits, session ends → back to GDM
 echo "$(date) Launching KiSTI" >> "$LOG"
 cd "$KISTI_DIR"
-# Detect USB mic (KTMicro adapter) — card number may shift on replug
+# Detect USB mic via PulseAudio source (PA holds the ALSA device)
 MIC_CARD=$(arecord -l 2>/dev/null | grep -i 'USB.*MIC\|USB.*Audio\|USB.*Adapter' | head -1 | grep -oP 'card \K\d+' || true)
 if [ -n "$MIC_CARD" ]; then
-    MIC_DEVICE="plughw:${MIC_CARD},0"
-    # Set mic gain to 30% — 100% clips and Whisper can't transcribe distorted audio
-    amixer -c "$MIC_CARD" cset numid=3 30 >> "$LOG" 2>&1 || true
-    echo "$(date) USB mic detected: $MIC_DEVICE (gain=30%)" >> "$LOG"
+    # ALSA 60% + PA 150% = good speech level for Whisper (30% was too quiet through PA)
+    amixer -c "$MIC_CARD" cset numid=3 60 >> "$LOG" 2>&1 || true
+fi
+# Find the PA source name for the USB mic
+PA_MIC=$(pactl list sources short 2>/dev/null | grep -i 'usb.*input\|usb.*mic\|usb.*audio' | grep -v monitor | head -1 | awk '{print $2}')
+if [ -n "$PA_MIC" ]; then
+    MIC_DEVICE="$PA_MIC"
+    # PA source volume 150% — combined with ALSA 60% gives good Whisper levels
+    pactl set-source-volume "$PA_MIC" 150% 2>/dev/null || true
+    echo "$(date) USB mic via PulseAudio: $MIC_DEVICE (ALSA=30%, PA=100%)" >> "$LOG"
 else
     MIC_DEVICE="default"
-    echo "$(date) No USB mic found, using default" >> "$LOG"
+    echo "$(date) No USB mic found, using default PA source" >> "$LOG"
 fi
 
 python3 main.py --fullscreen --mic-device "$MIC_DEVICE" >> "$LOG" 2>&1
