@@ -867,26 +867,28 @@ class KistiModeWidget(QWidget):
             time.sleep(4)
             self._queue_lines([grip_line])
 
-        # No ECU — tie the grip report and the missing ECU together
+        # No ECU — deliver the no-ECU fact, then a random movie/TV quote
         if not ecu_ok:
             time.sleep(4)
-            no_ecu_quips = [
-                f"Of course, {'good grip' if grip_line and 'Good' in grip_line else 'grip'} does not help much without an engine computer.",
-                "Not that any of that matters without an ECU. Just saying.",
-                "Perfect conditions to sit in the driveway, apparently.",
-                "All dressed up and nowhere to go. Literally.",
-                "I can report on conditions all day. Moving through them is another story.",
-                "The weather is ready. The car, not so much.",
-                "Conditions noted. Now if only we had combustion.",
-                "We are going nowhere. Fast. This reminds me of when Uncle Rodney came over.",
-                "Great day for a drive. In theory.",
-                "I have telemetry readiness. What I lack is an engine to telemeter.",
-                "Conditions are perfect for spirited driving. Or spirited sitting. Your call.",
-                "Everything checks out. Except the part where we actually move.",
-                "The tarmac awaits. The ECU does not.",
-                "If enthusiasm were horsepower, we would be fine.",
+            no_ecu_lines = [
+                "No ECU detected.",
+                "Still waiting on that engine computer.",
+                "ECU offline.",
             ]
-            self._queue_lines([random.choice(no_ecu_quips)])
+            self._queue_lines([random.choice(no_ecu_lines)])
+            time.sleep(3)
+            # Random movie/TV quote as a one-liner after the weather+no-ECU report
+            from data.event_quotes import EVENT_QUOTES
+            _idle_pools = [
+                EVENT_QUOTES.get("engine_ready", []),
+                EVENT_QUOTES.get("cooldown_needed", []),
+                EVENT_QUOTES.get("session_start", []),
+                EVENT_QUOTES.get("first_start", []),
+                EVENT_QUOTES.get("ecu_disconnected", []),
+            ]
+            _all_quotes = [q for pool in _idle_pools for q in pool]
+            if _all_quotes:
+                self._queue_lines([random.choice(_all_quotes)])
 
     def _check_say_file(self):
         """Check for externally injected speech or questions.
