@@ -25,7 +25,7 @@ fi
 export DISPLAY="${DISPLAY:-:0}"
 export QT_QPA_PLATFORM=xcb
 export OLLAMA_MODELS=/data/ollama
-export PULSE_SERVER="unix:/run/user/$(id -u)/pulse/native"
+# PULSE_SERVER not set — let PA use its default socket path
 export LD_LIBRARY_PATH="$HOME/.local/lib:${LD_LIBRARY_PATH:-}"
 
 KISTI_DIR="$HOME/repos/kisti"
@@ -41,16 +41,16 @@ echo "$(date) KiSTI session starting (PID $$)" > "$LOG"
 xsetroot -solid black 2>/dev/null || true
 xset s off -dpms 2>/dev/null || true
 
-# Cycle PulseAudio: start briefly to initialize HDMI audio pin, then kill.
-# Without this, the HDA pin-ctl stays at 0x00 and HDMI has no audio output.
-pulseaudio --start 2>/dev/null || true
-sleep 2
+# PulseAudio must stay running: Jetson HDA codec resets pin-ctl to 0x00
+# when PA exits, killing HDMI audio. Keep PA alive for the session lifetime.
 pulseaudio --kill 2>/dev/null || true
 systemctl --user stop pulseaudio.socket pulseaudio.service 2>/dev/null || true
-
-# Audio output: direct ALSA to HDMI via -D plughw:0,3 in aplay commands.
-# (.asoundrc is unreliable on Jetson — string card names silently fail)
-echo "$(date) PulseAudio cycled (HDMI pin init), ALSA direct to HDMI (plughw:0,3)" >> "$LOG"
+sleep 0.5
+pulseaudio --start --exit-idle-time=-1 2>/dev/null || true
+sleep 2
+# Default sink is analog-stereo (no output) — force HDMI
+pactl set-default-sink alsa_output.platform-3510000.hda.HiFi__hw_HDA_3__sink 2>/dev/null || true
+echo "$(date) PulseAudio running, HDMI sink default, audio via paplay" >> "$LOG"
 
 # Wait for Ollama to be ready (systemd should have started it)
 for i in $(seq 1 15); do

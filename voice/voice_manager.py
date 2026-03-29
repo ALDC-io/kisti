@@ -360,9 +360,10 @@ class VoiceManager(QObject):
         self._set_state(VoiceState.IDLE)
 
     def _play_audio(self, audio_pcm: bytes, sample_rate: int) -> None:
-        """Play PCM audio via ALSA direct to HDMI.
+        """Play PCM audio via PulseAudio to HDMI.
 
-        Stores aplay process in self._aplay_proc so barge-in can terminate it.
+        PulseAudio must stay running to keep the HDA pin-ctl active on Jetson.
+        Stores paplay process in self._aplay_proc so barge-in can terminate it.
         """
         import subprocess as _sp
         import tempfile
@@ -376,7 +377,7 @@ class VoiceManager(QObject):
                 wf.setframerate(sample_rate)
                 wf.writeframes(audio_pcm)
             self._aplay_proc = _sp.Popen(
-                ["aplay", "-D", "plughw:0,3", wav_path],
+                ["paplay", wav_path],
                 stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
             )
             self._aplay_proc.wait(timeout=60)

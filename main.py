@@ -66,6 +66,30 @@ def main():
     setup_logging()
     log = logging.getLogger("kisti")
 
+    # HDMI audio: PulseAudio must stay running to keep the HDA pin-ctl
+    # active (Jetson Orin Nano resets pin to 0x00 when PA exits).
+    # kisti-session handles PA startup. If PA isn't running (e.g. dev mode),
+    # start it here. Must unset PULSE_SERVER to avoid "refusing to start" error.
+    import subprocess as _sp
+    _pa_check = _sp.run(["pulseaudio", "--check"], capture_output=True)
+    if _pa_check.returncode != 0:
+        log.info("PulseAudio not running — starting for HDMI audio...")
+        import os as _os
+        _env = _os.environ.copy()
+        _env.pop("PULSE_SERVER", None)
+        _sp.run(["pulseaudio", "--start", "--exit-idle-time=-1"], capture_output=True, env=_env)
+        import time as _time
+        _time.sleep(2)
+    _pa_ok = _sp.run(["pulseaudio", "--check"], capture_output=True)
+    if _pa_ok.returncode == 0:
+        # Force HDMI as default sink (analog-stereo has no physical output on Jetson)
+        _sp.run(["pactl", "set-default-sink",
+                 "alsa_output.platform-3510000.hda.HiFi__hw_HDA_3__sink"],
+                capture_output=True)
+        log.info("HDMI audio: PulseAudio running, HDMI sink default — audio via paplay")
+    else:
+        log.warning("HDMI audio: PulseAudio not running — audio will not work")
+
     if args.display:
         os.environ["DISPLAY"] = args.display
 
