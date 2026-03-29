@@ -82,11 +82,22 @@ def main():
         _time.sleep(2)
     _pa_ok = _sp.run(["pulseaudio", "--check"], capture_output=True)
     if _pa_ok.returncode == 0:
-        # Force HDMI as default sink (analog-stereo has no physical output on Jetson)
-        _sp.run(["pactl", "set-default-sink",
-                 "alsa_output.platform-3510000.hda.HiFi__hw_HDA_3__sink"],
-                capture_output=True)
-        log.info("HDMI audio: PulseAudio running, HDMI sink default — audio via paplay")
+        # Prefer USB speaker if connected, otherwise HDMI
+        _usb_check = _sp.run(["pactl", "list", "sinks", "short"], capture_output=True, text=True)
+        _usb_sink = ""
+        for _line in _usb_check.stdout.splitlines():
+            if "usb" in _line.lower() and "monitor" not in _line.lower():
+                _usb_sink = _line.split()[1]
+                break
+        if _usb_sink:
+            _sp.run(["pactl", "set-default-sink", _usb_sink], capture_output=True)
+            _sp.run(["pactl", "set-sink-volume", _usb_sink, "78%"], capture_output=True)
+            log.info("Audio: USB speaker default — %s @ 78%%", _usb_sink)
+        else:
+            _sp.run(["pactl", "set-default-sink",
+                     "alsa_output.platform-3510000.hda.HiFi__hw_HDA_3__sink"],
+                    capture_output=True)
+            log.info("Audio: HDMI sink default — no USB speaker found")
     else:
         log.warning("HDMI audio: PulseAudio not running — audio will not work")
 
