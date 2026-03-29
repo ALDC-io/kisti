@@ -348,10 +348,10 @@ class VoiceManager(QObject):
                         if idx >= 0:
                             query = text[idx + len(w):].strip(" ,.")
                             break
-                if query:
+                if query and len(query.split()) >= 3:
                     self.handle_voice_query(query)
                 else:
-                    # Just the wake word with no query — acknowledge and listen
+                    # Just the wake word (or wake word + 1-2 hallucinated words)
                     self._set_state(VoiceState.LISTENING)
                     self.speak("I'm listening.")
 
