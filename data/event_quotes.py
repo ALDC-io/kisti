@@ -389,6 +389,37 @@ EVENT_QUOTES: dict[str, list[str]] = {
 }
 
 
+# Maps alert_engine alert_type keys to event_quotes keys where they differ
+ALERT_TYPE_TO_EVENT: dict[str, str] = {
+    "oil_pressure_critical": "oil_pressure_low",
+    "coolant_critical": "coolant_overtemp",
+    "coolant_high": "coolant_overtemp",
+    "fuel_pressure_critical": "fuel_pressure_low",
+    "cooldown_required": "cooldown_needed",
+    "warmup_engaged": "engine_cold",
+    "high_g_warning": "high_lateral_g",
+    "high_g_advisory": "high_lateral_g",
+    "battery_low": "ecu_disconnected",
+}
+
+
+def get_alert_quote(alert_type: str, chance: float = 0.3) -> Optional[str]:
+    """Get a quote for an alert, resolving alert_type through the mapping.
+
+    Alert types that match event keys directly (e.g., "engine_ready") need
+    no mapping entry. Mismatched keys go through ALERT_TYPE_TO_EVENT.
+
+    Args:
+        alert_type: The alert_engine alert_type string.
+        chance: Probability 0.0-1.0 that a quote fires (default 30%).
+
+    Returns:
+        A random quote, or None if probability check fails or no quotes.
+    """
+    event_key = ALERT_TYPE_TO_EVENT.get(alert_type, alert_type)
+    return get_event_quote_with_chance(event_key, chance)
+
+
 def get_event_quote(event: str) -> Optional[str]:
     """Get a random quote for a vehicle event.
 
