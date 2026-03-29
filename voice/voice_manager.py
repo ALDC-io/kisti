@@ -254,6 +254,13 @@ class VoiceManager(QObject):
 
         self._set_state(VoiceState.THINKING)
 
+        # Live sensor query — intercept ambient/weather questions with real data
+        live = self._answer_from_sensors(lower)
+        if live:
+            log.info("Live sensor response: %s", live[:80])
+            self.response_ready.emit(live)
+            return
+
         # Build telemetry context
         context = self._build_telemetry_context()
 
@@ -430,6 +437,38 @@ class VoiceManager(QObject):
             except OSError:
                 pass
 
+    def _answer_from_sensors(self, query_lower: str) -> Optional[str]:
+        """Answer ambient/weather questions directly from live Yoctopuce data.
+
+        Returns a short spoken response if we have live sensor data for the
+        question, or None to fall through to persona/LLM.
+        """
+        s = self._telemetry_snapshot
+        if s is None or not s.ambient_available:
+            return None
+
+        # Ambient temperature
+        if any(w in query_lower for w in ["temperature", "temp", "how hot", "how cold", "warm", "cold outside", "degrees"]):
+            return f"{s.ambient_temp_c:.1f} degrees outside. Dew point {s.dew_point_c:.1f}."
+
+        # Humidity
+        if any(w in query_lower for w in ["humidity", "humid", "moisture", "damp"]):
+            return f"Humidity is {s.ambient_humidity_pct:.0f} percent. Dew point {s.dew_point_c:.1f} degrees."
+
+        # Barometric pressure
+        if any(w in query_lower for w in ["pressure outside", "barometric", "barometer", "air pressure", "atmospheric"]):
+            return f"Barometric pressure {s.ambient_pressure_hpa:.0f} hectopascals."
+
+        # Density altitude
+        if any(w in query_lower for w in ["density altitude", "altitude"]):
+            return f"Density altitude {s.density_altitude_ft:.0f} feet."
+
+        # General weather/outside/conditions
+        if any(w in query_lower for w in ["weather", "outside", "conditions", "what's it like"]):
+            return f"{s.ambient_temp_c:.1f} degrees, {s.ambient_humidity_pct:.0f} percent humidity, {s.ambient_pressure_hpa:.0f} hectopascals."
+
+        return None
+
     def _build_telemetry_context(self) -> str:
         """Build telemetry context string for LLM system prompt."""
         s = self._telemetry_snapshot
@@ -459,6 +498,12 @@ class VoiceManager(QObject):
         lines.append(f"DCCD: {s.dccd_command_pct:.0f}%")
         lines.append(f"Surface: {s.surface_state.label}")
         lines.append(f"SI Drive: {s.si_drive_mode.label}")
+        if s.ambient_available:
+            lines.append(f"Ambient Temp: {s.ambient_temp_c:.1f}°C")
+            lines.append(f"Humidity: {s.ambient_humidity_pct:.0f}%")
+            lines.append(f"Barometric: {s.ambient_pressure_hpa:.0f} hPa")
+            lines.append(f"Dew Point: {s.dew_point_c:.1f}°C")
+            lines.append(f"Density Altitude: {s.density_altitude_ft:.0f} ft")
 
         return "\n".join(lines) if lines else "No telemetry available."
 

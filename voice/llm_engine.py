@@ -98,7 +98,7 @@ PERSONA_RESPONSES: list[tuple[list[str], str, str]] = [
     (["tire", "tyre", "grip", "traction", "wear"],
      "Firestone Indy 500s. Inner edge running hot — more negative camber than ideal. Expect wheelspin in 2nd.",
      "safety"),
-    (["cool", "radiator", "temperature", "overheat", "cylinder 4"],
+    (["cool", "radiator", "overheat", "cylinder 4", "coolant"],
      "CSF radiator, cyl 4 cooling mod installed. EJ hot spot is managed.",
      "safety"),
     (["emergency", "problem", "warning", "check engine", "light on"],
@@ -107,8 +107,8 @@ PERSONA_RESPONSES: list[tuple[list[str], str, str]] = [
     (["tow", "flatbed", "aaa", "tow truck", "broke down", "breakdown"],
      "Full-time AWD means flatbed only. Never dolly-tow an STI — you will damage the center diff. DCCD does not like being dragged.",
      "safety"),
-    (["weather", "rain", "wet", "snow", "ice", "slippery"],
-     "AWD with DCCD gives me an advantage in the wet. Symmetrical all wheel drive, 390 WHP split across four contact patches. Respect the conditions, but this is where Subaru shines.",
+    (["rain", "wet", "snow", "ice", "slippery"],
+     "AWD with DCCD gives me an advantage in the wet. Respect the conditions, but this is where Subaru shines.",
      "safety"),
 
     # === TECH — available in Intelligent + Sport ===
