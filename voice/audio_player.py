@@ -31,8 +31,8 @@ PIPER_VOICE = Path("/data/piper/en_US-danny-low.onnx")
 # Danny-low = 16000 Hz, most medium voices = 22050 Hz
 PIPER_SAMPLE_RATE_DEFAULT = 22050
 ENVELOPE_FPS = 40  # Higher resolution to capture syllable-level cadence
-# Direct ALSA to HDMI — PulseAudio is killed in KiSTI minimal session
-ALSA_DEVICE = "plughw:0,3"
+# PulseAudio stays running to keep HDMI HDA pin active on Jetson.
+# Audio routed through PA default sink (HDMI).
 
 
 class AudioPlayer(QObject):
@@ -162,17 +162,13 @@ class AudioPlayer(QObject):
             self.ready.emit(envelope, duration_s)
 
             # Step 5: Start playback — wait for ALSA device ready before signalling
-            log.info("Starting aplay...")
+            log.info("Starting paplay...")
             play_proc = subprocess.Popen(
-                ["aplay", "-D", ALSA_DEVICE, wav_path],
+                ["paplay", wav_path],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
             )
-            # Block until aplay prints its format line — device is open and
-            # buffers are filled, so audio is about to hit the speaker.
-            ready_line = play_proc.stderr.readline().decode(errors="replace")
-            if ready_line:
-                log.info("aplay ready: %s", ready_line.strip()[:120])
+            # paplay starts playback immediately — signal the UI
             self.playback_started.emit()
             log.info("playback_started emitted")
 
@@ -180,7 +176,7 @@ class AudioPlayer(QObject):
             play_proc.wait(timeout=60)
             stderr = play_proc.stderr.read().decode() if play_proc.stderr else ""
             if stderr:
-                log.info("aplay stderr: %s", stderr[:200])
+                log.info("paplay stderr: %s", stderr[:200])
 
             self._playing = False  # Reset BEFORE emitting signal
             log.info("Playback finished")
