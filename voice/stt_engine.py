@@ -79,14 +79,8 @@ def _is_hallucination(text: str) -> bool:
         "interesting",
         "interesting.",
         "i'm ready",
-        "hello",
-        "hey",
-        "hi",
         "huh",
     ]
-    # Also filter very short non-wake-word results (likely noise)
-    if len(lower.split()) <= 2 and not any(w in lower for w in ["kisti", "ki", "boost", "oil", "brake", "tire"]):
-        return True
     for h in hallucinations:
         if lower == h or lower.startswith(h):
             return True
