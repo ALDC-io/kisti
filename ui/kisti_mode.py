@@ -737,7 +737,8 @@ class KistiModeWidget(QWidget):
         from pathlib import Path
         import time
 
-        # "Powering on" spoken AFTER hardware detection (see below)
+        self._queue_lines(["Powering on."])
+        time.sleep(2)
 
         issues = []
 
