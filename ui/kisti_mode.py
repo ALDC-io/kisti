@@ -737,8 +737,8 @@ class KistiModeWidget(QWidget):
         from pathlib import Path
         import time
 
-        self._queue_lines(["Initializing KiSTI subsystems..."])
-        time.sleep(3)
+        self._queue_lines(["Powering on."])
+        time.sleep(2)
 
         issues = []
 
@@ -774,8 +774,10 @@ class KistiModeWidget(QWidget):
             ecu_ok = True
         except Exception:
             pass
-        if not ecu_ok:
-            issues.append(("normal", "No ECU detected."))
+        if ecu_ok:
+            issues.append(("normal", "Ignition detected. All systems nominal."))
+        else:
+            issues.append(("normal", "No ECU. Standing by."))
 
         # Ollama
         ollama_ok = False
