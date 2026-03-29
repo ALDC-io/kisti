@@ -32,7 +32,18 @@ diff <(cat /usr/local/bin/kisti-session) <(cat "$KISTI_DIR/scripts/kisti-session
     echo "  kisti-session: matches repo (HDMI fix installed)" || \
     echo "  WARNING: kisti-session differs from repo!"
 
-# 5. Restart GDM → KiSTI auto-starts with new kisti-session
+# 5. AccountsService — ensure GDM auto-logins to KiSTI session (not GNOME)
+echo "Setting KiSTI as default session..."
+sudo mkdir -p /etc/kisti
+printf '[User]\nSession=kisti-session\nSystemAccount=false\n' | sudo tee /etc/kisti/accountsservice-aldc > /dev/null
+printf '[User]\nSession=kisti-session\nSystemAccount=false\n' | sudo tee /var/lib/AccountsService/users/aldc > /dev/null
+if [ -f "$KISTI_DIR/scripts/kisti-accountsservice.conf" ]; then
+    sudo cp "$KISTI_DIR/scripts/kisti-accountsservice.conf" /etc/tmpfiles.d/
+    sudo systemd-tmpfiles --create kisti-accountsservice.conf 2>/dev/null || true
+fi
+echo "  KiSTI session set as default"
+
+# 6. Restart GDM → KiSTI auto-starts with new kisti-session
 echo ""
 echo "Restarting GDM..."
 sudo systemctl restart gdm3
