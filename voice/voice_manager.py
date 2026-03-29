@@ -96,7 +96,7 @@ class VoiceManager(QObject):
         self._aplay_proc: Optional[subprocess.Popen] = None
         self._interrupted = False
         self._last_interaction: float = 0.0  # Timestamp of last wake word hit
-        self._listen_window_s: float = 8.0   # Stay in conversation mode this long
+        self._listen_window_s: float = 5.0   # Stay in conversation mode (tighter to reject hallucinations)
 
         # Telemetry snapshot for LLM context
         self._telemetry_snapshot: Optional[DiffState] = None
