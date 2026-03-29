@@ -43,6 +43,10 @@ WAKE_WORDS = [
     "ki sti", "kist", "key sti", "kissty",
     # Phrases that imply talking to KiSTI (Whisper often drops the wake word)
     "can you hear me", "are you there", "are you listening",
+    # Sensor/telemetry questions — only a human would ask these aloud
+    "temperature", "what's the temp", "how hot", "how cold",
+    "humidity", "boost", "oil pressure", "tire", "tires",
+    "what tires", "what's the weather", "how's the",
 ]
 QUIET_COMMANDS = ["quiet please kisti", "quiet please", "quiet kisti", "be quiet"]
 RESUME_COMMANDS = ["hey kisti"]
