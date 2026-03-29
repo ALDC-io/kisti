@@ -28,7 +28,7 @@ FRAME_DURATION_MS = 30    # webrtcvad frame size (10, 20, or 30 ms)
 FRAME_BYTES = SAMPLE_RATE * 2 * FRAME_DURATION_MS // 1000  # 960 bytes per 30ms frame
 
 # VAD tuning for in-car environment (engine noise, road noise)
-VAD_MODE = 2              # 0=least aggressive, 3=most aggressive. 2 = moderate
+VAD_MODE = 3              # 0=least aggressive, 3=most aggressive. 3 = in-car noise rejection
 SPEECH_START_FRAMES = 8   # ~240ms of voiced frames to trigger speech start
 SPEECH_END_FRAMES = 12    # ~360ms of silence to end utterance (tighter for faster response)
 MAX_UTTERANCE_S = 10.0    # Hard cap — prevent runaway capture

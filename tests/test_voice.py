@@ -345,7 +345,7 @@ class TestMicCapture:
         assert FRAME_BYTES == 960  # 16000 * 2 * 30 / 1000
         assert SPEECH_START_FRAMES == 8
         assert SPEECH_END_FRAMES == 12
-        assert VAD_MODE in (0, 1, 2, 3)
+        assert VAD_MODE == 3  # Most aggressive — in-car noise rejection
 
     def test_init_defaults(self):
         mic = MicCapture(device="nonexistent")

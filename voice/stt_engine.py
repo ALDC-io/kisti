@@ -36,7 +36,7 @@ def _is_hallucination(text: str) -> bool:
         unique = set(words)
         if len(unique) <= 2:
             return True
-    # Common hallucination phrases on silence
+    # Common hallucination phrases on silence/noise
     hallucinations = [
         "thank you for watching",
         "thanks for watching",
@@ -59,7 +59,34 @@ def _is_hallucination(text: str) -> bool:
         "the end",
         "hey kisti, the ai co-driver",  # initial_prompt echo
         "hey kisti the ai co-driver",
+        # Whisper tiny.en generates these from ambient noise
+        "hi guys",
+        "i'm going to",
+        "i hope it's",
+        "this example",
+        "question",
+        "question.",
+        "oh",
+        "oh.",
+        "hmm",
+        "hmm.",
+        "uh",
+        "um",
+        "right",
+        "right.",
+        "well",
+        "well.",
+        "interesting",
+        "interesting.",
+        "i'm ready",
+        "hello",
+        "hey",
+        "hi",
+        "huh",
     ]
+    # Also filter very short non-wake-word results (likely noise)
+    if len(lower.split()) <= 2 and not any(w in lower for w in ["kisti", "ki", "boost", "oil", "brake", "tire"]):
+        return True
     for h in hallucinations:
         if lower == h or lower.startswith(h):
             return True
