@@ -57,6 +57,8 @@ def _is_hallucination(text: str) -> bool:
         "so",
         "yeah",
         "the end",
+        "hey kisti, the ai co-driver",  # initial_prompt echo
+        "hey kisti the ai co-driver",
     ]
     for h in hallucinations:
         if lower == h or lower.startswith(h):
