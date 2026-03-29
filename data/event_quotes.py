@@ -80,6 +80,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "You are only as good as your last race. So let us make it count.", # Rush riff
         "All primary systems nominal, Captain. Warp core is cold but standing by.", # Star Trek techno
         "Deflector array online. Intercooler at ambient. Awaiting your command.", # Star Trek techno
+        "No cap, the warp core is giving main character energy today. All systems lowkey bussin.", # Brain rot Trek
     ],
 
     "boost_full": [
@@ -99,6 +100,8 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Warp plasma is flowing through the primary injection manifold. All nacelles are green.", # Star Trek techno
         "Captain, the dilithium matrix is holding. Turbo containment field at maximum.", # Star Trek techno
         "Rerouting auxiliary power through the intercooler array. Charge temps nominal.", # Star Trek techno
+        "Ayo the turbo containment field is literally goated right now. No cap, full boost is sigma.", # Brain rot Trek
+        "Captain, the dilithium crystals are bussin no cap. Boost pressure giving rizz to all four nacelles.", # Brain rot Trek
     ],
 
     "redline": [
@@ -116,6 +119,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "This ain't no Sunday drive.",                              # Smokey and the Bandit
         "Captain, the EJ warp core is approaching critical resonance. She is giving everything she has got.", # Star Trek techno
         "I am reading a tachyon surge in the primary combustion chambers. Recommend maintaining current heading.", # Star Trek techno
+        "Bruh the warp core is hitting different. This is not even my final form. Slay.", # Brain rot Trek
     ],
 
     "launch_control": [
@@ -132,6 +136,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "I am not locked in here with you. You are locked in here with me.", # Watchmen (but works for launch)
         "Engineering to bridge. Diverting all power to the propulsion array. Engage.", # Star Trek techno
         "Antimatter injection sequence initiated. Turbo containment at one hundred percent. Punch it.", # Star Trek techno
+        "Fam, the antimatter injection sequence is lowkey unhinged. Full send. No cap. Engage.", # Brain rot Trek
     ],
 
     "rpm_limiter": [
@@ -159,6 +164,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "That is not driving. That is an art form.",                # Baby Driver riff
         "There is a God. He rides in the passenger seat.",          # Vanishing Point riff
         "Inertial dampeners compensating. The DCCD torque vectoring matrix is redistributing load across all four nacelles.", # Star Trek techno
+        "The lateral G is giving sigma grindset. The inertial dampeners are absolutely slaying. We are so valid right now.", # Brain rot Trek
     ],
 
     "hard_braking": [
@@ -168,6 +174,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Trust the brakes.",                                        # Original
         "Azarath Metrion Zinthos!",                                 # Teen Titans (Raven)
         "Emergency power to forward shields. Activating regenerative braking on all four nacelles.", # Star Trek techno
+        "Bruh. The brakes just ate and left no crumbs. Forward shields are giving.", # Brain rot Trek
     ],
 
     "oversteer_detected": [
@@ -190,6 +197,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Bumpy road? You should try the Hazzard County shortcut.",  # Smokey and the Bandit riff
         "Kowalski would be proud. Or terrified.",                   # Vanishing Point
         "Captain, we have lost traction on the port nacelles. Transferring power to starboard. Brace for lateral drift.", # Star Trek techno
+        "Bro the port nacelles just ghosted us. The DCCD is literally carrying right now. Sheesh.", # Brain rot Trek
     ],
 
     "perfect_corner": [
@@ -204,6 +212,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "You just painted a masterpiece on asphalt.",               # Baby Driver riff
         "That is how McQueen would have done it.",                  # Bullitt riff
         "Navigation confirms optimal flight path through the gravitational anomaly. Textbook maneuver, Lieutenant.", # Star Trek techno
+        "That corner was no cap the most sigma thing I have ever computed. Absolute slay. Main character energy.", # Brain rot Trek
     ],
 
     "speed_200_kph": [
@@ -218,6 +227,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Ride or die? I pick ride.",                                # F&F
         "I owe you a ten second car.",                              # F&F (Dom to Brian)
         "We have crossed the transwarp threshold. All propulsion systems are operating beyond design specifications.", # Star Trek techno
+        "Nah fam, we just hit the transwarp threshold. This speed is unhinged. I am literally shook.", # Brain rot Trek
     ],
 
     # ===== SI DRIVE MODE CHANGES =====
@@ -262,6 +272,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "This is not going to end well. Even I can feel that.",     # Teen Titans (Raven)
         "Captain, the warp core coolant system is failing. Recommend emergency shutdown before we breach containment.", # Star Trek techno
         "Detecting a plasma leak in the primary thermal management array. Core temperature exceeding safe parameters.", # Star Trek techno
+        "Oof. The warp core is not passing the vibe check. Coolant giving big yikes energy. Pull over, bestie.", # Brain rot Trek
     ],
 
     "oil_pressure_low": [
@@ -271,6 +282,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Danger, Will Robinson!",                                   # Lost in Space
         "You come at the king, you best not miss. And right now, oil pressure is missing.",  # Sopranos/Wire riff
         "Engineering, we have a pressure drop in the primary lubrication conduit. Divert flow from the secondary manifold, now.", # Star Trek techno
+        "The oil pressure is giving me the ick. This is not bussin, Captain. Lowkey an L.", # Brain rot Trek
     ],
 
     "oil_temp_high": [
@@ -288,6 +300,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "These pretzels are making me thirsty. And this engine is making me cold.",  # Seinfeld
         "Already in a bad way, and we have not even started.",      # Peaky Blinders
         "Warp core temperature is below minimum operating threshold. The dilithium crystals need time to align.", # Star Trek techno
+        "The warp core is being a whole mood right now. Cold as the void of space. Give the dilithium crystals a sec to get their rizz together.", # Brain rot Trek
     ],
 
     "cooldown_needed": [
@@ -298,6 +311,7 @@ EVENT_QUOTES: dict[str, list[str]] = {
         "Serenity now!",                                            # Seinfeld (Frank Costanza)
         "Could we BE driving any harder? Cool it down.",            # Friends (Chandler)
         "Bridge, recommend dropping to impulse power. The warp core needs a thermal cycle to restore containment integrity.", # Star Trek techno
+        "OK bestie, the warp core needs a self care moment. Dropping to impulse because we are not about that thermal breach life.", # Brain rot Trek
     ],
 
     # ===== SURFACE / GRIP =====
