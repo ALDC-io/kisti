@@ -737,8 +737,7 @@ class KistiModeWidget(QWidget):
         from pathlib import Path
         import time
 
-        self._queue_lines(["Powering on."])
-        time.sleep(2)
+        # "Powering on" spoken AFTER hardware detection (see below)
 
         issues = []
 
@@ -790,7 +789,7 @@ class KistiModeWidget(QWidget):
         except Exception:
             pass
         if not ollama_ok:
-            log.info("Ollama not running — persona-first mode, no LLM fallback")
+            klog.info("Ollama not running — persona-first mode, no LLM fallback")
 
         # Ambient weather — read from bridge (populated by YoctopuceReader at 1Hz)
         # Wait up to 3s for the first sensor reading to arrive
@@ -822,7 +821,9 @@ class KistiModeWidget(QWidget):
 
         time.sleep(1)
 
-        # Speak only issues, or confirm all clear
+        # Speak status — "Powering on" first so user knows we're ready
+        self._queue_lines(["Powering on."])
+        time.sleep(2)
         if not issues:
             self._queue_lines(["All systems online."])
         else:
