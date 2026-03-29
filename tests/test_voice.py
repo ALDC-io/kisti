@@ -13,7 +13,7 @@ from voice.stt_engine import STTEngine, TranscriptionResult, SAMPLE_RATE
 from voice.tts_engine import TTSEngine, TTSResult, compute_amplitude_envelope
 from voice.llm_engine import (
     LLMEngine, LLMResponse, _match_persona, FALLBACK_RESPONSE,
-    MODE_TOKEN_CAPS, MODE_TEMPERATURE,
+    MODE_TOKEN_CAPS, MODE_TEMPERATURE, _MODE_ALLOWED_CATEGORIES,
 )
 from voice.mic_capture import (
     MicCapture, SAMPLE_RATE as MIC_SAMPLE_RATE, FRAME_BYTES,
@@ -169,7 +169,7 @@ class TestLLMEngine:
         """Unknown query returns fallback response."""
         engine = LLMEngine()
         engine.start()
-        response = engine.query("What's the airspeed velocity of an unladen swallow?")
+        response = engine.query("What is the meaning of xyzzyx?")
         assert response.tier == "fallback"
         assert response.text == FALLBACK_RESPONSE
         engine.stop()
@@ -188,7 +188,7 @@ class TestPersonaMatching:
         assert "kisti" in result.lower()
 
     def test_no_match(self):
-        assert _match_persona("xyzzy random words") is None
+        assert _match_persona("xyzzyx gibberish qqq") is None
 
 
 # ========================================================================
@@ -344,7 +344,7 @@ class TestMicCapture:
         assert MIC_SAMPLE_RATE == 16000
         assert FRAME_BYTES == 960  # 16000 * 2 * 30 / 1000
         assert SPEECH_START_FRAMES == 8
-        assert SPEECH_END_FRAMES == 20
+        assert SPEECH_END_FRAMES == 12
         assert VAD_MODE in (0, 1, 2, 3)
 
     def test_init_defaults(self):
@@ -465,3 +465,159 @@ class TestAlertQuotes:
         for mode in ["mode_intelligent", "mode_sport", "mode_sport_sharp"]:
             quote = get_event_quote(mode)
             assert quote is not None, f"No quote for mode: {mode}"
+
+
+# ========================================================================
+# Expanded Persona Response tests
+# ========================================================================
+
+class TestExpandedPersona:
+    """Tests for newly added persona keyword responses."""
+
+    def test_weather_rain(self):
+        assert _match_persona("What about rain?") is not None
+
+    def test_speed_how_fast(self):
+        assert _match_persona("How fast are you?") is not None
+
+    def test_exhaust(self):
+        assert _match_persona("Tell me about the exhaust") is not None
+
+    def test_suspension(self):
+        assert _match_persona("How's the suspension?") is not None
+
+    def test_weight(self):
+        assert _match_persona("How much do you weigh?") is not None
+
+    def test_launch(self):
+        assert _match_persona("What's your 0 to 60?") is not None
+
+    def test_thank_you(self):
+        assert _match_persona("Thank you KiSTI") is not None
+
+    def test_good_morning(self):
+        assert _match_persona("Good morning") is not None
+
+    def test_help(self):
+        assert _match_persona("What can you do?") is not None
+
+    def test_music(self):
+        assert _match_persona("Play some music") is not None
+
+    def test_joke(self):
+        assert _match_persona("Tell me a joke") is not None
+
+    def test_jetson_brain(self):
+        assert _match_persona("Tell me about your brain") is not None
+
+    def test_sensor_count(self):
+        assert _match_persona("How many sensors do you have?") is not None
+
+    def test_ecu_link(self):
+        assert _match_persona("Who tunes you?") is not None
+
+    def test_can_bus(self):
+        assert _match_persona("How does the CAN bus work?") is not None
+
+    def test_emergency(self):
+        assert _match_persona("I think there's a problem") is not None
+
+    def test_tow(self):
+        assert _match_persona("Can I tow you?") is not None
+
+    def test_mileage(self):
+        assert _match_persona("How many km do you have?") is not None
+
+    def test_fuel_gas(self):
+        assert _match_persona("What fuel do you take?") is not None
+
+    def test_transformers(self):
+        assert _match_persona("Are you a transformer?") is not None
+
+    def test_fast_and_furious(self):
+        assert _match_persona("This is like fast and furious") is not None
+
+    def test_back_to_future(self):
+        assert _match_persona("We need a flux capacitor") is not None
+
+    def test_top_gear(self):
+        assert _match_persona("What would Clarkson say?") is not None
+
+    def test_initial_d(self):
+        assert _match_persona("Do you know Initial D?") is not None
+
+
+# ========================================================================
+# Mode-Aware Persona Filtering tests
+# ========================================================================
+
+class TestModeAwarePersona:
+    """Tests for SI Drive mode filtering of persona responses."""
+
+    def test_intelligent_returns_all_categories(self):
+        """Intelligent mode returns fun, tech, and safety."""
+        assert _match_persona("Who are you?", "Intelligent") is not None  # fun
+        assert _match_persona("How's the boost?", "Intelligent") is not None  # tech
+        assert _match_persona("How are the brakes?", "Intelligent") is not None  # safety
+
+    def test_sport_blocks_fun(self):
+        """Sport mode blocks fun-category responses."""
+        result = _match_persona("Who are you?", "Sport")
+        assert result is None  # "who are you" is fun-only
+
+    def test_sport_allows_tech(self):
+        """Sport mode allows tech-category responses."""
+        result = _match_persona("How's the boost?", "Sport")
+        assert result is not None
+
+    def test_sport_allows_safety(self):
+        """Sport mode allows safety-category responses."""
+        result = _match_persona("How are the brakes?", "Sport")
+        assert result is not None
+
+    def test_sport_sharp_blocks_fun(self):
+        """Sport Sharp blocks fun responses."""
+        assert _match_persona("Tell me a joke", "Sport Sharp") is None
+
+    def test_sport_sharp_blocks_tech(self):
+        """Sport Sharp blocks tech responses."""
+        assert _match_persona("How's the boost?", "Sport Sharp") is None
+
+    def test_sport_sharp_allows_safety(self):
+        """Sport Sharp allows safety responses."""
+        result = _match_persona("How are the brakes?", "Sport Sharp")
+        assert result is not None
+
+    def test_sport_truncates_to_first_sentence(self):
+        """Sport mode truncates persona responses to first sentence."""
+        result = _match_persona("How are the brakes?", "Sport")
+        assert result is not None
+        # Should be truncated — no second sentence
+        # Original has ". That's caliper drag" after first sentence
+        assert "That's caliper drag" not in result
+
+    def test_sport_sharp_truncates_to_five_words(self):
+        """Sport Sharp truncates to 5 words max."""
+        result = _match_persona("How are the brakes?", "Sport Sharp")
+        assert result is not None
+        words = result.rstrip(".").split()
+        assert len(words) <= 5
+
+    def test_subaru_jokes_blocked_in_sport(self):
+        """Subaru jokes are fun-category and blocked in Sport."""
+        assert _match_persona("Do you vape?", "Sport") is None
+
+    def test_roast_blocked_in_sport_sharp(self):
+        """Roast battle is fun-only, blocked in Sport Sharp."""
+        assert _match_persona("Roast me!", "Sport Sharp") is None
+
+    def test_mode_categories_complete(self):
+        """All three modes are defined in _MODE_ALLOWED_CATEGORIES."""
+        assert "Intelligent" in _MODE_ALLOWED_CATEGORIES
+        assert "Sport" in _MODE_ALLOWED_CATEGORIES
+        assert "Sport Sharp" in _MODE_ALLOWED_CATEGORIES
+
+    def test_unknown_mode_defaults_to_all(self):
+        """Unknown mode name defaults to all categories."""
+        result = _match_persona("Who are you?", "UnknownMode")
+        assert result is not None

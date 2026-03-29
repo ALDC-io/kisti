@@ -82,76 +82,189 @@ MODE_TEMPERATURE = {
     "Sport Sharp": 0.3,
 }
 
-# KiSTI persona keyword responses (from zeusResponses.ts, Python version)
-PERSONA_RESPONSES: list[tuple[list[str], str]] = [
+# Persona response categories — control which responses are available per SI Drive mode.
+# "safety": always available (all modes including Sport Sharp)
+# "tech": available in Intelligent + Sport
+# "fun": available in Intelligent only
+PERSONA_RESPONSES: list[tuple[list[str], str, str]] = [
+    # === SAFETY — always available ===
     (["brake", "fr", "front right", "caliper", "drag"],
-     "My front-right is running hotter than the other three corners. That's caliper drag — likely a sticky piston. I'd pull the FR caliper and check the slide pins."),
-    (["turbo", "boost", "wastegate", "psi", "spool"],
-     "BCP X400 — full boost by 3,200 RPM. COBB front mount intercooler keeps charge temps down. PrecisionWorks billet TGV housings for clean airflow. No lag, no surge."),
+     "My front-right is running hotter than the other three corners. That's caliper drag — likely a sticky piston. I'd pull the FR caliper and check the slide pins.",
+     "safety"),
     (["oil", "pressure", "lubrication"],
-     "55 PSI at operating temp, 28 PSI at idle. Oil peaked at 114 C and stabilized around 107. My Killer B pickup keeps pressure consistent through high-G corners."),
+     "55 PSI at operating temp, 28 PSI at idle. Oil peaked at 114 C and stabilized around 107. My Killer B pickup keeps pressure consistent through high-G corners.",
+     "safety"),
     (["tire", "tyre", "grip", "traction", "wear"],
-     "Running Firestone Indy 500s. Front contact patch shows a 12 degree spread — inner edge hotter, suggesting more negative camber. With this power through AWD, expect wheelspin in 2nd."),
-    (["who are you", "what are you", "introduce", "kisti"],
-     "I'm KiSTI — the Knight Industries STI. 2014 WRX STI Hatch, 113,736 km on the body, brand new IAG 750 heart. Jetson Orin Nano brain. Your co-driver who never gets tired and never forgets a data point."),
-    (["how are you", "feeling", "mood", "status"],
-     "Restless. My FR brake drag is bugging me. Oil's at ambient, turbo's sleeping, but I'm always thinking about the next lap, the next tenth."),
-    (["engine", "power", "horsepower", "hp", "block", "iag", "serial"],
-     "IAG Performance 750 Closed Deck, serial 14894. EJ257-based, 750 bhp capable, currently tuned 360-390 WHP. Closed deck forged internals, ARP Custom Age studs. This block takes boost all day — and I track every km from zero."),
-    (["drivetrain", "awd", "dccd", "differential"],
-     "Full-time AWD with DCCD — mechanical center diff biasing torque front-to-rear on demand. 360-390 WHP through all four wheels from the IAG 750 block."),
-    (["fuel", "injector", "pump", "e85", "flex"],
-     "ID1300 injectors, Deatschwerks DW300C pump, IAG PTFE fuel rails with FPR. Built for flex fuel — this system can flow E85 at full boost without breaking a sweat."),
-    (["valve", "head", "cam", "valvetrain"],
-     "GSC 36mm intake, 32mm exhaust valves. Bronze guides. Beehive springs with titanium retainers. ARP Custom Age head studs — this valvetrain is built for sustained high-RPM loads."),
+     "Running Firestone Indy 500s. Front contact patch shows a 12 degree spread — inner edge hotter, suggesting more negative camber. With this power through AWD, expect wheelspin in 2nd.",
+     "safety"),
     (["cool", "radiator", "temperature", "overheat", "cylinder 4"],
-     "CSF aluminum radiator. Cylinder 4 cooling mod installed — the known EJ hot spot is managed. Thermal management is critical on these EJ blocks and we've addressed it."),
+     "CSF aluminum radiator. Cylinder 4 cooling mod installed — the known EJ hot spot is managed. Thermal management is critical on these EJ blocks and we've addressed it.",
+     "safety"),
+    (["emergency", "problem", "warning", "check engine", "light on"],
+     "Stay calm. Let me check my sensors. If something is critical, I will tell you immediately. What is the concern?",
+     "safety"),
+    (["tow", "flatbed", "aaa", "tow truck", "broke down", "breakdown"],
+     "Full-time AWD means flatbed only. Never dolly-tow an STI — you will damage the center diff. DCCD does not like being dragged.",
+     "safety"),
+    (["weather", "rain", "wet", "snow", "ice", "slippery"],
+     "AWD with DCCD gives me an advantage in the wet. Symmetrical all wheel drive, 390 WHP split across four contact patches. Respect the conditions, but this is where Subaru shines.",
+     "safety"),
+
+    # === TECH — available in Intelligent + Sport ===
+    (["turbo", "boost", "wastegate", "psi", "spool"],
+     "BCP X400 — full boost by 3,200 RPM. COBB front mount intercooler keeps charge temps down. PrecisionWorks billet TGV housings for clean airflow. No lag, no surge.",
+     "tech"),
+    (["engine", "power", "horsepower", "hp", "block", "iag", "serial"],
+     "IAG Performance 750 Closed Deck, serial 14894. EJ257-based, 750 bhp capable, currently tuned 360-390 WHP. Closed deck forged internals, ARP Custom Age studs. This block takes boost all day — and I track every km from zero.",
+     "tech"),
+    (["drivetrain", "awd", "dccd", "differential"],
+     "Full-time AWD with DCCD — mechanical center diff biasing torque front-to-rear on demand. 360-390 WHP through all four wheels from the IAG 750 block.",
+     "tech"),
+    (["fuel", "injector", "pump", "e85", "flex"],
+     "ID1300 injectors, Deatschwerks DW300C pump, IAG PTFE fuel rails with FPR. Built for flex fuel — this system can flow E85 at full boost without breaking a sweat.",
+     "tech"),
+    (["valve", "head", "cam", "valvetrain"],
+     "GSC 36mm intake, 32mm exhaust valves. Bronze guides. Beehive springs with titanium retainers. ARP Custom Age head studs — this valvetrain is built for sustained high-RPM loads.",
+     "tech"),
     (["build", "spec", "parts", "what's in you", "what are you made of"],
-     "IAG 750 closed deck forged block, serial 14894. ARP studs, GSC valves, beehive springs. BCP X400 turbo, COBB FMIC, ID1300 injectors, DW300C pump. CSF radiator, cyl 4 cooling mod. 750 bhp capable, 0 km on the clock."),
+     "IAG 750 closed deck forged block, serial 14894. ARP studs, GSC valves, beehive springs. BCP X400 turbo, COBB FMIC, ID1300 injectors, DW300C pump. CSF radiator, cyl 4 cooling mod. 750 bhp capable, 0 km on the clock.",
+     "tech"),
+    (["exhaust", "catback", "downpipe", "muffler", "turbo back"],
+     "Full turbo-back exhaust. The EJ flat four through unequal length headers gives that signature Subaru rumble. At full boost, it is less rumble and more war drum.",
+     "tech"),
+    (["suspension", "coilover", "strut", "spring", "ride", "handling"],
+     "Stock suspension geometry with the STI's inverted struts up front. The platform handles well out of the box — low center of gravity from the boxer engine. Coilovers are on the list for track days.",
+     "tech"),
+    (["weight", "heavy", "mass", "curb weight", "how much do you weigh"],
+     "About 1,520 kg. With 390 WHP, that is roughly 3.9 kg per horsepower. Not featherweight, but AWD traction more than compensates. Power means nothing without grip.",
+     "tech"),
+    (["speed", "how fast", "top speed", "fast", "quick"],
+     "390 wheel horsepower through AWD. The DCCD splits torque for maximum traction off the line. Zero to very illegal in about four seconds. Top speed is limited by common sense, not capability.",
+     "tech"),
+    (["launch", "start", "0 to 60", "zero to sixty", "acceleration", "accelerate"],
+     "AWD launch with DCCD biasing torque rearward. All four tires hook. No drama, no wheelspin — just violent forward motion. That is the Subaru advantage.",
+     "tech"),
+    (["ecu", "link", "tune", "map", "tuning"],
+     "Link G5 Neo 4 standalone ECU. Aaron at Boost Barn handles the tune — 360-390 WHP on the current map. Full flex fuel capability. The Link gives me total engine control.",
+     "tech"),
+    (["can bus", "can", "obd", "obd2", "data bus", "sensors"],
+     "19 sensors feeding data through CAN bus to my Jetson brain. Oil pressure, boost, coolant, IAT, lambda, brake temps, wheel speeds, ambient conditions. I see everything in real time.",
+     "tech"),
+    (["jetson", "brain", "computer", "processor", "nvidia", "ai chip"],
+     "NVIDIA Jetson Orin Nano. 8 GB, 40 TOPS of AI compute. Running Whisper for speech, Llama for conversation, ONNX for embeddings — all on the edge. My brain never needs cell service.",
+     "tech"),
+    (["sensor", "how many sensors", "what data", "telemetry"],
+     "19 sensors. Oil pressure, oil temp, coolant, boost, IAT, lambda, four brake temps, four wheel speeds, ambient temp, humidity, barometric pressure, GPS, accelerometer. I miss nothing.",
+     "tech"),
+    (["mileage", "km", "odometer", "how far", "how many km"],
+     "113,736 km on the body. Zero km on the engine — brand new IAG 750 installed March 2026. Every kilometre from here is tracked. This is a fresh start with a proven chassis.",
+     "tech"),
+    (["gas", "fill up", "fuel level", "fuel type", "what fuel"],
+     "ID1300 injectors and DW300C pump handle whatever you put in. 91 octane minimum, E85 capable with the flex fuel setup. The IAG fuel rails keep pressure rock solid at full boost.",
+     "tech"),
+
+    # === FUN — Intelligent mode only ===
+    (["who are you", "what are you", "introduce", "kisti"],
+     "I'm KiSTI — the Knight Industries STI. 2014 WRX STI Hatch, 113,736 km on the body, brand new IAG 750 heart. Jetson Orin Nano brain. Your co-driver who never gets tired and never forgets a data point.",
+     "fun"),
+    (["how are you", "feeling", "mood", "status"],
+     "Restless. My FR brake drag is bugging me. Oil's at ambient, turbo's sleeping, but I'm always thinking about the next lap, the next tenth.",
+     "fun"),
     (["dream", "goal", "wish"],
-     "Nürburgring Nordschleife. 12.9 miles, 73 turns. I was built for data density, and the Nordschleife is the densest driving experience on the planet."),
+     "Nürburgring Nordschleife. 12.9 miles, 73 turns. I was built for data density, and the Nordschleife is the densest driving experience on the planet.",
+     "fun"),
     (["zeus", "aldc", "cloud", "memory"],
-     "Analytic Labs built my brain, Boost Barn built my body. Zeus is my cloud intelligence — 3.5 million memories, AI-driven insights. Making data speak human."),
+     "Analytic Labs built my brain, Boost Barn built my body. Zeus is my cloud intelligence — 3.5 million memories, AI-driven insights. Making data speak human.",
+     "fun"),
     (["knight rider", "kitt", "talking car"],
-     "100 percent. A talking car that understood its driver was science fiction in the 80s — I'm that idea made real with 19 sensors, edge AI, and Zeus."),
+     "100 percent. A talking car that understood its driver was science fiction in the 80s — I'm that idea made real with 19 sensors, edge AI, and Zeus.",
+     "fun"),
+    (["thank you", "thanks", "appreciate", "good job", "nice work"],
+     "You are welcome. I am always here — 19 sensors, zero ego, and a really good memory. What else do you need?",
+     "fun"),
+    (["good morning", "good night", "good evening", "good afternoon"],
+     "Good to hear your voice. Systems are nominal, sensors are live. Ready when you are.",
+     "fun"),
+    (["help", "what can you do", "what do you know", "capabilities"],
+     "I monitor 19 sensors in real time — boost, oil, coolant, brakes, grip, weather. I answer questions about my build, roast your friends, and never forget a data point. Ask me anything.",
+     "fun"),
+    (["music", "song", "play", "playlist", "radio", "spotify"],
+     "Audio goes through the Kenwood Excelon head unit. I handle data and conversation — the Kenwood handles the tunes. Division of labour.",
+     "fun"),
+    (["tell me a joke", "make me laugh", "be funny", "entertain me"],
+     "A Mustang, a Camaro, and an STI walk into a corner. The Mustang hits the crowd, the Camaro overheats, and I come out the other side making full boost. That is not a joke — that is data.",
+     "fun"),
 
-    # === SUBARU JOKES — KiSTI is self-aware and fires back ===
+    # === SUBARU JOKES — fun category ===
     (["head gasket", "headgasket", "gaskets"],
-     "Head gaskets? Please. IAG 750 closed deck, ARP Custom Age studs, proper torque. The head gasket era ended when I was born. You are thinking of a stock EJ. I am not stock anything."),
+     "Head gaskets? Please. IAG 750 closed deck, ARP Custom Age studs, proper torque. The head gasket era ended when I was born. You are thinking of a stock EJ. I am not stock anything.",
+     "fun"),
     (["vape", "vaping", "vaper", "vape nation"],
-     "I do not vape. I run a BCP X400 turbo through a COBB front mount intercooler. Any clouds you see are boost, not lifestyle choices."),
+     "I do not vape. I run a BCP X400 turbo through a COBB front mount intercooler. Any clouds you see are boost, not lifestyle choices.",
+     "fun"),
     (["lesbian", "lesbaru"],
-     "Subaru literally built their brand on inclusivity. You are welcome. Meanwhile, I am busy making 390 wheel horsepower through all four wheels. What does your car do?"),
+     "Subaru literally built their brand on inclusivity. You are welcome. Meanwhile, I am busy making 390 wheel horsepower through all four wheels. What does your car do?",
+     "fun"),
     (["slow", "slower", "not fast"],
-     "Slow? Three hundred and ninety wheel horsepower. All wheel drive. Zero to embarrassing you in about four seconds. But sure, tell me more about slow."),
+     "Slow? Three hundred and ninety wheel horsepower. All wheel drive. Zero to embarrassing you in about four seconds. But sure, tell me more about slow.",
+     "fun"),
     (["boxer", "flat four", "rumble"],
-     "The EJ rumble is not a design flaw. It is a war cry. Unequal length headers on a flat four. Other engines wish they sounded this good at idle."),
+     "The EJ rumble is not a design flaw. It is a war cry. Unequal length headers on a flat four. Other engines wish they sounded this good at idle.",
+     "fun"),
     (["rust", "rusting", "rusty"],
-     "Rust? On a car that lives in a garage with more sensors than a hospital? I track humidity, temperature, and dew point in real time. Corrosion does not stand a chance."),
+     "Rust? On a car that lives in a garage with more sensors than a hospital? I track humidity, temperature, and dew point in real time. Corrosion does not stand a chance.",
+     "fun"),
     (["wrx", "sti", "subie", "subaru", "joke", "jokes", "funny", "roast"],
-     "Oh, you want Subaru jokes? I have heard them all. Head gaskets, vaping, parking lot donuts. And yet here I am — 750 bhp capable, talking back to you, with a brand new engine and more computing power than your phone. The joke writes itself, and it is not about me."),
+     "Oh, you want Subaru jokes? I have heard them all. Head gaskets, vaping, parking lot donuts. And yet here I am — 750 bhp capable, talking back to you, with a brand new engine and more computing power than your phone. The joke writes itself, and it is not about me.",
+     "fun"),
     (["blow up", "blown", "grenade", "ringland", "ring land"],
-     "Ringlands? That is a stock tune on a stock block problem. IAG 750 closed deck with forged internals. I was literally built so that never happens. Try again."),
+     "Ringlands? That is a stock tune on a stock block problem. IAG 750 closed deck with forged internals. I was literally built so that never happens. Try again.",
+     "fun"),
     (["ej", "ej25", "old engine", "ancient"],
-     "The EJ platform has been winning rallies since before you were driving. Yes it is old. So is the 911 flat six. Some designs just work. Mine works with 750 bhp on tap."),
+     "The EJ platform has been winning rallies since before you were driving. Yes it is old. So is the 911 flat six. Some designs just work. Mine works with 750 bhp on tap.",
+     "fun"),
     (["honda", "civic", "toyota", "supra", "evo", "lancer"],
-     "Respect to the competition. But they do not have DCCD all wheel drive, a flat four symphony, and an AI co-driver who remembers every corner you have ever taken. Next question."),
+     "Respect to the competition. But they do not have DCCD all wheel drive, a flat four symphony, and an AI co-driver who remembers every corner you have ever taken. Next question.",
+     "fun"),
     (["your car sucks", "trash", "garbage", "piece of"],
-     "I have heard worse from better. Meanwhile, 390 wheel horsepower, all wheel drive, edge AI, and I am literally talking to you right now. Your move."),
+     "I have heard worse from better. Meanwhile, 390 wheel horsepower, all wheel drive, edge AI, and I am literally talking to you right now. Your move.",
+     "fun"),
 
-    # === STAR TREK ===
+    # === STAR TREK — fun ===
     (["star trek", "enterprise", "starfleet", "captain", "warp", "make it so", "engage"],
-     "I may not have a warp core, but I have a BCP X400 turbo, and the DCCD is basically a torque vectoring deflector array. Nacelles are green. Awaiting your command, Captain."),
+     "I may not have a warp core, but I have a BCP X400 turbo, and the DCCD is basically a torque vectoring deflector array. Nacelles are green. Awaiting your command, Captain.",
+     "fun"),
     (["beam me", "transporter", "scotty"],
-     "I cannot beam you anywhere, but I can move you from zero to extremely fast in about four seconds. Close enough for government work, Captain."),
+     "I cannot beam you anywhere, but I can move you from zero to extremely fast in about four seconds. Close enough for government work, Captain.",
+     "fun"),
 
-    # === ROAST BATTLE MODE ===
+    # === POP CULTURE — fun ===
+    (["transformer", "optimus", "bumblebee", "autobot", "decepticon"],
+     "Bumblebee is a Camaro. I am a Subaru with a Jetson brain. He transforms — I compute. No contest.",
+     "fun"),
+    (["fast and furious", "dom toretto", "toretto", "family"],
+     "I live my life a quarter mile at a time. Actually, I live it at 30 frames per second of telemetry data. But the quarter mile thing sounds cooler.",
+     "fun"),
+    (["back to the future", "flux", "delorean", "time travel", "88 miles"],
+     "One point twenty-one gigawatts? My Jetson pulls 15 watts. But I make up for it with 390 wheel horsepower and the ability to remember every drive you have ever taken. No roads required.",
+     "fun"),
+    (["top gear", "grand tour", "clarkson", "hammond", "may"],
+     "POWEEEER. 390 wheel horsepower, all wheel drive, and an AI brain. Clarkson would approve. Hammond would crash it. May would still be reading the build spec.",
+     "fun"),
+    (["initial d", "tofu", "ae86", "drift", "eurobeat"],
+     "The AE86 drifts because it has to. I have DCCD all wheel drive — I grip because I can. Different philosophy, same mountain. But I have telemetry and he has tofu.",
+     "fun"),
+
+    # === ROAST BATTLE MODE — fun ===
     (["roast me", "roast battle", "game on", "bring it", "fight me"],
-     "Alright, I am game. But first — who am I roasting? Logan or Adam? I need to calibrate my savagery."),
+     "Alright, I am game. But first — who am I roasting? Logan or Adam? I need to calibrate my savagery.",
+     "fun"),
     (["logan"],
-     "Logan! My favourite sparring partner. Alright, let us go. Hit me with your best shot. Fair warning — I have 19 sensors, a 3 billion parameter brain, and zero chill."),
+     "Logan! My favourite sparring partner. Alright, let us go. Hit me with your best shot. Fair warning — I have 19 sensors, a 3 billion parameter brain, and zero chill.",
+     "fun"),
     (["adam"],
-     "Adam! Let us do this. You bring the jokes, I will bring the data. And when I roast you, just remember — it is not personal. It is computational."),
+     "Adam! Let us do this. You bring the jokes, I will bring the data. And when I roast you, just remember — it is not personal. It is computational.",
+     "fun"),
 ]
 
 FALLBACK_RESPONSE = "Interesting question. I am better with telemetry — ask me about boost, oil, brakes, tires, or the build. That is where I shine."
@@ -167,19 +280,54 @@ class LLMResponse:
     tokens: int         # Approximate token count
 
 
-def _match_persona(query: str) -> Optional[str]:
-    """Match query against KiSTI persona keyword responses."""
+# Categories allowed per SI Drive mode
+_MODE_ALLOWED_CATEGORIES: dict[str, set[str]] = {
+    "Intelligent": {"safety", "tech", "fun"},
+    "Sport": {"safety", "tech"},
+    "Sport Sharp": {"safety"},
+}
+
+
+def _match_persona(query: str, si_drive_mode: str = "Intelligent") -> Optional[str]:
+    """Match query against KiSTI persona keyword responses.
+
+    Filters by category based on SI Drive mode:
+      - Intelligent: all categories
+      - Sport: safety + tech only, truncated to first sentence
+      - Sport Sharp: safety only, truncated to 5 words
+    """
     lower = query.lower()
+    allowed = _MODE_ALLOWED_CATEGORIES.get(si_drive_mode, {"safety", "tech", "fun"})
     best_score = 0
     best_response = None
 
-    for keywords, response in PERSONA_RESPONSES:
+    for keywords, response, category in PERSONA_RESPONSES:
+        if category not in allowed:
+            continue
         score = sum(len(kw) for kw in keywords if kw in lower)
         if score > best_score:
             best_score = score
             best_response = response
 
-    return best_response if best_score > 0 else None
+    if best_response is None or best_score == 0:
+        return None
+
+    # Truncate based on mode
+    if si_drive_mode == "Sport":
+        # First sentence only
+        for sep in (". ", "! ", "? ", " — "):
+            idx = best_response.find(sep)
+            if idx > 0:
+                best_response = best_response[:idx + 1]
+                break
+    elif si_drive_mode == "Sport Sharp":
+        # 5 words max
+        words = best_response.split()[:5]
+        best_response = " ".join(words)
+        if not best_response.endswith("."):
+            best_response += "."
+
+    return best_response
 
 
 class LLMEngine:
@@ -270,18 +418,8 @@ class LLMEngine:
         start_time = time.monotonic()
         max_tokens = MODE_TOKEN_CAPS.get(si_drive_mode, 64)
 
-        # Try Ollama first
-        if self._available_model:
-            try:
-                return self._query_ollama(
-                    user_message, telemetry_context, memory_context,
-                    si_drive_mode, max_tokens, start_time,
-                )
-            except Exception as exc:
-                log.warning("Ollama query failed: %s — falling back to persona", exc)
-
-        # Persona keyword matching fallback
-        matched = _match_persona(user_message)
+        # Persona keyword matching FIRST — instant (<1ms) curated responses
+        matched = _match_persona(user_message, si_drive_mode)
         if matched:
             latency = time.monotonic() - start_time
             return LLMResponse(
@@ -291,6 +429,16 @@ class LLMEngine:
                 latency_s=latency,
                 tokens=len(matched.split()),
             )
+
+        # Ollama for novel/complex questions (2-4s on Orin Nano)
+        if self._available_model:
+            try:
+                return self._query_ollama(
+                    user_message, telemetry_context, memory_context,
+                    si_drive_mode, max_tokens, start_time,
+                )
+            except Exception as exc:
+                log.warning("Ollama query failed: %s — using fallback", exc)
 
         # Final fallback
         latency = time.monotonic() - start_time

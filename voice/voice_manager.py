@@ -381,7 +381,7 @@ class VoiceManager(QObject):
             self._play_audio(result.audio_pcm, result.sample_rate)
 
         # Delay mic resume — prevent echo pickup from HDMI reverb
-        time.sleep(1.5)
+        time.sleep(2.0)
         # Reset conversation window AFTER speaking — user hears response, then has 8s to follow up
         self._last_interaction = time.monotonic()
         self._set_state(VoiceState.IDLE)
