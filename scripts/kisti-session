@@ -41,13 +41,16 @@ echo "$(date) KiSTI session starting (PID $$)" > "$LOG"
 xsetroot -solid black 2>/dev/null || true
 xset s off -dpms 2>/dev/null || true
 
-# Kill PulseAudio — it grabs the ALSA device and blocks direct HDMI output
+# Cycle PulseAudio: start briefly to initialize HDMI audio pin, then kill.
+# Without this, the HDA pin-ctl stays at 0x00 and HDMI has no audio output.
+pulseaudio --start 2>/dev/null || true
+sleep 2
 pulseaudio --kill 2>/dev/null || true
 systemctl --user stop pulseaudio.socket pulseaudio.service 2>/dev/null || true
 
 # Audio output: direct ALSA to HDMI via -D plughw:0,3 in aplay commands.
 # (.asoundrc is unreliable on Jetson — string card names silently fail)
-echo "$(date) PulseAudio stopped, ALSA direct to HDMI (plughw:0,3)" >> "$LOG"
+echo "$(date) PulseAudio cycled (HDMI pin init), ALSA direct to HDMI (plughw:0,3)" >> "$LOG"
 
 # Wait for Ollama to be ready (systemd should have started it)
 for i in $(seq 1 15); do
@@ -71,7 +74,9 @@ cd "$KISTI_DIR"
 MIC_CARD=$(arecord -l 2>/dev/null | grep -i 'USB.*MIC\|USB.*Audio\|USB.*Adapter' | head -1 | grep -oP 'card \K\d+' || true)
 if [ -n "$MIC_CARD" ]; then
     MIC_DEVICE="plughw:${MIC_CARD},0"
-    echo "$(date) USB mic detected: $MIC_DEVICE" >> "$LOG"
+    # Set mic gain to 30% — 100% clips and Whisper can't transcribe distorted audio
+    amixer -c "$MIC_CARD" cset numid=3 30 >> "$LOG" 2>&1 || true
+    echo "$(date) USB mic detected: $MIC_DEVICE (gain=30%)" >> "$LOG"
 else
     MIC_DEVICE="default"
     echo "$(date) No USB mic found, using default" >> "$LOG"
