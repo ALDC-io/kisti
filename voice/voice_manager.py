@@ -383,12 +383,17 @@ class VoiceManager(QObject):
                 self.led_frame_ready.emit(frame)
                 time.sleep(1.0 / 30.0)
 
-        # Play audio — keep mic active for barge-in
+        # Pause mic during playback — prevents KiSTI hearing its own TTS
+        if self._mic:
+            self._mic.pause()
+
         if not self._interrupted:
             self._play_audio(result.audio_pcm, result.sample_rate)
 
-        # Delay mic resume — prevent echo pickup from HDMI reverb
+        # Post-playback echo guard then resume mic
         time.sleep(2.0)
+        if self._mic:
+            self._mic.resume()
         # Reset conversation window AFTER speaking — user hears response, then has 8s to follow up
         self._last_interaction = time.monotonic()
         self._set_state(VoiceState.IDLE)
