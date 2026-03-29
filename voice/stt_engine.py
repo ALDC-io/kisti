@@ -44,6 +44,19 @@ def _is_hallucination(text: str) -> bool:
         "i'm going to go ahead",
         "so i'm going to",
         "you",  # single word "You" on noise
+        "okay",
+        "okay.",
+        "we'll see you tomorrow",
+        "see you tomorrow",
+        "see you next time",
+        "bye",
+        "goodbye",
+        "thanks",
+        "thank you",
+        "i'll see you",
+        "so",
+        "yeah",
+        "the end",
     ]
     for h in hallucinations:
         if lower == h or lower.startswith(h):
@@ -144,6 +157,7 @@ class STTEngine:
                     audio_np,
                     language=self._language,
                     fp16=self._backend == "whisper-cuda",
+                    initial_prompt="Hey KiSTI, the AI co-driver.",
                 )
                 text = result.get("text", "").strip()
                 latency = time.monotonic() - start_time

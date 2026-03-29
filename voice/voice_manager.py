@@ -35,7 +35,12 @@ log = logging.getLogger("kisti.voice")
 
 SAMPLE_RATE = 16000
 CHUNK_SIZE = 1024  # samples per audio read
-WAKE_WORDS = ["hey kisti", "hey ki", "kisti"]
+WAKE_WORDS = [
+    "hey kisti", "hey ki", "kisti",
+    # Common Whisper misheards of "KiSTI"
+    "keys to", "keeps to", "key stee", "keisti", "kisti",
+    "christy", "cristy", "kisty", "heykisti",
+]
 QUIET_COMMANDS = ["quiet please kisti", "quiet please", "quiet kisti", "be quiet"]
 RESUME_COMMANDS = ["hey kisti"]
 
@@ -292,8 +297,13 @@ class VoiceManager(QObject):
 
         # Transcribe on a worker thread to avoid blocking Qt
         def _process():
-            result = self._stt.transcribe(pcm)
+            try:
+                result = self._stt.transcribe(pcm)
+            except Exception as exc:
+                log.error("STT transcription crashed: %s", exc, exc_info=True)
+                return
             if not result.text.strip() or result.text == "[mock transcription]":
+                log.info("STT: empty/mock result (%.1fs audio, %.2fs latency)", result.duration_s, result.latency_s)
                 return
 
             text = result.text.strip()
