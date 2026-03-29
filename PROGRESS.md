@@ -188,6 +188,13 @@ Added complete Mission Raceway track day session with 6 laps (1 warm-up, 3 hot, 
 - **Stress test**: 21/21 queries, zero crashes, 58°C peak, 50% memory, 1.0s–12.1s response times
 - **207 tests** passing
 
+### Learnings (2026-03-28)
+- **WhisperTRT + Ollama CUDA conflict**: TRT separate CUDA context corrupts when Ollama infers → illegal memory access. Fix: plain openai-whisper CUDA (tiny.en, 12x real-time). TRT engine at /data/whisper/base.en but unused
+- **USB mic gain 100% clips**: KTMicro default 100%/0dB clips everything, Whisper returns empty. Fix: `amixer -c $MIC_CARD cset numid=3 30` in kisti-session
+- **HDMI HDA pin-ctl 0x00**: Killing PulseAudio before HDMI init leaves output pin disabled. Fix: start PA, sleep 2, kill PA — sets the pin, then direct aplay works
+- **Whisper hallucinations on silence**: tiny.en hallucinates "Okay. Okay." and YouTube phrases on noise. Added repetition + phrase filter in stt_engine.py
+- **onnx_graphsurgeon + onnx 1.21 incompatible**: Pin to `onnx<1.17` + `onnx_graphsurgeon==0.5.2`
+
 ### Learnings
 - **.asoundrc unreliable on Jetson**: String card names rejected, plug configs silently fail. Use explicit `-D plughw:0,3` in aplay instead — abandon .asoundrc entirely
 - **PulseAudio must be masked, not just killed**: Socket activation respawns it. `systemctl --user mask pulseaudio.socket pulseaudio.service` required in session startup
