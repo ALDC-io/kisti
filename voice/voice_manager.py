@@ -94,6 +94,8 @@ class VoiceManager(QObject):
         self._running = False
         self._aplay_proc: Optional[subprocess.Popen] = None
         self._interrupted = False
+        self._last_interaction: float = 0.0  # Timestamp of last wake word hit
+        self._listen_window_s: float = 8.0   # Stay in conversation mode this long
 
         # Telemetry snapshot for LLM context
         self._telemetry_snapshot: Optional[DiffState] = None
@@ -311,6 +313,7 @@ class VoiceManager(QObject):
             log.info("STT: '%s' (%.2fs latency, conf=%.1f)", text[:60], result.latency_s, result.confidence)
 
             has_wake_word = any(w in lower for w in WAKE_WORDS)
+            in_conversation = (time.monotonic() - self._last_interaction) < self._listen_window_s
 
             # During TTS playback, only respond to wake word (barge-in)
             if speaking:
@@ -320,14 +323,16 @@ class VoiceManager(QObject):
                 else:
                     return  # Ignore TTS echo
 
-            if has_wake_word or self._state == VoiceState.LISTENING:
+            if has_wake_word or in_conversation or self._state == VoiceState.LISTENING:
+                self._last_interaction = time.monotonic()
                 # Strip wake word prefix from the query
                 query = text
-                for w in WAKE_WORDS:
-                    idx = lower.find(w)
-                    if idx >= 0:
-                        query = text[idx + len(w):].strip(" ,.")
-                        break
+                if has_wake_word:
+                    for w in WAKE_WORDS:
+                        idx = lower.find(w)
+                        if idx >= 0:
+                            query = text[idx + len(w):].strip(" ,.")
+                            break
                 if query:
                     self.handle_voice_query(query)
                 else:
@@ -367,6 +372,8 @@ class VoiceManager(QObject):
         if not self._interrupted:
             self._play_audio(result.audio_pcm, result.sample_rate)
 
+        # Delay mic resume — prevent echo pickup from HDMI reverb
+        time.sleep(0.8)
         self._set_state(VoiceState.IDLE)
 
     def _play_audio(self, audio_pcm: bytes, sample_rate: int) -> None:
