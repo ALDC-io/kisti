@@ -48,24 +48,25 @@ systemctl --user stop pulseaudio.socket pulseaudio.service 2>/dev/null || true
 sleep 0.5
 pulseaudio --start --exit-idle-time=-1 2>/dev/null || true
 sleep 2
-# Default sink is analog-stereo (no output) — force HDMI
-pactl set-default-sink alsa_output.platform-3510000.hda.HiFi__hw_HDA_3__sink 2>/dev/null || true
-echo "$(date) PulseAudio running, HDMI sink default, audio via paplay" >> "$LOG"
+# Audio output: prefer USB speaker, fall back to HDMI
+USB_SINK=$(pactl list sinks short 2>/dev/null | grep -i 'usb.*Jieli\|usb.*speaker\|usb.*audio' | head -1 | awk '{print $2}')
+if [ -n "$USB_SINK" ]; then
+    pactl set-default-sink "$USB_SINK" 2>/dev/null || true
+    pactl set-sink-volume "$USB_SINK" 78% 2>/dev/null || true
+    echo "$(date) USB speaker default: $USB_SINK @ 78%" >> "$LOG"
+else
+    pactl set-default-sink alsa_output.platform-3510000.hda.HiFi__hw_HDA_3__sink 2>/dev/null || true
+    echo "$(date) No USB speaker — HDMI sink default" >> "$LOG"
+fi
 
-# Wait for Ollama to be ready (systemd should have started it)
-for i in $(seq 1 15); do
-    curl -sf http://localhost:11434/api/tags >/dev/null 2>&1 && break
-    echo "$(date) Waiting for Ollama... ($i)" >> "$LOG"
-    sleep 1
-done
+# Stop Ollama — persona-first handles 90% of queries, free GPU for Whisper STT
+sudo -n systemctl stop ollama 2>/dev/null || true
+echo "$(date) Ollama stopped (persona-first mode)" >> "$LOG"
 
 # Bring up CAN if adapter connected
 sudo -n ip link set can0 up type can bitrate 1000000 2>/dev/null || true
 
-# Pre-load LLM to GPU BEFORE KiSTI starts (CUDA allocates cleanly)
-echo "$(date) Pre-loading LLM to GPU..." >> "$LOG"
-curl -sf --max-time 30 http://localhost:11434/api/chat -d '{"model":"llama3.2:3b","messages":[{"role":"user","content":"ready"}],"stream":false,"options":{"num_predict":1}}' >> "$LOG" 2>&1 || echo "$(date) LLM pre-load failed (non-fatal)" >> "$LOG"
-echo "$(date) LLM loaded" >> "$LOG"
+# LLM pre-load skipped — persona-first mode, Ollama stopped for GPU headroom
 
 # Launch KiSTI fullscreen — when it exits, session ends → back to GDM
 echo "$(date) Launching KiSTI" >> "$LOG"
