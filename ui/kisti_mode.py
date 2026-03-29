@@ -11,7 +11,7 @@ Design ref: Zeus Memory 233bf5c9 (KITT Voice Waveform)
 import random
 import time
 
-from PySide6.QtCore import Qt, QTimer, QRectF
+from PySide6.QtCore import Qt, QTimer, QRectF, Signal
 from PySide6.QtGui import QPainter, QPen, QColor, QBrush, QFont, QLinearGradient
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea,
@@ -517,8 +517,12 @@ class KistiModeWidget(QWidget):
     with random waveform animation.
     """
 
+    # Thread-safe signals — emit from background threads, slots run on main thread
+    _request_display_update = Signal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._request_display_update.connect(self._update_display)
         self._speaking = False
         self._char_queue = []        # Characters waiting to be typed
         self._current_line = ""      # Line being typed
@@ -737,9 +741,6 @@ class KistiModeWidget(QWidget):
         from pathlib import Path
         import time
 
-        self._queue_lines(["Powering on."])
-        time.sleep(2)
-
         issues = []
 
         # CPU temp
@@ -818,11 +819,11 @@ class KistiModeWidget(QWidget):
             self._transcript.append(f"  Ambient: {ambient['temp_c']:.1f}°C  {ambient['humidity_pct']:.0f}%RH  {ambient['pressure_hpa']:.0f}hPa")
         else:
             self._transcript.append("  Ambient: ---")
-        self._update_display()
+        self._request_display_update.emit()
 
         time.sleep(1)
 
-        # Speak status — "Powering on" first so user knows we're ready
+        # Speak AFTER detection — confirms hardware is checked and we're ready
         self._queue_lines(["Powering on."])
         time.sleep(2)
         if not issues:
