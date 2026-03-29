@@ -25,7 +25,7 @@ from typing import Optional
 from PySide6.QtCore import QObject, QThread, Signal
 
 from model.vehicle_state import DiffState, SIDriveMode
-from voice.llm_engine import LLMEngine
+from voice.llm_engine import LLMEngine, _match_persona
 from voice.mic_capture import MicCapture
 from voice.stt_engine import STTEngine
 from voice.tts_engine import TTSEngine
@@ -275,6 +275,10 @@ class VoiceManager(QObject):
         memory_context = ""
         if self._edge_memory and self._si_drive_mode != SIDriveMode.SPORT_SHARP:
             memory_context = self._edge_memory.build_memory_context(transcription)
+
+        # Acknowledge before slow LLM path — persona matches return <1ms so skip those
+        if not _match_persona(lower, self._si_drive_mode.label) and self._llm.is_real:
+            self.response_ready.emit("Let me think about that.")
 
         # Query LLM
         response = self._llm.query(
