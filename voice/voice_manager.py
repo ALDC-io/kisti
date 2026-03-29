@@ -219,12 +219,12 @@ class VoiceManager(QObject):
 
         lower = transcription.lower().strip()
 
-        # "Say X" command → repeat back immediately (TTS latency test)
+        # "Say X" command → repeat back immediately (TTS latency test, skips LLM)
         if lower.startswith("say "):
             phrase = transcription[len("say "):].strip()
             if phrase:
                 log.info("Say command: '%s'", phrase)
-                self.response_ready.emit(phrase)
+                self.speak(phrase)
                 return
 
         # Check for "remember" commands → store in edge memory
@@ -381,7 +381,7 @@ class VoiceManager(QObject):
             self._play_audio(result.audio_pcm, result.sample_rate)
 
         # Delay mic resume — prevent echo pickup from HDMI reverb
-        time.sleep(0.8)
+        time.sleep(1.5)
         # Reset conversation window AFTER speaking — user hears response, then has 8s to follow up
         self._last_interaction = time.monotonic()
         self._set_state(VoiceState.IDLE)
