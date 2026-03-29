@@ -153,6 +153,41 @@ Added complete Mission Raceway track day session with 6 laps (1 warm-up, 3 hot, 
 - Touch optimization for Excelon capacitive screen
 - Performance profiling on Jetson GPU
 
+## Session: 2026-03-28 (Part 2) — Full Voice Pipeline + HDMI Audio Fix
+
+### Completed
+- **HDMI audio architecture**: Discovered Jetson HDA resets pin-ctl to 0x00 when PA exits. Switched entire audio stack from direct ALSA (aplay) to PulseAudio (paplay/parecord). Set HDMI as default PA sink explicitly (analog-stereo has no output on Jetson)
+- **Mic pipeline**: Switched arecord→parecord, auto-resolve ALSA device names to PA source names. Gain: ALSA 60% + PA source 150%
+- **STT working**: Whisper tiny.en CUDA with initial_prompt bias, expanded hallucination filter (okay, see you tomorrow, prompt echoes)
+- **Conversation window**: 8s follow-up window resets after TTS playback (not wake word)
+- **Wake word variants**: Added misheard variants (keys to, keeps to, christy, etc.)
+- **1.5s echo guard**: Post-playback mic delay to prevent KiSTI hearing its own voice
+- **100+ quotes**: Dukes of Hazzard, Seinfeld, Friends, Peaky Blinders, Sopranos, Breaking Bad, Teen Titans, car movies (F&F, Smokey, Gone in 60s, Vanishing Point, Rush, Days of Thunder, Ford v Ferrari, Baby Driver, Bullitt)
+- **Star Trek technobabble**: 22 quotes mapped to real car systems (warp core=engine, nacelles=wheels, dilithium=fuel)
+- **Brain rot Trek**: Gen-alpha slang + Star Trek tech (bussin, no cap, rizz applied to turbo/DCCD)
+- **Subaru roast mode**: 12 instant persona responses for every Subaru stereotype. Asks "Logan or Adam?" before roasting
+- **"Say X" parrot command**: Bypasses LLM for TTS latency testing
+- **AccountsService fix**: GDM auto-login to KiSTI session (not GNOME) now persistent
+- **Handoff pattern**: claude-next-step-{project}-{NN}.md in repo root for session continuity
+- **18 commits**, 281+ tests passing
+
+### Learnings
+- **Jetson HDA pin-ctl**: Does NOT persist after PulseAudio exits (unlike x86 HDA codecs). PA must stay running for HDMI audio. This is hardware-specific and non-obvious
+- **PULSE_SERVER blocks PA restart**: When env var is set, `pulseaudio --start` refuses. Must unset before starting PA from Python
+- **PA source vs ALSA device**: parecord needs PA source names (alsa_input.usb-KTMicro...), not ALSA names (plughw:1,0). Auto-detection via `pactl list sources short` works
+- **Default PA sink wrong on Jetson**: Auto-selected sink is analog-stereo (no output). Must explicitly `pactl set-default-sink alsa_output.platform-3510000.hda...`
+- **response_ready.emit() is UI-only**: Does not trigger TTS. Must use `self.speak()` queue for actual audio
+- **Whisper initial_prompt echoes**: On silence, Whisper regurgitates the prompt. Add it to hallucination filter
+- **Conversation window timing**: Must reset after TTS playback ends, not at wake word detection. Otherwise follow-ups expire before user hears the response
+- **Session handoff**: claude-next-step-{project}-{NN}.md in repo root. 2-digit numbers, overwrite if older than 1 day. Zero friction — just the filename
+
+### Next Steps (see claude-next-step-kisti-voice-02.md)
+1. Fix sudo cp for kisti-session (one interactive password → permanent mic gain)
+2. Expand persona responses (biggest quality win, instant, no GPU)
+3. Implement mode tiers (Intelligent=fun, Sport=clinical, S#=emergency)
+4. Echo cancellation improvement
+5. Cloud LLM fallback when on WiFi
+
 ## Session: 2026-03-28 — Event Quotes, Duplicate Process Fix, WhisperTRT
 
 ### Completed
