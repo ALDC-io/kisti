@@ -30,7 +30,7 @@ FRAME_BYTES = SAMPLE_RATE * 2 * FRAME_DURATION_MS // 1000  # 960 bytes per 30ms 
 # VAD tuning for in-car environment (engine noise, road noise)
 VAD_MODE = 2              # 0=least aggressive, 3=most aggressive. 2 = moderate
 SPEECH_START_FRAMES = 8   # ~240ms of voiced frames to trigger speech start
-SPEECH_END_FRAMES = 20    # ~600ms of silence to end utterance (longer for car noise)
+SPEECH_END_FRAMES = 12    # ~360ms of silence to end utterance (tighter for faster response)
 MAX_UTTERANCE_S = 10.0    # Hard cap — prevent runaway capture
 MIN_UTTERANCE_S = 0.3     # Ignore very short bursts (clicks, bumps)
 
