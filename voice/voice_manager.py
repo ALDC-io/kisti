@@ -92,6 +92,7 @@ class VoiceManager(QObject):
         self._speak_queue: queue.Queue[str] = queue.Queue(maxsize=10)
         self._worker_thread: Optional[threading.Thread] = None
         self._running = False
+        self._stt_lock = threading.Lock()  # Serialize STT — one Whisper call at a time
         self._aplay_proc: Optional[subprocess.Popen] = None
         self._interrupted = False
         self._last_interaction: float = 0.0  # Timestamp of last wake word hit
@@ -306,12 +307,18 @@ class VoiceManager(QObject):
         speaking = self._state == VoiceState.SPEAKING
 
         # Transcribe on a worker thread to avoid blocking Qt
+        # Only one STT call at a time — drop captures that arrive while busy
         def _process():
+            if not self._stt_lock.acquire(blocking=False):
+                log.debug("STT busy — dropping capture")
+                return
             try:
                 result = self._stt.transcribe(pcm)
             except Exception as exc:
                 log.error("STT transcription crashed: %s", exc, exc_info=True)
                 return
+            finally:
+                self._stt_lock.release()
             if not result.text.strip() or result.text == "[mock transcription]":
                 log.info("STT: empty/mock result (%.1fs audio, %.2fs latency)", result.duration_s, result.latency_s)
                 return
