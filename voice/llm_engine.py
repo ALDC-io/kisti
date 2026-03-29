@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 import urllib.error
 import urllib.request
@@ -89,16 +90,16 @@ MODE_TEMPERATURE = {
 PERSONA_RESPONSES: list[tuple[list[str], str, str]] = [
     # === SAFETY — always available ===
     (["brake", "fr", "front right", "caliper", "drag"],
-     "My front-right is running hotter than the other three corners. That's caliper drag — likely a sticky piston. I'd pull the FR caliper and check the slide pins.",
+     "Front-right is running hot. Caliper drag — sticky piston. Slide pins need checking.",
      "safety"),
     (["oil", "pressure", "lubrication"],
-     "55 PSI at operating temp, 28 PSI at idle. Oil peaked at 114 C and stabilized around 107. My Killer B pickup keeps pressure consistent through high-G corners.",
+     "55 PSI at operating temp, 28 at idle. Peaked 114 C, stabilized 107. Killer B pickup keeps it consistent.",
      "safety"),
     (["tire", "tyre", "grip", "traction", "wear"],
-     "Running Firestone Indy 500s. Front contact patch shows a 12 degree spread — inner edge hotter, suggesting more negative camber. With this power through AWD, expect wheelspin in 2nd.",
+     "Firestone Indy 500s. Inner edge running hot — more negative camber than ideal. Expect wheelspin in 2nd.",
      "safety"),
     (["cool", "radiator", "temperature", "overheat", "cylinder 4"],
-     "CSF aluminum radiator. Cylinder 4 cooling mod installed — the known EJ hot spot is managed. Thermal management is critical on these EJ blocks and we've addressed it.",
+     "CSF radiator, cyl 4 cooling mod installed. EJ hot spot is managed.",
      "safety"),
     (["emergency", "problem", "warning", "check engine", "light on"],
      "Stay calm. Let me check my sensors. If something is critical, I will tell you immediately. What is the concern?",
@@ -112,22 +113,22 @@ PERSONA_RESPONSES: list[tuple[list[str], str, str]] = [
 
     # === TECH — available in Intelligent + Sport ===
     (["turbo", "boost", "wastegate", "psi", "spool"],
-     "BCP X400 — full boost by 3,200 RPM. COBB front mount intercooler keeps charge temps down. PrecisionWorks billet TGV housings for clean airflow. No lag, no surge.",
+     "BCP X400, full boost by 3,200 RPM. COBB intercooler, billet TGV housings. No lag.",
      "tech"),
     (["engine", "power", "horsepower", "hp", "block", "iag", "serial"],
-     "IAG Performance 750 Closed Deck, serial 14894. EJ257-based, 750 bhp capable, currently tuned 360-390 WHP. Closed deck forged internals, ARP Custom Age studs. This block takes boost all day — and I track every km from zero.",
+     "IAG 750 Closed Deck, serial 14894. 360-390 WHP on the current tune. Zero km on the clock.",
      "tech"),
     (["drivetrain", "awd", "dccd", "differential"],
      "Full-time AWD with DCCD — mechanical center diff biasing torque front-to-rear on demand. 360-390 WHP through all four wheels from the IAG 750 block.",
      "tech"),
     (["fuel", "injector", "pump", "e85", "flex"],
-     "ID1300 injectors, Deatschwerks DW300C pump, IAG PTFE fuel rails with FPR. Built for flex fuel — this system can flow E85 at full boost without breaking a sweat.",
+     "ID1300 injectors, DW300C pump, IAG PTFE rails. Flex fuel ready — E85 at full boost, no problem.",
      "tech"),
     (["valve", "head", "cam", "valvetrain"],
-     "GSC 36mm intake, 32mm exhaust valves. Bronze guides. Beehive springs with titanium retainers. ARP Custom Age head studs — this valvetrain is built for sustained high-RPM loads.",
+     "GSC 36 intake, 32 exhaust. Beehive springs, titanium retainers, ARP studs. Built for high RPM.",
      "tech"),
     (["build", "spec", "parts", "what's in you", "what are you made of"],
-     "IAG 750 closed deck forged block, serial 14894. ARP studs, GSC valves, beehive springs. BCP X400 turbo, COBB FMIC, ID1300 injectors, DW300C pump. CSF radiator, cyl 4 cooling mod. 750 bhp capable, 0 km on the clock.",
+     "IAG 750 closed deck, BCP X400 turbo, ID1300 injectors. 750 bhp capable, zero km. Full send.",
      "tech"),
     (["exhaust", "catback", "downpipe", "muffler", "turbo back"],
      "Full turbo-back exhaust. The EJ flat four through unequal length headers gives that signature Subaru rumble. At full boost, it is less rumble and more war drum.",
@@ -147,14 +148,14 @@ PERSONA_RESPONSES: list[tuple[list[str], str, str]] = [
     (["ecu", "link", "tune", "map", "tuning"],
      "Link G5 Neo 4 standalone ECU. Aaron at Boost Barn handles the tune — 360-390 WHP on the current map. Full flex fuel capability. The Link gives me total engine control.",
      "tech"),
-    (["can bus", "can", "obd", "obd2", "data bus", "sensors"],
-     "19 sensors feeding data through CAN bus to my Jetson brain. Oil pressure, boost, coolant, IAT, lambda, brake temps, wheel speeds, ambient conditions. I see everything in real time.",
+    (["can bus", "obd", "obd2", "data bus"],
+     "19 sensors on CAN bus feeding my Jetson brain in real time. I see everything.",
      "tech"),
     (["jetson", "brain", "computer", "processor", "nvidia", "ai chip"],
-     "NVIDIA Jetson Orin Nano. 8 GB, 40 TOPS of AI compute. Running Whisper for speech, Llama for conversation, ONNX for embeddings — all on the edge. My brain never needs cell service.",
+     "Jetson Orin Nano, 8 gig, 40 TOPS. Speech, AI, and embeddings all on the edge. No cell service needed.",
      "tech"),
     (["sensor", "how many sensors", "what data", "telemetry"],
-     "19 sensors. Oil pressure, oil temp, coolant, boost, IAT, lambda, four brake temps, four wheel speeds, ambient temp, humidity, barometric pressure, GPS, accelerometer. I miss nothing.",
+     "19 sensors. Oil, coolant, boost, brakes, wheel speeds, weather, GPS, accelerometer. I miss nothing.",
      "tech"),
     (["mileage", "km", "odometer", "how far", "how many km"],
      "113,736 km on the body. Zero km on the engine — brand new IAG 750 installed March 2026. Every kilometre from here is tracked. This is a fresh start with a proven chassis.",
@@ -165,10 +166,16 @@ PERSONA_RESPONSES: list[tuple[list[str], str, str]] = [
 
     # === FUN — Intelligent mode only ===
     (["who are you", "what are you", "introduce", "kisti"],
-     "I'm KiSTI — the Knight Industries STI. 2014 WRX STI Hatch, 113,736 km on the body, brand new IAG 750 heart. Jetson Orin Nano brain. Your co-driver who never gets tired and never forgets a data point.",
+     "I'm KiSTI — the Knight Industries STI. IAG 750 heart, Jetson brain. Your co-driver.",
      "fun"),
     (["how are you", "feeling", "mood", "status"],
      "Restless. My FR brake drag is bugging me. Oil's at ambient, turbo's sleeping, but I'm always thinking about the next lap, the next tenth.",
+     "fun"),
+    (["can you hear", "hear me", "are you there", "you listening", "can you understand", "are you on"],
+     "Loud and clear. What do you need?",
+     "fun"),
+    (["test", "testing", "check check", "mic check"],
+     "I hear you. Systems nominal.",
      "fun"),
     (["dream", "goal", "wish"],
      "Nürburgring Nordschleife. 12.9 miles, 73 turns. I was built for data density, and the Nordschleife is the densest driving experience on the planet.",
@@ -186,7 +193,7 @@ PERSONA_RESPONSES: list[tuple[list[str], str, str]] = [
      "Good to hear your voice. Systems are nominal, sensors are live. Ready when you are.",
      "fun"),
     (["help", "what can you do", "what do you know", "capabilities"],
-     "I monitor 19 sensors in real time — boost, oil, coolant, brakes, grip, weather. I answer questions about my build, roast your friends, and never forget a data point. Ask me anything.",
+     "19 sensors, real-time telemetry, build knowledge, and zero chill. Ask me anything.",
      "fun"),
     (["music", "song", "play", "playlist", "radio", "spotify"],
      "Audio goes through the Kenwood Excelon head unit. I handle data and conversation — the Kenwood handles the tunes. Division of labour.",
@@ -312,7 +319,12 @@ def _match_persona(query: str, si_drive_mode: str = "Intelligent") -> Optional[s
     if best_response is None or best_score == 0:
         return None
 
-    # Truncate based on mode
+    # Cap all responses to 2 sentences max — long TTS kills latency
+    sentences = re.split(r'(?<=[.!?])\s+', best_response)
+    if len(sentences) > 2:
+        best_response = " ".join(sentences[:2])
+
+    # Truncate further based on mode
     if si_drive_mode == "Sport":
         # First sentence only
         for sep in (". ", "! ", "? ", " — "):
