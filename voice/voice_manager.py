@@ -1129,7 +1129,7 @@ class VoiceManager(QObject):
 
         # Barometric pressure
         if any(w in query_lower for w in ["pressure outside", "barometric", "barometer", "air pressure", "atmospheric"]):
-            return f"Barometric pressure {s.ambient_pressure_hpa:.0f} hectopascals."
+            return f"Barometric pressure {s.ambient_pressure_hpa:.0f} millibars."
 
         # Density altitude
         if any(w in query_lower for w in ["density altitude", "altitude"]):
@@ -1142,11 +1142,11 @@ class VoiceManager(QObject):
             humid = s.ambient_humidity_pct
             grip = "dry" if humid < 70 else "damp" if humid < 85 else "wet"
             verdict = "Perfect" if 5 < temp < 35 and humid < 75 else "Decent" if 0 < temp < 40 else "Marginal"
-            return f"{verdict}. {temp:.0f} degrees, {grip} conditions, {s.ambient_pressure_hpa:.0f} hectopascals."
+            return f"{verdict}. {temp:.0f} degrees, {grip} conditions, {s.ambient_pressure_hpa:.0f} millibars."
 
         # General weather/outside/conditions
         if any(w in query_lower for w in ["weather", "outside", "conditions", "what's it like"]):
-            return f"{s.ambient_temp_c:.1f} degrees, {s.ambient_humidity_pct:.0f} percent humidity, {s.ambient_pressure_hpa:.0f} hectopascals."
+            return f"{s.ambient_temp_c:.1f} degrees, {s.ambient_humidity_pct:.0f} percent humidity, {s.ambient_pressure_hpa:.0f} millibars."
 
         return None
 
