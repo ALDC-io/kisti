@@ -478,6 +478,22 @@ def main():
             lambda text: window.queue_speech(text)
         )
 
+    # --- Echo protection: pause mic during UI AudioPlayer speech ---
+    # kisti_mode._start_speaking() plays audio without voice_manager involvement,
+    # so the mic stays at normal threshold and picks up its own echo at 0.99 confidence.
+    # Fix: wire AudioPlayer signals to mic pause/resume with echo guard delay.
+    if voice_mgr and voice_mgr._mic and hasattr(window, '_kisti_mode'):
+        _kmode = window._kisti_mode
+        if hasattr(_kmode, '_audio_player') and _kmode._audio_player:
+            from PySide6.QtCore import QTimer as _EchoTimer
+            _kmode._audio_player.playback_started.connect(
+                lambda: voice_mgr._mic.pause()
+            )
+            _kmode._audio_player.playback_finished.connect(
+                lambda: _EchoTimer.singleShot(800, voice_mgr._mic.resume)
+            )
+            log.info("Echo protection: mic pauses during UI audio playback")
+
     # --- Simulated voice queries ---
     if args.sim_voice and voice_mgr:
         _SIM_QUERIES = [
