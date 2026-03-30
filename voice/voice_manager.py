@@ -695,6 +695,20 @@ class VoiceManager(QObject):
             latency_ms=int(response.latency_s * 1000),
         )
         log.info("LLM response (tier=%s, %.1fs): %s", response.tier, response.latency_s, response.text[:80])
+
+        # Log unanswered queries for future persona/sensor improvement
+        if response.tier == "fallback":
+            log.warning("UNANSWERED QUERY: '%s' — add persona response or sensor handler", transcription)
+            if self._edge_memory:
+                try:
+                    self._edge_memory.store(
+                        content=f"Unanswered voice query: {transcription}",
+                        source="voice_fallback",
+                        tags=["unanswered", "voice", "improvement"],
+                    )
+                except Exception:
+                    pass
+
         self._compose_and_speak(resp, user_text=transcription, trace=trace)
 
     def _voice_loop(self) -> None:
@@ -1120,6 +1134,15 @@ class VoiceManager(QObject):
         # Density altitude
         if any(w in query_lower for w in ["density altitude", "altitude"]):
             return f"Density altitude {s.density_altitude_ft:.0f} feet."
+
+        # Driving conditions / "good day" questions
+        if any(w in query_lower for w in ["good day", "driving conditions", "good for driving", "should i drive",
+                                           "nice out", "nice day"]):
+            temp = s.ambient_temp_c
+            humid = s.ambient_humidity_pct
+            grip = "dry" if humid < 70 else "damp" if humid < 85 else "wet"
+            verdict = "Perfect" if 5 < temp < 35 and humid < 75 else "Decent" if 0 < temp < 40 else "Marginal"
+            return f"{verdict}. {temp:.0f} degrees, {grip} conditions, {s.ambient_pressure_hpa:.0f} hectopascals."
 
         # General weather/outside/conditions
         if any(w in query_lower for w in ["weather", "outside", "conditions", "what's it like"]):
