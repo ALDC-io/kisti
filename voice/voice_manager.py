@@ -1140,10 +1140,29 @@ class VoiceManager(QObject):
         if any(w in query_lower for w in ["temperature", "temp"]):
             if any(cq in query_lower for cq in _COMPONENT_QUALIFIERS):
                 if not s.can_connected:
-                    return None  # No CAN — fall through to persona
+                    return "No ECU connected. Link G five not installed yet."
                 # CAN connected — let ECU block below handle it
 
         # === ECU / CAN sensor queries (when Link G5 is connected) ===
+        _ECU_KEYWORDS = (
+            "oil temp", "oil temperature", "oil pressure", "oil psi",
+            "coolant temp", "coolant temperature", "engine temp", "water temp",
+            "intake temp", "intake air", "iat",
+            "boost pressure", "boost psi", "manifold",
+            "battery", "voltage", "charging",
+            "fuel pressure", "fuel rail", "fuel psi",
+            "injector duty", "injector", "duty cycle",
+            "lambda", "air fuel", "afr", "rich", "lean",
+            "ethanol", "e85", "flex fuel",
+            "rpm", "revs", "engine speed",
+            "how fast", "wheel speed", "wheel slip",
+            "brake pressure", "steering angle",
+            "lateral g", "g force", "how many g", "yaw",
+            "dccd", "what gear", "which gear", "current gear",
+        )
+        if not s.can_connected and any(kw in query_lower for kw in _ECU_KEYWORDS):
+            return "No ECU connected. Link G five not installed yet."
+
         if s.can_connected:
             # Oil temperature
             if any(w in query_lower for w in ["oil temp", "oil temperature"]):
