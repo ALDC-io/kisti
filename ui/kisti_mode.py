@@ -719,9 +719,16 @@ class KistiModeWidget(QWidget):
         self._envelope = envelope
         self._envelope_idx = 0
         self._envelope_playing = True
-        self._playback_start_time = time.monotonic()
         self._waveform.set_active(True)
-        self._envelope_timer.start()
+        # Delay 150ms to align with paplay buffering — signal arrives before
+        # audio is audible, so starting the timer immediately leads the audio.
+        QTimer.singleShot(150, self._start_voice_envelope)
+
+    def _start_voice_envelope(self):
+        """Begin envelope playback after paplay buffering delay."""
+        if self._envelope_playing and self._envelope:
+            self._playback_start_time = time.monotonic()
+            self._envelope_timer.start()
 
     def _warmup_piper(self):
         """Background: warm up Piper model by synthesizing a discarded phrase."""
