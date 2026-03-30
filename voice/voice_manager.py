@@ -16,6 +16,7 @@ from __future__ import annotations
 import collections
 import logging
 import queue
+import re
 import struct
 import subprocess
 import threading
@@ -356,6 +357,56 @@ class VoiceManager(QObject):
         except queue.Full:
             pass
 
+    def _resolve_references(self, query: str) -> str:
+        """Resolve vague references (that, it, those) using dialogue context.
+
+        Uses recently mentioned topics from dialogue state to rewrite queries
+        like "that's interesting" → "the oil pressure is interesting".
+        Returns the original query if no references detected or context unavailable.
+        """
+        lower = query.lower().strip()
+
+        # No resolution needed if no vague references detected
+        vague_patterns = [r'\bthat\b', r'\bit\b', r'\bthose\b', r'\bthis\b']
+        if not any(re.search(p, lower) for p in vague_patterns):
+            return query
+
+        # Get dialogue context for resolution
+        ctx = self._dialogue.context_summary()
+        if not ctx:
+            return query  # No context available
+
+        # Extract topic from context (format: "Active topic: <topic>")
+        topic = None
+        for line in ctx.split('\n'):
+            if line.startswith('Active topic:'):
+                topic = line.split(':', 1)[1].strip()
+                break
+
+        # Basic resolution rules using detected topic
+        resolved = query
+        if topic:
+            # Replace "that" with topic context
+            resolved = re.sub(
+                r'\bthat\b', f"the {topic}",
+                resolved, flags=re.IGNORECASE
+            )
+            resolved = re.sub(
+                r'\bit\b', f"the {topic}",
+                resolved, flags=re.IGNORECASE
+            )
+            resolved = re.sub(
+                r'\bthis\b', f"the {topic}",
+                resolved, flags=re.IGNORECASE
+            )
+            # "those temps" / "those readings" → concrete reference
+            resolved = re.sub(
+                r'\bthose\s+(\w+)\b', f"the {topic} \\1",
+                resolved, flags=re.IGNORECASE
+            )
+
+        return resolved
+
     def handle_voice_query(self, transcription: str) -> None:
         """Process a transcribed voice query through the LLM."""
         if not transcription.strip():
@@ -408,13 +459,18 @@ class VoiceManager(QObject):
             self.response_ready.emit(live)
             return
 
+        # Resolve vague references using dialogue context
+        resolved_query = self._resolve_references(transcription)
+        if resolved_query != transcription:
+            log.info("Reference resolved: '%s' → '%s'", transcription, resolved_query)
+
         # Build telemetry context
         context = self._build_telemetry_context()
 
         # Build memory context (skip in Sport Sharp — token budget too tight)
         memory_context = ""
         if self._edge_memory and self._si_drive_mode != SIDriveMode.SPORT_SHARP:
-            memory_context = self._edge_memory.build_memory_context(transcription)
+            memory_context = self._edge_memory.build_memory_context(resolved_query)
 
         # Acknowledge before slow LLM path — persona matches return <1ms so skip those
         if not _match_persona(lower, self._si_drive_mode.label) and self._llm.is_real:
@@ -422,7 +478,7 @@ class VoiceManager(QObject):
 
         # Query LLM
         response = self._llm.query(
-            user_message=transcription,
+            user_message=resolved_query,
             telemetry_context=context,
             memory_context=memory_context,
             si_drive_mode=self._si_drive_mode.label,
