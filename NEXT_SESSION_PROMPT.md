@@ -89,11 +89,13 @@ b02255b Race analysis Phases 5+6: voice timing + UI + Zeus push
 ## Section 4: Prioritized TODO for kisti-11
 
 ### 1. Persona Narrative Expansion (HIGH PRIORITY)
-A persona audit is in progress (kisti-10 spawned agent). Key gaps identified so far:
+Full gap audit at `docs/persona_gap_audit.md` — 42 keyword entries needed (~25-30 responses).
 - **57 persona responses** exist (7 safety, 17 tech, 33 fun)
-- **Missing coverage**: drivetrain (clutch/flywheel), suspension (KYB/Fortune Auto), brakes (Pentosin), exhaust (Grimmspeed/uppipe), electronics (AiM Strada)
-- **Missing query types**: "how does the turbo work?", "what's my service schedule?", "explain DCCD", cornering/braking advice, maintenance intervals
+- **TIER 1 (12 responses)**: DCCD education (2), turbo operation (4), oil/coolant service (3), fuel economy (3), knock/detonation (2)
+- **TIER 2 (6 responses)**: braking/cornering technique (4), overheat/blowout emergency (2)
+- **TIER 3 (8 responses)**: component specs (clutch, flywheel, AiM, brakes, exhaust, suspension, swaybars, PDM)
 - **Pattern**: Apply Zeus Chat prepopulated-narrative approach — expand persona responses so fewer queries fall to slow Ollama fallback
+- Keep all responses to 2 sentences max (TTS latency constraint at `llm_engine.py:323-326`)
 - The unanswered query log in edge memory will show real gaps over time
 
 ### 2. Validate Phase 9 Fixes on Jetson (MEDIUM)
