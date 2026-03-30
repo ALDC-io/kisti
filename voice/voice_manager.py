@@ -253,7 +253,6 @@ class VoiceManager(QObject):
     speaking_text = Signal(str)
     led_frame_ready = Signal(object)  # LEDFrame
     response_ready = Signal(str)      # LLM response text for UI AudioPlayer
-    waveform_envelope = Signal(object)  # Amplitude envelope for UI waveform viz
 
     def __init__(self, mic_device: str = "default", enable_mic: bool = True,
                  parent: Optional[QObject] = None) -> None:
@@ -273,6 +272,10 @@ class VoiceManager(QObject):
         self._state = VoiceState.IDLE
         self._toggle_state = VoiceToggleState.NORMAL
         self._si_drive_mode = SIDriveMode.INTELLIGENT
+
+        # Shared waveform data — written by voice thread, polled by UI thread.
+        # No Qt signal crossing threads. UI reads at 20 Hz via _update_levels.
+        self._waveform_data = None  # (envelope_list, start_monotonic) or None
 
         self._speak_queue: queue.Queue[str] = queue.Queue(maxsize=10)
         self._worker_thread: Optional[threading.Thread] = None
@@ -874,10 +877,9 @@ class VoiceManager(QObject):
         play_proc = None
         wav_path = None
         if not self._interrupted:
-            # Send envelope to UI waveform BEFORE starting audio so Qt signal
-            # queuing overlaps with paplay startup (reduces perceived viz delay)
-            self.waveform_envelope.emit(result.amplitude_envelope)
             play_proc, wav_path = self._start_audio(result.audio_pcm, result.sample_rate)
+            # Set shared waveform data for UI polling (no cross-thread signals)
+            self._waveform_data = (result.amplitude_envelope, time.monotonic())
 
         # Drive LEDs synchronized with audio playback
         if self._si_drive_mode == SIDriveMode.INTELLIGENT:
@@ -901,6 +903,9 @@ class VoiceManager(QObject):
                     os.unlink(wav_path)
                 except OSError:
                     pass
+
+        # Clear waveform data — UI will stop animating on next poll
+        self._waveform_data = None
 
         # Mark when we stopped speaking — echo suppression uses this timestamp
         self._last_spoken_at = time.monotonic()

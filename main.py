@@ -668,13 +668,11 @@ def main():
             lambda text: window.queue_speech(text)
         )
 
-        # Drive UI waveform from voice manager's TTS envelope.
-        # response_ready is NOT emitted for query responses (mic race condition),
-        # so waveform_envelope carries the pre-computed envelope directly.
-        # Cleanup happens via _envelope_tick when envelope runs out — no
-        # state_changed connection (fires too often, repaint blocks X11).
+        # UI waveform polls voice manager's shared _waveform_data at 40Hz.
+        # No cross-thread Qt signals — avoids event queue flooding that
+        # was freezing the compositorless X11 UI.
         if hasattr(window, '_kisti_mode'):
-            voice_mgr.waveform_envelope.connect(window._kisti_mode.on_voice_envelope)
+            window._kisti_mode.set_voice_manager(voice_mgr)
 
     # --- Echo protection: pause mic during UI AudioPlayer speech ---
     # kisti_mode._start_speaking() plays audio without voice_manager involvement,
