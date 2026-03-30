@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pytest
 
-from voice.stt_engine import STTEngine, TranscriptionResult, SAMPLE_RATE
+from voice.stt_engine import STTEngine, HybridSTTEngine, TranscriptionResult, SAMPLE_RATE
 from voice.tts_engine import TTSEngine, TTSResult, compute_amplitude_envelope
 from voice.llm_engine import (
     LLMEngine, LLMResponse, _match_persona, FALLBACK_RESPONSE,
@@ -57,6 +57,38 @@ class TestSTTEngine:
 
     def test_transcribe_empty(self):
         engine = STTEngine()
+        engine.start()
+        result = engine.transcribe(b"")
+        assert result.duration_s == 0.0
+        engine.stop()
+
+
+class TestHybridSTTEngine:
+    def test_start_stop(self):
+        """Test HybridSTTEngine lifecycle (no DEEPGRAM_API_KEY set in tests)."""
+        engine = HybridSTTEngine()
+        engine.start()
+        assert engine.is_running
+        engine.stop()
+        assert not engine.is_running
+
+    def test_transcribe_fallback_to_mock(self):
+        """Without Deepgram key, falls back to whisper.cpp/mock."""
+        engine = HybridSTTEngine()
+        engine.start()
+
+        # 1 second of silence
+        audio = b"\x00\x00" * SAMPLE_RATE
+        result = engine.transcribe(audio)
+
+        assert isinstance(result, TranscriptionResult)
+        assert result.text == "[mock transcription]"  # Falls back to mock
+        assert result.duration_s == pytest.approx(1.0, abs=0.01)
+        engine.stop()
+
+    def test_transcribe_empty_hybrid(self):
+        """Empty audio with hybrid engine."""
+        engine = HybridSTTEngine()
         engine.start()
         result = engine.transcribe(b"")
         assert result.duration_s == 0.0

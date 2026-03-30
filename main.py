@@ -214,17 +214,13 @@ def main():
             )
 
             # Wire keypad buttons to voice control
-            # K1 (0x01): Toggle voice on/off
-            # K2 (0x02): Push-to-talk (hold to listen without wake word requirement)
+            # Voice toggle: K4 via mode_manager.voice_toggle signal (line 200)
+            # Push-to-talk: K2 handled here (hold to listen without wake word)
             ptt_state = [False]  # track K2 state for release detection
 
             def _on_keypad_pressed(button_mask: int):
-                """Handle keypad button presses."""
-                if button_mask == 0x01:
-                    # K1: Toggle voice on/off
-                    voice_mgr.toggle_voice()
-                    log.info("K1: voice toggled")
-                elif button_mask == 0x02:
+                """Handle keypad button presses for push-to-talk (K2)."""
+                if button_mask & 0x02:
                     # K2: Push-to-talk — enable passthrough
                     if voice_mgr._mic:
                         voice_mgr._mic.set_passthrough(True)

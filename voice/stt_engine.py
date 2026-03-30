@@ -10,9 +10,13 @@ falls back to PyTorch Whisper. Mock fallback for testing/development.
 
 from __future__ import annotations
 
+import json as _json
 import logging
+import os
 import re
+import threading
 import time
+import urllib.request
 import wave
 from dataclasses import dataclass
 from pathlib import Path
@@ -315,3 +319,159 @@ class STTEngine:
     def is_real(self) -> bool:
         """True if using real Whisper (not mock)."""
         return self._model is not None
+
+
+class HybridSTTEngine(STTEngine):
+    """Deepgram cloud when WiFi available, whisper.cpp when offline.
+
+    Checks WiFi connectivity every 30s in background thread.
+    Uses Deepgram API for cloud-quality transcription when online.
+    Falls back to whisper.cpp (or PyTorch) when WiFi unavailable.
+
+    Requires DEEPGRAM_API_KEY environment variable.
+
+    Usage:
+        engine = HybridSTTEngine()
+        engine.start()
+        result = engine.transcribe(audio_bytes)  # auto-selects Deepgram or whisper.cpp
+        engine.stop()
+    """
+
+    DEEPGRAM_API_URL = "https://api.deepgram.com/v1/listen"
+    WIFI_CHECK_INTERVAL_S = 30.0
+
+    def __init__(
+        self,
+        model_name: str = WHISPER_MODEL_NAME,
+        language: str = "en",
+        use_vad: bool = True,
+        server_url: str = WHISPER_CPP_URL,
+    ) -> None:
+        super().__init__(model_name, language, use_vad, server_url)
+        self._deepgram_key = os.environ.get("DEEPGRAM_API_KEY", "")
+        self._wifi_available = False
+        self._wifi_check_thread: Optional[threading.Thread] = None
+        self._stop_wifi_check = False
+
+    def _check_wifi(self) -> bool:
+        """Check if WiFi (or any external) connectivity is available."""
+        try:
+            req = urllib.request.Request("https://www.google.com", method="HEAD")
+            urllib.request.urlopen(req, timeout=2)
+            return True
+        except Exception:
+            return False
+
+    def _wifi_checker(self) -> None:
+        """Background thread: check WiFi every 30s."""
+        while not self._stop_wifi_check:
+            self._wifi_available = self._check_wifi()
+            status = "available" if self._wifi_available else "unavailable"
+            log.debug("WiFi check: %s", status)
+            time.sleep(self.WIFI_CHECK_INTERVAL_S)
+
+    def start(self) -> None:
+        """Start engines and WiFi checker thread."""
+        if self._running:
+            return
+
+        # Start base STT engine (whisper.cpp or PyTorch)
+        super().start()
+
+        # Start WiFi checker if we have Deepgram API key
+        if self._deepgram_key and not self._wifi_check_thread:
+            self._stop_wifi_check = False
+            self._wifi_check_thread = threading.Thread(target=self._wifi_checker, daemon=True)
+            self._wifi_check_thread.start()
+            log.info("Deepgram hybrid STT started (WiFi check every %.0fs)", self.WIFI_CHECK_INTERVAL_S)
+        elif not self._deepgram_key:
+            log.warning("Deepgram API key not set — using whisper.cpp only")
+
+    def stop(self) -> None:
+        """Stop base engine and WiFi checker."""
+        self._stop_wifi_check = True
+        if self._wifi_check_thread:
+            self._wifi_check_thread.join(timeout=5)
+            self._wifi_check_thread = None
+        super().stop()
+
+    def _transcribe_deepgram(self, audio_pcm: bytes, duration_s: float) -> Optional[TranscriptionResult]:
+        """Transcribe via Deepgram cloud API."""
+        if not self._wifi_available or not self._deepgram_key:
+            return None
+
+        start_time = time.monotonic()
+        try:
+            headers = {
+                "Authorization": f"Token {self._deepgram_key}",
+                "Content-Type": "audio/wav",
+            }
+            params = f"?model=nova-3&language={self._language}&smart_format=true"
+
+            wav_data = self._pcm_to_wav(audio_pcm)
+            req = urllib.request.Request(
+                f"{self.DEEPGRAM_API_URL}{params}",
+                data=wav_data,
+                headers=headers,
+                method="POST",
+            )
+
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                result = _json.loads(resp.read().decode())
+
+            # Extract transcript from Deepgram response
+            try:
+                transcript = result["results"]["channels"][0]["alternatives"][0]["transcript"]
+                text = transcript.strip()
+            except (KeyError, IndexError):
+                log.warning("Unexpected Deepgram response format: %s", result)
+                return None
+
+            latency = time.monotonic() - start_time
+
+            if _is_hallucination(text):
+                log.debug("STT[deepgram] hallucination filtered: '%s'", text[:60])
+                return TranscriptionResult(
+                    text="", duration_s=duration_s,
+                    latency_s=latency, confidence=0.0, is_final=True,
+                )
+
+            log.debug("STT[deepgram]: %.1fs audio -> '%.50s' in %.3fs", duration_s, text, latency)
+            return TranscriptionResult(
+                text=text, duration_s=duration_s,
+                latency_s=latency, confidence=0.98, is_final=True,
+            )
+
+        except Exception as exc:
+            log.warning("Deepgram transcription failed: %s — falling back", exc)
+            return None
+
+    def transcribe(self, audio_pcm: bytes) -> TranscriptionResult:
+        """Transcribe using Deepgram if WiFi available, else whisper.cpp.
+
+        Args:
+            audio_pcm: Raw PCM bytes (16-bit signed, 16kHz, mono).
+
+        Returns:
+            TranscriptionResult with transcribed text.
+        """
+        start_time = time.monotonic()
+        duration_s = len(audio_pcm) / (SAMPLE_RATE * 2)
+
+        # Reject very short clips
+        if duration_s < MIN_AUDIO_S:
+            return TranscriptionResult(
+                text="", duration_s=duration_s,
+                latency_s=time.monotonic() - start_time,
+                confidence=0.0, is_final=True,
+            )
+
+        # Try Deepgram first if WiFi available
+        if self._wifi_available and self._deepgram_key:
+            result = self._transcribe_deepgram(audio_pcm, duration_s)
+            if result is not None:
+                return result
+            log.debug("Deepgram unavailable — falling back to whisper.cpp")
+
+        # Fall back to whisper.cpp/PyTorch chain (parent class)
+        return super().transcribe(audio_pcm)
