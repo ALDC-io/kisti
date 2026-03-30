@@ -780,9 +780,18 @@ class VoiceManager(QObject):
                 heard_words = set(re.findall(r'\b\w+\b', lower))
                 if heard_words and spoken_words:
                     overlap = len(heard_words & spoken_words) / len(heard_words)
-                    if overlap > 0.4:
+                    if overlap > 0.3:
                         log.info("Echo suppressed (%.0f%% overlap with last speech): '%s'", overlap * 100, text[:60])
                         return
+
+            # Self-trigger guard — suppress known KiSTI phrases echoing back.
+            # These are common KiSTI responses that the mic picks up at 3x gain.
+            _SELF_PHRASES = ("i'm listening", "loud and clear", "systems nominal",
+                             "what do you need", "what else", "ready when you are")
+            if any(p in lower for p in _SELF_PHRASES):
+                if self._last_spoken_at and (time.monotonic() - self._last_spoken_at) < 5.0:
+                    log.info("Self-trigger suppressed: '%s'", text[:60])
+                    return
 
             has_wake_word = any(w in lower for w in WAKE_WORDS) or _fuzzy_wake_word(lower)
             # Fallback: OWW detected wake word but Whisper dropped it from transcription
@@ -892,9 +901,10 @@ class VoiceManager(QObject):
         # Mark when we stopped speaking — echo suppression uses this timestamp
         self._last_spoken_at = time.monotonic()
 
-        # Post-playback echo guard — reduced from 0.8s. Echo suppression
-        # (40% word overlap within 3s) catches anything this misses.
-        time.sleep(0.4)
+        # Post-playback echo guard — restored to 0.8s. Room reverb with
+        # ~600% effective gain takes 0.5-0.8s to decay. The 0.4s value
+        # caused self-triggering loops ("I'm listening" echo feedback).
+        time.sleep(0.8)
         if self._mic:
             if can_barge:
                 self._mic.set_barge_in_mode(False)
@@ -1110,43 +1120,174 @@ class VoiceManager(QObject):
         return None
 
     def _answer_from_sensors(self, query_lower: str) -> Optional[str]:
-        """Answer ambient/weather questions directly from live Yoctopuce data.
+        """Answer sensor questions directly from live telemetry data.
 
-        Returns a short spoken response if we have live sensor data for the
-        question, or None to fall through to persona/LLM.
+        Checks ECU (CAN) and ambient (Yoctopuce) data independently.
+        Returns a short spoken response, or None to fall through to persona/LLM.
         """
         s = self._telemetry_snapshot
-        if s is None or not s.ambient_available:
+        if s is None:
             return None
 
-        # Ambient temperature
-        if any(w in query_lower for w in ["temperature", "temp", "how hot", "how cold", "warm", "cold outside", "degrees"]):
-            return f"{s.ambient_temp_c:.1f} degrees outside. Dew point {s.dew_point_c:.1f}."
+        # Guard: component-specific temperature queries should NEVER return
+        # ambient data. Route to ECU handler (if CAN) or persona (if not).
+        _COMPONENT_QUALIFIERS = ("engine", "oil", "coolant", "tire", "tyre",
+                                 "brake", "egt", "exhaust", "transmission", "trans")
+        if any(w in query_lower for w in ["temperature", "temp"]):
+            if any(cq in query_lower for cq in _COMPONENT_QUALIFIERS):
+                if not s.can_connected:
+                    return None  # No CAN — fall through to persona
+                # CAN connected — let ECU block below handle it
 
-        # Humidity
-        if any(w in query_lower for w in ["humidity", "humid", "moisture", "damp"]):
-            return f"Humidity is {s.ambient_humidity_pct:.0f} percent. Dew point {s.dew_point_c:.1f} degrees."
+        # === ECU / CAN sensor queries (when Link G5 is connected) ===
+        if s.can_connected:
+            # Oil temperature
+            if any(w in query_lower for w in ["oil temp", "oil temperature"]):
+                if s.oil_temp_c > 0:
+                    status = "cold" if s.oil_temp_c < 80 else "optimal" if s.oil_temp_c < 120 else "hot"
+                    return f"Oil temperature {s.oil_temp_c:.0f} degrees. {status.capitalize()}."
+                return "Oil temperature sensor not reading yet."
 
-        # Barometric pressure
-        if any(w in query_lower for w in ["pressure outside", "barometric", "barometer", "air pressure", "atmospheric"]):
-            return f"Barometric pressure {s.ambient_pressure_hpa:.0f} millibars."
+            # Oil pressure
+            if any(w in query_lower for w in ["oil pressure", "oil psi"]):
+                if s.oil_psi > 0:
+                    status = "critical — pull over" if s.oil_psi < 25 else "normal" if s.oil_psi < 90 else "high"
+                    return f"Oil pressure {s.oil_psi:.0f} PSI. {status.capitalize()}."
+                return "Oil pressure sensor not reading yet."
 
-        # Density altitude
-        if any(w in query_lower for w in ["density altitude", "altitude"]):
-            return f"Density altitude {s.density_altitude_ft:.0f} feet."
+            # Coolant temperature
+            if any(w in query_lower for w in ["coolant temp", "coolant temperature", "engine temp", "engine temperature", "water temp"]):
+                if s.coolant_temp > 0:
+                    status = "cold" if s.coolant_temp < 80 else "normal" if s.coolant_temp < 100 else "warning" if s.coolant_temp < 105 else "critical"
+                    return f"Coolant {s.coolant_temp:.0f} degrees. {status.capitalize()}."
+                return "Coolant temperature sensor not reading yet."
 
-        # Driving conditions / "good day" questions
-        if any(w in query_lower for w in ["good day", "driving conditions", "good for driving", "should i drive",
-                                           "nice out", "nice day"]):
-            temp = s.ambient_temp_c
-            humid = s.ambient_humidity_pct
-            grip = "dry" if humid < 70 else "damp" if humid < 85 else "wet"
-            verdict = "Perfect" if 5 < temp < 35 and humid < 75 else "Decent" if 0 < temp < 40 else "Marginal"
-            return f"{verdict}. {temp:.0f} degrees, {grip} conditions, {s.ambient_pressure_hpa:.0f} millibars."
+            # Intake air temperature
+            if any(w in query_lower for w in ["intake temp", "intake air", "iat"]):
+                if s.iat_c != 0:
+                    return f"Intake air temperature {s.iat_c:.0f} degrees."
+                return "IAT sensor not reading yet."
 
-        # General weather/outside/conditions
-        if any(w in query_lower for w in ["weather", "outside", "conditions", "what's it like"]):
-            return f"{s.ambient_temp_c:.1f} degrees, {s.ambient_humidity_pct:.0f} percent humidity, {s.ambient_pressure_hpa:.0f} millibars."
+            # Boost pressure
+            if any(w in query_lower for w in ["boost pressure", "how much boost", "boost psi", "manifold"]):
+                if s.map_kpa > 0:
+                    boost_psi = (s.map_kpa - 101.325) * 0.145038
+                    if boost_psi > 0:
+                        return f"Boost {boost_psi:.1f} PSI."
+                    return f"Vacuum {abs(boost_psi):.1f} PSI. Not in boost."
+                return "MAP sensor not reading yet."
+
+            # Battery voltage
+            if any(w in query_lower for w in ["battery", "voltage", "charging"]):
+                if s.battery_v > 0:
+                    status = "low" if s.battery_v < 12.4 else "normal" if s.battery_v < 14.8 else "high"
+                    return f"Battery {s.battery_v:.1f} volts. {status.capitalize()}."
+                return "Battery voltage not reading yet."
+
+            # Fuel pressure
+            if any(w in query_lower for w in ["fuel pressure", "fuel rail", "fuel psi"]):
+                if s.fuel_pressure_kpa > 0:
+                    fuel_psi = s.fuel_pressure_kpa * 0.145038
+                    return f"Fuel rail pressure {fuel_psi:.0f} PSI."
+                return "Fuel pressure sensor not reading yet."
+
+            # Injector duty cycle
+            if any(w in query_lower for w in ["injector duty", "injector", "duty cycle"]):
+                if s.injector_duty > 0:
+                    status = "safe" if s.injector_duty < 80 else "high" if s.injector_duty < 95 else "maxed out"
+                    return f"Injector duty cycle {s.injector_duty:.0f} percent. {status.capitalize()}."
+                return "Injector duty not reading yet."
+
+            # Lambda / AFR
+            if any(w in query_lower for w in ["lambda", "air fuel", "afr", "rich", "lean"]):
+                if s.lambda_1 > 0:
+                    status = "rich" if s.lambda_1 < 0.95 else "stoich" if s.lambda_1 < 1.05 else "lean"
+                    return f"Lambda {s.lambda_1:.3f}. Running {status}."
+                return "Lambda sensor not reading yet."
+
+            # Ethanol content
+            if any(w in query_lower for w in ["ethanol", "e85", "flex fuel", "fuel content"]):
+                if s.ethanol_pct > 0:
+                    return f"Ethanol content {s.ethanol_pct:.0f} percent."
+                return "Ethanol sensor not reading."
+
+            # RPM
+            if any(w in query_lower for w in ["rpm", "revs", "engine speed"]):
+                return f"Engine at {s.rpm:.0f} RPM." if s.rpm > 0 else "Engine is off."
+
+            # Vehicle speed
+            if any(w in query_lower for w in ["speed", "how fast", "going"]) and "wheel" not in query_lower:
+                if s.speed_kph > 0:
+                    return f"Doing {s.speed_kph:.0f} km per hour."
+                return "Stationary."
+
+            # Wheel speeds
+            if any(w in query_lower for w in ["wheel speed", "wheel slip"]):
+                if s.wheel_speed_fl > 0 or s.wheel_speed_fr > 0:
+                    return (f"Front left {s.wheel_speed_fl:.0f}, front right {s.wheel_speed_fr:.0f}, "
+                            f"rear left {s.wheel_speed_rl:.0f}, rear right {s.wheel_speed_rr:.0f} km per hour.")
+                return "Wheel speed sensors not reading yet."
+
+            # Brake pressure
+            if "brake pressure" in query_lower:
+                if s.brake_pressure > 0:
+                    return f"Brake pressure {s.brake_pressure:.0f} bar."
+                return "Brake pressure sensor not reading."
+
+            # Steering angle
+            if any(w in query_lower for w in ["steering angle", "steering wheel", "how far turned"]):
+                return f"Steering angle {s.steering_angle:.0f} degrees."
+
+            # Lateral G / G-force (live)
+            if any(w in query_lower for w in ["lateral g", "g force", "how many g"]):
+                if s.lateral_g != 0:
+                    return f"Lateral {abs(s.lateral_g):.2f} g {'right' if s.lateral_g > 0 else 'left'}."
+                return "No lateral load right now."
+
+            # Yaw rate
+            if "yaw" in query_lower:
+                return f"Yaw rate {s.yaw_rate:.1f} degrees per second."
+
+            # DCCD
+            if "dccd" in query_lower and ("percent" in query_lower or "setting" in query_lower or "bias" in query_lower):
+                return f"DCCD commanding {s.dccd_command_pct:.0f} percent."
+
+            # Gear
+            if any(w in query_lower for w in ["what gear", "which gear", "current gear"]):
+                if s.gear == 0:
+                    return "Neutral."
+                return f"Gear {s.gear}."
+
+        # === Ambient / weather queries (Yoctopuce) ===
+        if s.ambient_available:
+            # Ambient temperature (component temps already guarded at top of method)
+            if any(w in query_lower for w in ["temperature", "temp", "how hot", "how cold", "warm", "cold outside", "degrees"]):
+                return f"{s.ambient_temp_c:.1f} degrees outside. Dew point {s.dew_point_c:.1f}."
+
+            # Humidity
+            if any(w in query_lower for w in ["humidity", "humid", "moisture", "damp"]):
+                return f"Humidity is {s.ambient_humidity_pct:.0f} percent. Dew point {s.dew_point_c:.1f} degrees."
+
+            # Barometric pressure
+            if any(w in query_lower for w in ["pressure outside", "barometric", "barometer", "air pressure", "atmospheric"]):
+                return f"Barometric pressure {s.ambient_pressure_hpa:.0f} millibars."
+
+            # Density altitude
+            if any(w in query_lower for w in ["density altitude", "altitude"]):
+                return f"Density altitude {s.density_altitude_ft:.0f} feet."
+
+            # Driving conditions / "good day" questions
+            if any(w in query_lower for w in ["good day", "driving conditions", "good for driving", "should i drive",
+                                               "nice out", "nice day"]):
+                temp = s.ambient_temp_c
+                humid = s.ambient_humidity_pct
+                grip = "dry" if humid < 70 else "damp" if humid < 85 else "wet"
+                verdict = "Perfect" if 5 < temp < 35 and humid < 75 else "Decent" if 0 < temp < 40 else "Marginal"
+                return f"{verdict}. {temp:.0f} degrees, {grip} conditions, {s.ambient_pressure_hpa:.0f} millibars."
+
+            # General weather/outside/conditions
+            if any(w in query_lower for w in ["weather", "outside", "conditions", "what's it like"]):
+                return f"{s.ambient_temp_c:.1f} degrees, {s.ambient_humidity_pct:.0f} percent humidity, {s.ambient_pressure_hpa:.0f} millibars."
 
         return None
 

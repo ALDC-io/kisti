@@ -282,7 +282,9 @@ class MicCapture(QObject):
                 remaining -= len(chunk)
             raw = b"".join(chunks)
             # Software gain: PA 300% + 3x software = effective ~900%.
-            # Needed because USB mic has no ALSA capture gain control.
+            # 3x needed for Whisper to catch quieter words (e.g. "oil" in
+            # "oil temperature"). Echo loop mitigated by 0.8s guard + 30%
+            # word overlap suppression + response dedup in voice_manager.
             arr = _np.frombuffer(raw, dtype=_np.int16).astype(_np.int32) * 3
             return _np.clip(arr, -32768, 32767).astype(_np.int16).tobytes()
 
