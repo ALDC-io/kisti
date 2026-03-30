@@ -536,7 +536,7 @@ def main():
                 playback_finished fires from AudioPlayer's daemon thread
                 which has no Qt event loop — QTimer silently never fires.
                 """
-                _echo_threading.Timer(0.8, voice_mgr._mic.resume).start()
+                _echo_threading.Timer(0.4, voice_mgr._mic.resume).start()
             _kmode._audio_player.playback_finished.connect(_echo_guard_resume)
             log.info("Echo protection: mic pauses during UI audio playback")
 
