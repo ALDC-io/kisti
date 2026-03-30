@@ -338,20 +338,46 @@ def main():
             timing_mgr = TimingManager(bridge=bridge, db_store=db_store)
             timing_mgr.start()
 
-            # Voice announcements for timing events
+            # Voice announcements for timing events (mode-aware)
             if voice_mgr:
+                voice_mgr.set_timing_manager(timing_mgr)
+
                 def _on_lap_complete(e):
+                    mode = mode_mgr.si_drive_mode
+                    lap = e["lap_number"]
+                    t = e["time_s"]
                     delta = e["delta_s"]
-                    msg = f"Lap {e['lap_number']}: {e['time_s']:.1f} seconds."
-                    if delta != 0:
-                        direction = "plus" if delta > 0 else "minus"
-                        msg += f" {direction} {abs(delta):.1f}."
-                    voice_mgr.speak(msg)
+                    tb = e.get("theoretical_best_s")
+
+                    if mode == SIDriveMode.SPORT_SHARP:
+                        # S# — PBs only (new best lap)
+                        if delta < 0:
+                            voice_mgr.speak(f"P B. {t:.1f}.")
+                    elif mode == SIDriveMode.SPORT:
+                        # S — lap + delta
+                        msg = f"{t:.1f}."
+                        if delta != 0:
+                            d = "plus" if delta > 0 else "minus"
+                            msg += f" {d} {abs(delta):.1f}."
+                        voice_mgr.speak(msg)
+                    else:
+                        # I — full detail
+                        msg = f"Lap {lap}: {t:.1f} seconds."
+                        if delta != 0:
+                            d = "plus" if delta > 0 else "minus"
+                            msg += f" {d} {abs(delta):.1f}."
+                        if tb and tb > 0:
+                            msg += f" Theoretical best: {tb:.1f}."
+                        voice_mgr.speak(msg)
 
                 timing_mgr.lap_completed.connect(_on_lap_complete)
-                timing_mgr.track_detected.connect(
-                    lambda name: voice_mgr.speak(f"Track detected: {name}.")
-                )
+
+                def _on_track_detected(name):
+                    mode = mode_mgr.si_drive_mode
+                    if mode != SIDriveMode.SPORT_SHARP:
+                        voice_mgr.speak(f"Track detected: {name}.")
+
+                timing_mgr.track_detected.connect(_on_track_detected)
 
             log.info("Timing manager enabled")
         except Exception as exc:
@@ -377,6 +403,56 @@ def main():
             )
     else:
         log.info("No CAN hardware — ECU features disabled")
+
+    # --- Zeus Memory timing push (fire-and-forget) ---
+    def _push_timing_to_zeus(sid: str, summary: dict) -> None:
+        """Push session timing summary to Zeus Memory in a background thread."""
+        if not summary or summary.get("total_laps", 0) == 0:
+            return
+        import threading
+        import json
+        import urllib.request
+
+        def _push():
+            try:
+                api_key = os.environ.get("ZEUS_API_KEY", "")
+                if not api_key:
+                    log.debug("No ZEUS_API_KEY — skipping timing push")
+                    return
+                payload = json.dumps({
+                    "content": (
+                        f"KiSTI timing session {sid[:8]}: "
+                        f"{summary['total_laps']} laps at {summary.get('track_name', 'Unknown')}. "
+                        f"Best: lap {summary['best_lap_number']} @ {summary['best_lap_time_s']:.1f}s. "
+                        f"Theoretical: {summary.get('theoretical_best_s', 0):.1f}s."
+                    ),
+                    "source": "kisti_timing",
+                    "metadata": {
+                        "type": "timing_session",
+                        "session_id": sid,
+                        "track_name": summary.get("track_name", "Unknown"),
+                        "total_laps": summary["total_laps"],
+                        "best_lap_time_s": summary["best_lap_time_s"],
+                        "best_lap_number": summary["best_lap_number"],
+                        "theoretical_best_s": summary.get("theoretical_best_s"),
+                        "last_lap_time_s": summary.get("last_lap_time_s"),
+                    },
+                }).encode("utf-8")
+                req = urllib.request.Request(
+                    "https://zeus.aldc.io/api/memory",
+                    data=payload,
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-API-Key": api_key,
+                    },
+                    method="POST",
+                )
+                urllib.request.urlopen(req, timeout=5)
+                log.info("Timing summary pushed to Zeus Memory")
+            except Exception as exc:
+                log.debug("Zeus timing push failed (non-critical): %s", exc)
+
+        threading.Thread(target=_push, daemon=True).start()
 
     # --- DuckDB session lifecycle (K1 start/stop, telemetry recording) ---
     session_id = None
@@ -407,16 +483,37 @@ def main():
                     voice_mgr.speak("Session recording started.")
                 log.info("Session started: %s", session_id[:8])
             else:
-                # Timing debrief before ending session
+                # Mode-aware timing debrief before ending session
                 if timing_mgr and voice_mgr:
                     summary = timing_mgr.get_session_summary()
                     if summary.get("total_laps", 0) > 0:
-                        voice_mgr.speak(
-                            f"Session complete. {summary['total_laps']} laps. "
-                            f"Best: lap {summary['best_lap_number']}, "
-                            f"{summary['best_lap_time_s']:.1f} seconds."
-                        )
+                        mode = mode_mgr.si_drive_mode
+                        n = summary["total_laps"]
+                        best_t = summary["best_lap_time_s"]
+                        best_n = summary["best_lap_number"]
+                        tb = summary.get("theoretical_best_s")
+                        track = summary.get("track_name", "Unknown")
+
+                        if mode == SIDriveMode.SPORT_SHARP:
+                            voice_mgr.speak(f"Done. Best: {best_t:.1f}.")
+                        elif mode == SIDriveMode.SPORT:
+                            voice_mgr.speak(
+                                f"{n} laps. Best: {best_t:.1f}, lap {best_n}."
+                            )
+                        else:
+                            msg = (
+                                f"Session complete at {track}. "
+                                f"{n} laps. Best: lap {best_n}, {best_t:.1f} seconds."
+                            )
+                            if tb and tb > 0:
+                                msg += f" Theoretical best: {tb:.1f}."
+                            last_t = summary.get("last_lap_time_s")
+                            if last_t:
+                                msg += f" Last lap: {last_t:.1f}."
+                            voice_mgr.speak(msg)
+                # Push timing summary to Zeus Memory (async, non-blocking)
                 if timing_mgr:
+                    _push_timing_to_zeus(session_id, timing_mgr.get_session_summary())
                     timing_mgr.set_session_id(None)
                 db_store.end_session(session_id)
                 if voice_mgr:
@@ -438,6 +535,26 @@ def main():
 
     # UI — pass the shared bridge so CAN data flows to display
     window = MainWindow(fullscreen=args.fullscreen, bridge=bridge)
+
+    # Wire timing display to bridge for live updates (4 Hz is enough for UI)
+    if timing_mgr:
+        _timing_tick = [0]
+
+        def _update_timing_display():
+            _timing_tick[0] += 1
+            if _timing_tick[0] % 5 == 0:  # ~4 Hz from 20 Hz bridge
+                snap = bridge.snapshot()
+                if hasattr(window, '_track_mode'):
+                    window._track_mode.update_timing(snap)
+
+        bridge.state_changed.connect(_update_timing_display)
+
+        # Mode change → timing widget layout
+        if mode_mgr:
+            mode_mgr.si_drive_changed.connect(
+                lambda m: window._track_mode.set_timing_mode(m)
+                if hasattr(window, '_track_mode') else None
+            )
 
     # --- Ambient condition tracking (independent of ECU session) ---
     # Wired AFTER window so queue_speech() is available via AudioPlayer
