@@ -331,9 +331,12 @@ class MicCapture(QObject):
         while self._running and alive_fn():
             frame = read_fn(FRAME_BYTES)
             _diag_count += 1
-            if _diag_count <= 5 or _diag_count % 500 == 0:
-                rms = np.sqrt(np.mean(np.frombuffer(frame[:FRAME_BYTES], dtype=np.int16).astype(np.float32) ** 2))
-                log.info("mic diag frame=%d len=%d rms=%.0f", _diag_count, len(frame), rms)
+            if _diag_count <= 10 or _diag_count % 100 == 0:
+                _d_arr = np.frombuffer(frame[:FRAME_BYTES], dtype=np.int16).astype(np.float32)
+                rms = np.sqrt(np.mean(_d_arr ** 2))
+                peak = np.max(np.abs(_d_arr))
+                log.info("mic diag frame=%d rms=%.0f peak=%.0f paused=%s bargein=%s",
+                         _diag_count, rms, peak, self._paused, self._barge_in_mode)
             if len(frame) < FRAME_BYTES:
                 break
 
@@ -389,6 +392,9 @@ class MicCapture(QObject):
                 )
                 confidence = self._vad(audio_float, SAMPLE_RATE).item()
                 is_speech = confidence > SPEECH_THRESHOLD
+                if confidence > 0.2:  # Log when VAD sees anything interesting
+                    log.info("VAD conf=%.3f speech=%s voiced=%d silent=%d",
+                             confidence, is_speech, voiced_count, silent_count)
             else:
                 is_speech = self._vad.is_speech(frame, SAMPLE_RATE)
 
