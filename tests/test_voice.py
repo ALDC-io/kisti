@@ -1073,6 +1073,416 @@ class TestGoldenPersona:
 
 
 # ========================================================================
+# kisti-11: Persona Narrative Expansion tests
+# ========================================================================
+
+
+class TestTier1PersonaExpansion:
+    """Tests for TIER 1 persona responses added in kisti-11."""
+
+    # --- DCCD & AWD ---
+    def test_dccd_education(self):
+        result = _match_persona("Tell me about the DCCD")
+        assert result is not None
+        assert "center diff" in result.lower() or "biasing" in result.lower()
+
+    def test_dccd_feel(self):
+        result = _match_persona("What does the locking feel like?")
+        assert result is not None
+        assert "grip" in result.lower()
+
+    # --- Turbo Operation ---
+    def test_turbo_spool(self):
+        result = _match_persona("How long does it take to spool?")
+        assert result is not None
+        assert "3,200" in result or "spool" in result.lower()
+
+    def test_turbo_lag(self):
+        result = _match_persona("Why is there turbo lag?")
+        assert result is not None
+        assert "lag" in result.lower()
+
+    def test_turbo_whistle(self):
+        result = _match_persona("What is that turbo noise?")
+        assert result is not None
+        assert "compressor" in result.lower() or "whistle" in result.lower()
+
+    def test_turbo_maintenance(self):
+        result = _match_persona("How do I maintain the turbo?")
+        assert result is not None
+        assert "oil" in result.lower()
+
+    # --- Oil & Coolant ---
+    def test_oil_change_interval(self):
+        result = _match_persona("When should I change the oil?")
+        assert result is not None
+        assert "5,000" in result or "km" in result.lower()
+
+    def test_coolant_flush(self):
+        result = _match_persona("When is the coolant service due?")
+        assert result is not None
+        assert "20,000" in result or "coolant" in result.lower()
+
+    def test_oil_pressure_low(self):
+        result = _match_persona("My oil pressure is low")
+        assert result is not None
+        assert "psi" in result.lower() or "level" in result.lower()
+
+    # --- Fuel Economy ---
+    def test_fuel_economy(self):
+        result = _match_persona("What's the fuel economy?")
+        assert result is not None
+        assert "km per liter" in result.lower() or "highway" in result.lower()
+
+    def test_range(self):
+        result = _match_persona("How far can we go on a tank?")
+        assert result is not None
+        assert "360" in result or "540" in result
+
+    def test_fuel_grade(self):
+        result = _match_persona("What octane should I use?")
+        assert result is not None
+        assert "91" in result
+
+    # --- Safety: Knock & Fuel Quality ---
+    def test_knock_detection(self):
+        result = _match_persona("I hear pinging from the engine")
+        assert result is not None
+        assert "knock" in result.lower() or "octane" in result.lower()
+
+    def test_fuel_quality_warning(self):
+        result = _match_persona("What happens with low octane fuel?")
+        assert result is not None
+        assert "91" in result or "knock" in result.lower()
+
+    def test_knock_available_all_modes(self):
+        """Safety responses must be available in ALL SI Drive modes."""
+        for mode in ("Intelligent", "Sport", "Sport Sharp"):
+            assert _match_persona("I hear pinging", mode) is not None
+
+    def test_fuel_quality_available_all_modes(self):
+        for mode in ("Intelligent", "Sport", "Sport Sharp"):
+            assert _match_persona("What about cheap fuel?", mode) is not None
+
+
+class TestTier2DrivingTechnique:
+    """Tests for TIER 2 driving technique responses."""
+
+    def test_braking_technique(self):
+        result = _match_persona("What is trail braking technique?")
+        assert result is not None
+        assert "brake" in result.lower() or "trail" in result.lower()
+
+    def test_cornering(self):
+        result = _match_persona("What's the best racing line?")
+        assert result is not None
+        assert "apex" in result.lower() or "steering" in result.lower()
+
+    def test_g_force(self):
+        result = _match_persona("What g-force can this car pull?")
+        assert result is not None
+        assert "1.0" in result or "lateral" in result.lower()
+
+    def test_weight_transfer(self):
+        result = _match_persona("Explain weight transfer")
+        assert result is not None
+        assert "braking" in result.lower() or "weight" in result.lower()
+
+    def test_overheat_emergency(self):
+        result = _match_persona("The engine is overheating!")
+        assert result is not None
+        assert "105" in result or "cool" in result.lower()
+
+    def test_blowout_emergency(self):
+        result = _match_persona("I think I have a flat tire!")
+        assert result is not None
+        assert "grip" in result.lower() or "brake" in result.lower()
+
+    def test_emergency_responses_all_modes(self):
+        """Overheat and blowout are safety — available in ALL modes."""
+        for mode in ("Intelligent", "Sport", "Sport Sharp"):
+            assert _match_persona("Engine overheating", mode) is not None
+            assert _match_persona("Tire blowout!", mode) is not None
+
+
+class TestTier3ComponentSpecs:
+    """Tests for TIER 3 component spec responses."""
+
+    def test_clutch(self):
+        assert _match_persona("What clutch do you have?") is not None
+
+    def test_flywheel(self):
+        assert _match_persona("Tell me about the flywheel") is not None
+
+    def test_aim_strada(self):
+        assert _match_persona("What's on the AiM dash?") is not None
+
+    def test_brake_fluid(self):
+        assert _match_persona("What brake fluid do you use?") is not None
+
+    def test_grimmspeed(self):
+        assert _match_persona("Tell me about the Grimmspeed gasket") is not None
+
+    def test_suspension_brand(self):
+        assert _match_persona("What suspension brand?") is not None
+
+    def test_sway_bar(self):
+        assert _match_persona("How are the sway bars?") is not None
+
+    def test_pdm(self):
+        assert _match_persona("What's the Razor PDM do?") is not None
+
+    def test_tier3_fun_category_blocked_in_sport(self):
+        """TIER 3 component specs are fun-category — blocked in Sport."""
+        assert _match_persona("What clutch?", "Sport") is None
+        assert _match_persona("Tell me about the flywheel", "Sport") is None
+
+    def test_tier3_blocked_in_sport_sharp(self):
+        """TIER 3 blocked in Sport Sharp too."""
+        assert _match_persona("What's the AiM dash?", "Sport Sharp") is None
+
+
+class TestTemperatureRouting:
+    """Tests for temperature query routing fix — component temps don't go to ambient."""
+
+    def test_engine_temp_not_ambient(self):
+        """'engine temperature' should NOT match ambient sensor handler (CAN off)."""
+        from voice.voice_manager import VoiceManager
+        vm = VoiceManager.__new__(VoiceManager)
+        from unittest.mock import MagicMock
+        snap = MagicMock()
+        snap.can_connected = False  # No CAN — only ambient available
+        snap.ambient_available = True
+        snap.ambient_temp_c = 22.0
+        snap.dew_point_c = 10.0
+        vm._telemetry_snapshot = snap
+        # Component-specific temp queries should return None (fall through to persona)
+        assert vm._answer_from_sensors("engine temperature") is None
+        assert vm._answer_from_sensors("oil temp") is None
+        assert vm._answer_from_sensors("coolant temp") is None
+        assert vm._answer_from_sensors("tire temperature") is None
+        assert vm._answer_from_sensors("brake temp") is None
+        assert vm._answer_from_sensors("exhaust temp") is None
+
+    def test_ambient_temp_still_works(self):
+        """Generic temperature queries still return ambient data."""
+        from voice.voice_manager import VoiceManager
+        from unittest.mock import MagicMock
+        vm = VoiceManager.__new__(VoiceManager)
+        snap = MagicMock()
+        snap.can_connected = False
+        snap.ambient_available = True
+        snap.ambient_temp_c = 22.5
+        snap.dew_point_c = 10.0
+        vm._telemetry_snapshot = snap
+        result = vm._answer_from_sensors("what's the temperature")
+        assert result is not None
+        assert "22.5" in result
+
+    def test_how_hot_outside_still_works(self):
+        """'how hot is it' still returns ambient."""
+        from voice.voice_manager import VoiceManager
+        from unittest.mock import MagicMock
+        vm = VoiceManager.__new__(VoiceManager)
+        snap = MagicMock()
+        snap.can_connected = False
+        snap.ambient_available = True
+        snap.ambient_temp_c = 30.0
+        snap.dew_point_c = 15.0
+        vm._telemetry_snapshot = snap
+        result = vm._answer_from_sensors("how hot is it")
+        assert result is not None
+        assert "30.0" in result
+
+
+# ========================================================================
+# kisti-11: ECU Sensor Voice Handler Tests
+# ========================================================================
+
+
+class TestECUSensorVoiceHandlers:
+    """Tests for live ECU data voice responses via _answer_from_sensors."""
+
+    def _make_vm(self, **overrides):
+        """Create a VoiceManager with mocked CAN-connected telemetry."""
+        from voice.voice_manager import VoiceManager
+        from unittest.mock import MagicMock
+        vm = VoiceManager.__new__(VoiceManager)
+        snap = MagicMock()
+        snap.can_connected = True
+        snap.ambient_available = False
+        # Defaults
+        snap.oil_temp_c = 95.0
+        snap.oil_psi = 45.0
+        snap.coolant_temp = 88.0
+        snap.iat_c = 35.0
+        snap.map_kpa = 200.0  # ~14.3 PSI boost
+        snap.battery_v = 14.2
+        snap.fuel_pressure_kpa = 2800.0
+        snap.injector_duty = 65.0
+        snap.lambda_1 = 0.98
+        snap.ethanol_pct = 52.0
+        snap.rpm = 3500.0
+        snap.speed_kph = 80.0
+        snap.wheel_speed_fl = 80.0
+        snap.wheel_speed_fr = 80.0
+        snap.wheel_speed_rl = 80.0
+        snap.wheel_speed_rr = 80.0
+        snap.brake_pressure = 25.0
+        snap.steering_angle = -15.0
+        snap.lateral_g = 0.45
+        snap.yaw_rate = 12.0
+        snap.dccd_command_pct = 35.0
+        snap.gear = 3
+        for k, v in overrides.items():
+            setattr(snap, k, v)
+        vm._telemetry_snapshot = snap
+        return vm
+
+    def test_oil_temp(self):
+        vm = self._make_vm()
+        result = vm._answer_from_sensors("what's the oil temperature")
+        assert result is not None
+        assert "95" in result
+        assert "optimal" in result.lower()
+
+    def test_oil_temp_cold(self):
+        vm = self._make_vm(oil_temp_c=45.0)
+        result = vm._answer_from_sensors("oil temp")
+        assert "cold" in result.lower()
+
+    def test_oil_temp_hot(self):
+        vm = self._make_vm(oil_temp_c=125.0)
+        result = vm._answer_from_sensors("oil temperature")
+        assert "hot" in result.lower()
+
+    def test_oil_pressure(self):
+        vm = self._make_vm()
+        result = vm._answer_from_sensors("what's the oil pressure")
+        assert "45" in result
+        assert "normal" in result.lower()
+
+    def test_oil_pressure_critical(self):
+        vm = self._make_vm(oil_psi=18.0)
+        result = vm._answer_from_sensors("oil pressure")
+        assert "critical" in result.lower()
+
+    def test_coolant_temp(self):
+        vm = self._make_vm()
+        result = vm._answer_from_sensors("coolant temperature")
+        assert "88" in result
+        assert "normal" in result.lower()
+
+    def test_coolant_temp_warning(self):
+        vm = self._make_vm(coolant_temp=103.0)
+        result = vm._answer_from_sensors("engine temperature")
+        assert "warning" in result.lower()
+
+    def test_iat(self):
+        vm = self._make_vm()
+        result = vm._answer_from_sensors("intake air temperature")
+        assert "35" in result
+
+    def test_boost_pressure(self):
+        vm = self._make_vm()
+        result = vm._answer_from_sensors("how much boost")
+        assert result is not None
+        assert "psi" in result.lower()
+
+    def test_battery_voltage(self):
+        vm = self._make_vm()
+        result = vm._answer_from_sensors("battery voltage")
+        assert "14.2" in result
+        assert "normal" in result.lower()
+
+    def test_fuel_pressure(self):
+        vm = self._make_vm()
+        result = vm._answer_from_sensors("fuel pressure")
+        assert "psi" in result.lower()
+
+    def test_injector_duty(self):
+        vm = self._make_vm()
+        result = vm._answer_from_sensors("injector duty cycle")
+        assert "65" in result
+        assert "safe" in result.lower()
+
+    def test_lambda(self):
+        vm = self._make_vm(lambda_1=0.85)
+        result = vm._answer_from_sensors("what's the lambda reading")
+        assert "0.85" in result
+        assert "rich" in result.lower()
+
+    def test_lambda_lean(self):
+        vm = self._make_vm(lambda_1=1.08)
+        result = vm._answer_from_sensors("air fuel ratio")
+        assert "lean" in result.lower()
+
+    def test_ethanol(self):
+        vm = self._make_vm()
+        result = vm._answer_from_sensors("ethanol content")
+        assert "52" in result
+
+    def test_rpm(self):
+        vm = self._make_vm()
+        result = vm._answer_from_sensors("what rpm")
+        assert "3500" in result
+
+    def test_speed(self):
+        vm = self._make_vm()
+        result = vm._answer_from_sensors("how fast are we going")
+        assert "80" in result
+
+    def test_wheel_speeds(self):
+        vm = self._make_vm()
+        result = vm._answer_from_sensors("wheel speeds")
+        assert "front left" in result.lower()
+
+    def test_brake_pressure(self):
+        vm = self._make_vm()
+        result = vm._answer_from_sensors("brake pressure")
+        assert "25" in result
+
+    def test_steering_angle(self):
+        vm = self._make_vm()
+        result = vm._answer_from_sensors("steering angle")
+        assert "15" in result
+
+    def test_lateral_g(self):
+        vm = self._make_vm()
+        result = vm._answer_from_sensors("lateral g force")
+        assert "0.45" in result
+
+    def test_yaw_rate(self):
+        vm = self._make_vm()
+        result = vm._answer_from_sensors("yaw rate")
+        assert "12.0" in result
+
+    def test_gear(self):
+        vm = self._make_vm()
+        result = vm._answer_from_sensors("what gear am i in")
+        assert "3" in result
+
+    def test_dccd_percent(self):
+        vm = self._make_vm()
+        result = vm._answer_from_sensors("dccd bias percent")
+        assert "35" in result
+
+    def test_can_disconnected_returns_none(self):
+        """ECU queries return None when CAN is not connected."""
+        vm = self._make_vm(can_connected=False)
+        assert vm._answer_from_sensors("oil temp") is None
+        assert vm._answer_from_sensors("what rpm") is None
+
+    def test_ambient_still_works_without_can(self):
+        """Ambient queries work even without CAN."""
+        vm = self._make_vm(can_connected=False, ambient_available=True,
+                           ambient_temp_c=22.0, dew_point_c=10.0)
+        result = vm._answer_from_sensors("what's the temperature")
+        assert result is not None
+        assert "22.0" in result
+
+
+# ========================================================================
 # Wake Word Training Script tests (KiSTI-006)
 # ========================================================================
 
