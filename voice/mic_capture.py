@@ -443,13 +443,14 @@ class MicCapture(QObject):
                         pcm = b"".join(speech_buffer)
                         self._last_wake_detected = wake_detected
                         if self._oww is not None and not wake_detected and not self._passthrough:
-                            log.debug("No wake word — skipping STT (%.1fs)", duration)
+                            log.info("No wake word — skipping STT (%.1fs, passthrough=%s)",
+                                     duration, self._passthrough)
                         else:
                             log.info("Speech captured: %.1fs (%d bytes, wake=%s)",
                                      duration, len(pcm), wake_detected)
                             self.speech_captured.emit(pcm)
                     else:
-                        log.debug("Discarding short utterance: %.1fs", duration)
+                        log.info("Discarding short utterance: %.1fs", duration)
 
                     speech_buffer.clear()
                     wake_detected = False
