@@ -823,25 +823,28 @@ class KistiModeWidget(QWidget):
 
         time.sleep(1)
 
-        # Speak AFTER detection — confirms hardware is checked and we're ready
-        self._queue_lines(["Powering on."])
-        time.sleep(2)
-        if not issues:
-            self._queue_lines(["All systems online."])
-        else:
-            for urgency, msg in issues:
-                self._queue_lines([msg], urgency=urgency)
-                time.sleep(3)
+        # Build a single startup line — KiSTI speaks once, then listens.
+        # Previously this was 4+ sequential lines with 2-3s gaps, blocking
+        # the mic for ~20s. One consolidated line = ~3-5s, then ready.
+        parts = ["Online."]
 
-        # Driving conditions summary — translate weather into driver language
-        grip_line = None
+        # Critical issues first
+        critical = [msg for urg, msg in issues if urg == "critical"]
+        if critical:
+            parts.extend(critical)
+
+        # Status summary
+        normal = [msg for urg, msg in issues if urg != "critical"]
+        if normal:
+            parts.append(normal[-1])  # Last normal issue (e.g. "No ECU. Standing by.")
+
+        # Driving conditions
         if ambient:
             t = ambient["temp_c"]
             h = ambient["humidity_pct"]
             dp = ambient["dew_point_c"]
             da = ambient["density_altitude_ft"]
 
-            # Compact conditions status
             if dp > (t - 2):
                 status = "damp, reduced grip"
             elif t < 5:
@@ -860,25 +863,11 @@ class KistiModeWidget(QWidget):
             elif da > 3000:
                 status += ", high altitude"
 
-            grip_line = f"Conditions {status}."
-            time.sleep(2)
-            self._queue_lines([grip_line])
+            parts.append(f"Conditions {status}.")
 
-        # No ECU — drop a random movie/TV quote as a one-liner
-        # (the "No ECU" issue was already spoken above from the issues list)
-        if not ecu_ok:
-            time.sleep(2)
-            from data.event_quotes import EVENT_QUOTES
-            _idle_pools = [
-                EVENT_QUOTES.get("engine_ready", []),
-                EVENT_QUOTES.get("cooldown_needed", []),
-                EVENT_QUOTES.get("session_start", []),
-                EVENT_QUOTES.get("first_start", []),
-                EVENT_QUOTES.get("ecu_disconnected", []),
-            ]
-            _all_quotes = [q for pool in _idle_pools for q in pool]
-            if _all_quotes:
-                self._queue_lines([random.choice(_all_quotes)])
+        time.sleep(1)
+        max_urgency = "critical" if critical else "normal"
+        self._queue_lines([" ".join(parts)], urgency=max_urgency)
 
     def _check_say_file(self):
         """Check for externally injected speech or questions.
