@@ -111,6 +111,12 @@ PERSONA_RESPONSES: list[tuple[list[str], str, str]] = [
     (["rain", "wet", "snow", "ice", "slippery"],
      "AWD with DCCD gives me an advantage in the wet. Respect the conditions, but this is where Subaru shines.",
      "safety"),
+    (["knock", "ping", "detonation", "pinging"],
+     "Metallic pinging is engine knock. Switch to higher octane, back off boost, or let IAT cool down — continue and you risk the block.",
+     "safety"),
+    (["fuel quality", "low octane", "cheap fuel"],
+     "The IAG 750 demands 91 octane minimum. Cheap fuel plus full boost equals knock — trust the pressure gauge and IAT reading.",
+     "safety"),
 
     # === TECH — available in Intelligent + Sport ===
     (["turbo", "boost", "wastegate", "psi", "spool"],
