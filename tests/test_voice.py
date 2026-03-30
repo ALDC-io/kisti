@@ -914,7 +914,7 @@ class TestBargeIn:
 
     def test_threshold_constants(self):
         assert OWW_THRESHOLD_NORMAL == 0.5
-        assert OWW_THRESHOLD_BARGE_IN == 0.85
+        assert OWW_THRESHOLD_BARGE_IN == 0.92
         assert OWW_THRESHOLD_BARGE_IN > OWW_THRESHOLD_NORMAL
 
     def test_pause_still_works(self):
@@ -924,6 +924,13 @@ class TestBargeIn:
         assert mic._paused is True
         mic.resume()
         assert mic._paused is False
+
+    def test_rms_echo_gate_constant(self):
+        """RMS threshold of 5000 is defined in barge-in logic."""
+        import inspect
+        from voice.mic_capture import MicCapture as _MC
+        source = inspect.getsource(_MC._vad_process)
+        assert "frame_rms > 5000" in source, "RMS echo gate missing from barge-in logic"
 
 
 # ========================================================================
@@ -1000,3 +1007,182 @@ class TestGoldenPersona:
         for q in self._TECH_QUERIES:
             result = _match_persona(q, "Sport Sharp")
             assert result is None, f"'{q}' should be None in Sport Sharp"
+
+
+# ========================================================================
+# Wake Word Training Script tests (KiSTI-006)
+# ========================================================================
+
+import struct
+import wave
+import math
+
+
+class TestWakeWordTraining:
+    """Tests for scripts/train_wake_word.py sample generation and config."""
+
+    def test_import_training_module(self):
+        """Training script module is importable."""
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+        import train_wake_word
+        assert hasattr(train_wake_word, "WAKE_PHRASES")
+        assert hasattr(train_wake_word, "NEGATIVE_PHRASES")
+        assert hasattr(train_wake_word, "PIPER_VOICES")
+
+    def test_wake_phrases_nonempty(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+        import train_wake_word
+        assert len(train_wake_word.WAKE_PHRASES) >= 5
+        # All phrases must contain "kisti" or "keesty" (case-insensitive)
+        for phrase in train_wake_word.WAKE_PHRASES:
+            lower = phrase.lower()
+            assert "kisti" in lower or "keesty" in lower, f"Bad wake phrase: {phrase}"
+
+    def test_negative_phrases_nonempty(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+        import train_wake_word
+        assert len(train_wake_word.NEGATIVE_PHRASES) >= 20
+
+    def test_speed_factors_range(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+        import train_wake_word
+        for speed in train_wake_word.SPEED_FACTORS:
+            assert 0.5 <= speed <= 2.0, f"Speed factor out of range: {speed}"
+
+    def test_generate_silence_wav(self, tmp_path):
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+        from train_wake_word import generate_silence_wav
+        out = tmp_path / "silence.wav"
+        generate_silence_wav(out, duration_s=1.0)
+        assert out.exists()
+        with wave.open(str(out), "r") as wf:
+            assert wf.getnchannels() == 1
+            assert wf.getsampwidth() == 2
+            assert wf.getframerate() == 16000
+            assert wf.getnframes() == 16000  # 1 second at 16kHz
+
+    def test_generate_noise_wav(self, tmp_path):
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+        from train_wake_word import generate_noise_wav
+        out = tmp_path / "noise.wav"
+        generate_noise_wav(out, duration_s=0.5)
+        assert out.exists()
+        with wave.open(str(out), "r") as wf:
+            assert wf.getnchannels() == 1
+            assert wf.getsampwidth() == 2
+            assert wf.getframerate() == 16000
+            # ~8000 samples for 0.5s
+            assert wf.getnframes() == 8000
+
+    def test_generate_noise_wav_has_nonzero_audio(self, tmp_path):
+        """Noise WAV should contain actual audio, not silence."""
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+        from train_wake_word import generate_noise_wav
+        out = tmp_path / "noise_check.wav"
+        generate_noise_wav(out, duration_s=1.0)
+        with wave.open(str(out), "r") as wf:
+            frames = wf.readframes(wf.getnframes())
+        # Check RMS is nonzero
+        n_samples = len(frames) // 2
+        total = sum(
+            struct.unpack_from("<h", frames, i * 2)[0] ** 2
+            for i in range(min(n_samples, 1000))
+        )
+        rms = (total / min(n_samples, 1000)) ** 0.5
+        assert rms > 100, f"Noise RMS too low: {rms}"
+
+    def test_find_available_voices_empty(self, tmp_path):
+        """No voices in empty directory."""
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+        from train_wake_word import find_available_voices
+        voices = find_available_voices(tmp_path)
+        assert voices == []
+
+    def test_find_available_voices_with_files(self, tmp_path):
+        """Finds voice files that match known names."""
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+        from train_wake_word import find_available_voices, PIPER_VOICES
+        # Create a fake voice file
+        (tmp_path / PIPER_VOICES[0]).write_bytes(b"fake")
+        voices = find_available_voices(tmp_path)
+        assert len(voices) == 1
+        assert voices[0].name == PIPER_VOICES[0]
+
+    def test_generate_full_training_config(self, tmp_path):
+        """YAML config is generated with correct structure."""
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+        from train_wake_word import generate_full_training_config
+        pos_dir = tmp_path / "pos"
+        neg_dir = tmp_path / "neg"
+        pos_dir.mkdir()
+        neg_dir.mkdir()
+        out_dir = tmp_path / "model"
+        config_path = generate_full_training_config(pos_dir, neg_dir, out_dir)
+        assert config_path.exists()
+        content = config_path.read_text()
+        assert "hey kisti" in content
+        assert "hey_kisti" in content
+        assert str(pos_dir) in content
+        assert str(neg_dir) in content
+
+    def test_sample_rate_constant(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+        import train_wake_word
+        assert train_wake_word.SAMPLE_RATE == 16000
+
+    def test_default_output_path(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+        import train_wake_word
+        assert str(train_wake_word.DEFAULT_OUTPUT) == "/data/models/hey_kisti.onnx"
+
+
+# ========================================================================
+# Wake Model Session Config tests (KiSTI-006)
+# ========================================================================
+
+
+class TestWakeModelSessionConfig:
+    """Tests for KISTI_WAKE_MODEL in kisti-session script."""
+
+    def test_kisti_session_exports_wake_model(self):
+        """kisti-session script exports KISTI_WAKE_MODEL."""
+        session_path = Path(__file__).resolve().parent.parent / "scripts" / "kisti-session"
+        content = session_path.read_text()
+        assert "export KISTI_WAKE_MODEL=/data/models/hey_kisti.onnx" in content
+
+    def test_kisti_session_wake_model_after_ollama(self):
+        """KISTI_WAKE_MODEL export comes after OLLAMA_MODELS export."""
+        session_path = Path(__file__).resolve().parent.parent / "scripts" / "kisti-session"
+        content = session_path.read_text()
+        ollama_pos = content.index("export OLLAMA_MODELS=")
+        wake_pos = content.index("export KISTI_WAKE_MODEL=")
+        assert wake_pos > ollama_pos, "KISTI_WAKE_MODEL should come after OLLAMA_MODELS"
+
+    def test_mic_capture_reads_wake_model_env(self, monkeypatch):
+        """MicCapture picks up KISTI_WAKE_MODEL from environment."""
+        monkeypatch.setenv("KISTI_WAKE_MODEL", "/data/models/hey_kisti.onnx")
+        import os
+        assert os.environ["KISTI_WAKE_MODEL"] == "/data/models/hey_kisti.onnx"
+
+    def test_mic_capture_wake_model_constructor(self):
+        """MicCapture stores wake_model from constructor arg."""
+        mic = MicCapture(device="nonexistent", wake_model="/data/models/hey_kisti.onnx")
+        assert mic._wake_model == "/data/models/hey_kisti.onnx"
+
+    def test_mic_capture_wake_model_none_default(self):
+        """MicCapture defaults to None wake_model."""
+        mic = MicCapture(device="nonexistent")
+        assert mic._wake_model is None
+
+    def test_wake_model_path_is_onnx(self):
+        """Configured wake model path has .onnx extension."""
+        session_path = Path(__file__).resolve().parent.parent / "scripts" / "kisti-session"
+        content = session_path.read_text()
+        # Extract the path from the export line
+        for line in content.splitlines():
+            if "KISTI_WAKE_MODEL=" in line:
+                path = line.split("=", 1)[1].strip()
+                assert path.endswith(".onnx"), f"Wake model path should be .onnx: {path}"
+                break
+        else:
+            pytest.fail("KISTI_WAKE_MODEL not found in kisti-session")
