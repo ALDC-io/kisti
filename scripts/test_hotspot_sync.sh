@@ -44,9 +44,10 @@ else
     exit 1
 fi
 
-# 4. Test rclone Nextcloud access
+# 4. Test rclone Nextcloud access (use aldc's config even under sudo)
 echo "[4/5] Testing rclone Nextcloud sync..."
-if rclone lsd kisti: --max-depth 1 2>/dev/null; then
+RCLONE_CONFIG="/home/aldc/.config/rclone/rclone.conf"
+if rclone --config "$RCLONE_CONFIG" lsd kisti: --max-depth 1; then
     echo "  Nextcloud reachable via rclone"
 else
     echo "  FAILED — rclone cannot reach Nextcloud"
