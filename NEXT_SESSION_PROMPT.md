@@ -1,147 +1,106 @@
-Continue KiSTI voice conversation hardening (kisti-007). Repo: /home/aldc/repos/kisti/.
-Jetson at 192.168.22.131 (SSH user aldc, sudo password: aldc1234).
-Project: /home/aldc/projects/active/2026-03-29-kisti-006/
-Team session: kisti-speaks (71182e9b)
-TUI: python3 /home/aldc/zeus-memory/scripts/cce-team-panel.py --name kisti-speaks
+# KiSTI — Next Session Prompt
 
-## What was done (kisti-007 session, commit 775587e)
+**Working dir**: `/home/aldc/repos/kisti/`
+**Jetson**: `192.168.22.131` (user `aldc`, pw `aldc1234`)
+**Live URL**: N/A (embedded Qt on Jetson)
+**Test baseline**: 496 tests passing
 
-### Echo suppression — DONE (voice_manager.py)
-- Removed sensor/telemetry words from WAKE_WORDS (temperature, boost, oil pressure,
-  humidity, tire, etc.) — these caused echo loops when KiSTI said responses containing them
-- Added echo text suppression: tracks `_last_spoken_text` + `_last_spoken_at`,
-  rejects transcriptions with >40% word overlap within 3s of speaking
-- Sensor questions still work via 5s conversation window after wake word activation
-- **VERIFIED on Jetson**: "I'm listening" played with ZERO re-trigger (was looping before)
+## What Was Done (2026-03-30)
 
-### Token caps + context window — DONE (llm_engine.py)
-- Intelligent: 64 -> 256 tokens (conversational depth)
-- Sport: 32 -> 64 tokens
-- Sport Sharp: unchanged at 20
-- Added `num_ctx: 8192` explicitly to Ollama options
+### Race Analysis Engine — Phases 1 & 2 COMPLETE
 
-### STT is_real cosmetic fix — DONE (stt_engine.py:319)
-- `is_real` now checks `self._backend is not None` (whisper.cpp server sets _backend not _model)
-- "Let me think about that." acknowledgment now appears before LLM queries
+Built the core timing subsystem to replace AiM Race Studio 3 post-session analysis with real-time, in-car, voice-delivered race analysis.
 
-### Test baseline: 385/385 (was 380, +5 echo suppression tests)
+**Phase 1 — GPS Geometry & Track Database:**
+- `timing/geo.py` — 7 GPS primitives (haversine, line_segment_crossing, bearing, perpendicular_line, etc.)
+- `timing/track_db.py` — DuckDB-backed TrackDatabase (find_track by GPS, sectors, seed import)
+- `data/tracks_seed.json` — 18 seed tracks (Laguna Seca, Area 27, Mission, COTA, Nurburgring, etc.)
+- DuckDB schema extended: `tracks`, `track_sectors`, `lap_times` tables + `imu_gyro_z` column + timing telemetry columns
+- 67 tests (42 geo + 25 track DB)
 
-## What was tried and failed (THIS SESSION)
-- Ollama panicked on first query with num_ctx=8192 (HTTP 500, loadModel crash)
-  — restarted Ollama service, models available again. May need model warmup on startup
-- Mic got stuck paused after ~4 minutes — race condition between dual speech paths
-  (AudioPlayer UI path + _do_speak voice loop path both toggle mic pause/resume)
+**Phase 2 — Lap Timer Core Engine:**
+- `timing/lap_timer.py` — LapTimer with update(), get_delta(), get_predicted_lap(), get_theoretical_best()
+- ReferenceLap with distance-indexed time_at_distance() (binary search + interpolation)
+- Point-to-point mode (set_p2p_mode/set_circuit_mode)
+- DiffState extended: 10 timing fields + update_timing() on DiffStateBridge
+- 44 tests (lap detection, sectors, delta, predictive, theoretical best, P2P, edge cases)
 
-## What was tried and failed (PRIOR SESSIONS — DO NOT REPEAT)
-- sounddevice.InputStream — PortAudio ARM resampler breaks Silero VAD (max 0.20)
-- scipy.signal.decimate 48kHz->16kHz — also fails Silero (max 0.18)
-- os.pipe() without start_new_session — parecord writes 0 bytes
-- stdbuf -oL/-o0 — doesn't fix PA internal buffering
-- Adding wake phrase words (hey/hi/hello/kisti) to Whisper hallucination filter — blocks valid wake words
-- Echo guard 2.0s was too long (killed barge-in), 0.3s too short. 0.8s is the sweet spot
-- time.sleep(0.8) in Qt signal handler — FROZE THE UI. Always QTimer.singleShot()
-- OWW_THRESHOLD_BARGE_IN at 0.92 alone doesn't prevent echo — echo arrives at 0.99
-- sudo -n systemctl start ollama fails in GDM session — need sudoers.d entry
-- Setting KISTI_WAKE_MODEL to nonexistent ONNX path — openwakeword crashes. Must check file exists
+**Also this session:**
+- Validated iPhone hotspot sync (full write/read/delete round-trip to Nextcloud)
+- Updated KiSTI memory files (test count 268→380→496, voice pipeline status, GPS09 Pro)
+- Saved GPS09 Pro Open IMU as key sensor to memory
+- Saved race analysis vision: "Drive into pits, KiSTI explains it all"
 
-## Known issues — ACTIVE BUGS
+## Prioritized TODO
 
-### 1. Mic stuck paused (CRITICAL)
-After a few interactions, mic stops capturing speech. Root cause: dual speech paths
-race on mic pause/resume. Both `_do_speak` (voice loop) and AudioPlayer (UI path)
-toggle mic state. Fix options:
-a) Remove the `response_ready.emit()` → AudioPlayer path for query responses
-   (only use for system/alert speech that doesn't go through _do_speak)
-b) Add a mic resume watchdog — if no speech capture for 10s while in IDLE state, force resume
-c) Unify to single speech path
+### Phase 3: Qt Integration & Mock Enhancement (NEXT)
+1. **Create `timing/timing_manager.py`** — TimingManager(QObject) wired to DiffStateBridge
+   - Connect to `bridge.state_changed`, detect GPS updates, call `LapTimer.update()`
+   - Emit signals: `lap_completed(dict)`, `sector_completed(dict)`, `track_detected(str)`
+   - Push timing data to bridge via `update_timing()`
+   - Files: new `timing/timing_manager.py`, modify `main.py` (wire after bridge creation ~line 317)
 
-### 2. Ollama cold start panic
-First query after GDM restart hits HTTP 500. Ollama panics loading model with num_ctx=8192.
-Fix: add a warmup query in kisti-session after Ollama starts (curl to /api/chat with tiny prompt).
+2. **Enhance MockCanGenerator GPS trace** — Replace Laguna Seca oval with realistic circuit loop
+   - Must cross known start/finish line so LapTimer detects laps in sim mode
+   - File: `can/kisti_can.py` lines 1177-1216 (`_gps_tick()`)
 
-## Prioritized TODO for next session
+3. **Tests**: `tests/test_timing_manager.py` — 20+ integration tests
 
-### 1. Fix mic stuck bug (CRITICAL)
-- The dual speech path mic race must be resolved before conversation UAT
-- See "Known issues" above for fix options
-- After fix, verify: 10+ consecutive queries without mic dropping out
+### Phase 4: Track Intelligence
+4. **Create `timing/track_learner.py`** — TrackLearner (GPS trace → auto-detect start/finish + sectors)
+5. **Track auto-recognition** in TimingManager — find_track on first GPS fix
+6. **Point-to-point voice commands** — "set start point", "set end point"
 
-### 2. Train custom "Hey KiSTI" wake word (HIGH)
-- Run: `ssh aldc@192.168.22.131 "cd ~/repos/kisti && python3 scripts/train_wake_word.py"`
-- Needs Piper voices at /data/piper/ (Danny confirmed, check for others)
-- openwakeword custom_verifier_model path is fastest (~2-5 min)
-- After training, update WAKE_WORDS to remove jarvis variants, keep kisti variants
+### Phase 5: Voice Integration
+7. **Timing voice announcements** in `main.py` — lap complete, sector complete (mode-aware I/S/S#)
+8. **Voice queries** in `voice/voice_manager.py` — "what's my delta?", "theoretical best?", "what track?"
+9. **Pit lane debrief** — auto-triggered on session end, speaks full summary
 
-### 3. Conversation quality UAT (HIGH)
-- Blocked by mic stuck bug (TODO 1)
-- Test: "Hey Jarvis, how is the oil pressure?" -> should get LLM response (not fallback)
-- Test conversation flow: wake word -> question -> answer -> follow-up (5s window)
-- If LLM too slow (~2-4s), tune persona responses to cover common queries
+### Phase 6: UI + Data Sync
+10. **`ui/widgets/timing_display.py`** — live delta, predicted, sector splits (800x480)
+11. **Three SI Drive mode screen layouts** — I=full info, S=timing focus, S#=minimal/critical only (saved to memory: `project_kisti_gui_refactor.md`)
+12. **Parquet export** — add lap_times to sync
+13. **Zeus Memory** — timing summary push on session end
 
-### 4. Conversation window multi-turn (MEDIUM)
-- After wake word + answer, follow-up questions shouldn't need re-saying wake word
-- Conversation window is 5s (voice_manager.py:244). Verify it works end-to-end
-- May need to extend window or make it adaptive
+## Key Files
 
-### 5. Response quality tuning (MEDIUM)
-- Expand persona keyword responses for common car questions
-- Tune LLM system prompt for vehicle context awareness
-- Test mode filtering: Intelligent=full, Sport=short, Sport Sharp=critical only
+| File | Purpose |
+|------|---------|
+| `timing/geo.py` | GPS geometry primitives (haversine, crossing) |
+| `timing/track_db.py` | Track database (find, save, seed) |
+| `timing/lap_timer.py` | Core LapTimer engine (delta, predictive, theo best) |
+| `model/vehicle_state.py:207-218` | DiffState timing fields |
+| `model/vehicle_state.py:581-612` | DiffStateBridge.update_timing() |
+| `data/duckdb_store.py:175-210` | Timing DuckDB tables |
+| `data/duckdb_store.py:639-700` | Timing CRUD methods |
+| `data/tracks_seed.json` | 18 seed tracks |
+| `main.py:317-331` | SyncManager wiring (pattern for TimingManager) |
+| `main.py:371-385` | Session toggle (K1) — hook timing signals here |
+| `can/kisti_can.py:1177-1216` | MockCanGenerator._gps_tick() — needs realistic trace |
 
-### 6. Add Ollama warmup to kisti-session (LOW)
-- After `systemctl start ollama` + 3s sleep, add a tiny warmup query
-- `curl -s -X POST localhost:11434/api/chat -d '{"model":"llama3.2:3b","messages":[{"role":"user","content":"hi"}],"options":{"num_ctx":8192,"num_predict":1}}'`
-- This pre-loads the model into GPU memory before KiSTI's first real query
+## Architecture Notes
 
-## Architecture notes (for the incoming session)
+### Data Flow (target state)
+```
+GPS09 Pro (CAN) → CanListener → DiffStateBridge → TimingManager → LapTimer
+                                                        ↓
+                                              ┌────────┼────────┐
+                                              ↓        ↓        ↓
+                                           Voice    DuckDB    UI
+                                          (debrief) (persist) (display)
+```
 
-### Dual speech path — CRITICAL to understand (and fix)
-Two independent paths play audio through the speaker:
-1. **voice_manager._do_speak()** — has barge-in mode, manages echo guard,
-   tracks _last_spoken_text for echo suppression. Called from voice loop thread.
-2. **kisti_mode._start_speaking()** -> AudioPlayer — used for startup speech,
-   alerts, UI-triggered speech. Echo protection via main.py:485-494 (mic pause/resume).
+### Key Design Decisions
+- **Distance-indexed delta** (not time-indexed) — handles variable speed through corners
+- **Pure Python timing engine** — zero new dependencies on Jetson
+- **Voice-first, screen-second** — pit debrief is primary UX
+- **Mode-aware verbosity**: I=full, S=lap+delta, S#=PBs only
 
-**BUG**: `_compose_and_speak` emits `response_ready` (AudioPlayer path) AND
-puts text in `_speak_queue` (_do_speak path). Same text gets spoken by BOTH paths.
-Both paths toggle mic pause/resume. Race condition causes mic to get stuck paused.
+### GPS09 Pro Open
+- Hardware pending install. Software fully integrated (CAN 0x6A4-0x6A7)
+- 25Hz GPS + 100Hz 6-axis IMU. CAN configurable in Race Studio 3
+- **IMU is the key sensor** — grip analysis, body dynamics, corner profiling
 
-### Wake word detection — two layers
-1. **Audio layer**: openwakeword (OWW) detects audio pattern (hey_jarvis model)
-2. **Text layer**: Whisper transcribes speech, voice_manager checks WAKE_WORDS list
-Both must agree. When switching wake word models, must update WAKE_WORDS text list.
-
-### Echo suppression (NEW in 775587e)
-After _do_speak, stores `_last_spoken_text` (lowercase) and `_last_spoken_at`.
-In _on_speech_captured, if transcription has >40% word overlap with last spoken text
-within 3s, logs "Echo suppressed" and discards. Works alongside the 0.8s hardware guard.
-
-### LLM 3-tier fallback
-1. Persona keyword match (sub-ms, 200+ curated responses)
-2. Ollama llama3.2:3b (2-4s on Orin Nano, 256 token cap in Intelligent mode)
-3. Fallback: "Not sure about that. Ask me about boost, oil, or brakes."
-
-## Key files
-- main.py:476-494 — echo protection wiring (AudioPlayer -> mic pause/resume) + response_ready -> queue_speech
-- voice/mic_capture.py:49 — OWW_THRESHOLD_BARGE_IN = 0.92
-- voice/mic_capture.py:225 — _run_parecord_pipe() (renamed)
-- voice/mic_capture.py:355 — RMS > 5000 echo gate
-- voice/voice_manager.py:168-176 — WAKE_WORDS list (sensor words REMOVED)
-- voice/voice_manager.py:254-256 — _last_spoken_text + _last_spoken_at (echo suppression state)
-- voice/voice_manager.py:689-700 — echo suppression check in _on_speech_captured
-- voice/voice_manager.py:706-734 — wake word + query routing
-- voice/llm_engine.py:75-79 — MODE_TOKEN_CAPS (I:256, S:64, SS:20)
-- voice/llm_engine.py:499 — num_ctx: 8192 in Ollama options
-- voice/stt_engine.py:319-322 — is_real checks _backend
-- scripts/kisti-session — Ollama start + KISTI_WAKE_MODEL fallback
-- scripts/train_wake_word.py — wake word sample gen + training (not yet run)
-- tests/test_voice.py — 385 tests passing
-
-## CCE session info
-- Team session: kisti-speaks (71182e9b)
-- TUI: `python3 /home/aldc/zeus-memory/scripts/cce-team-panel.py --name kisti-speaks`
-- Zeus ZMIDs: echo root cause (d8926bcf), wake word text mismatch (8b84ddd8),
-  OWW ARM64 (12ad1a39), whisper.cpp CUDA (40a16647)
-
-## Deploy command
-ssh aldc@192.168.22.131 "cd ~/repos/kisti && git pull --ff-only && echo aldc1234 | sudo -S cp scripts/kisti-session /usr/local/bin/kisti-session 2>/dev/null && echo aldc1234 | sudo -S systemctl restart gdm 2>/dev/null && echo DEPLOYED"
+### Project File
+- `/home/aldc/projects/active/2026-03-30-kisti-race-analysis/README.md`
+- Full 6-phase plan with task breakdown
