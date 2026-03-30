@@ -1000,3 +1000,109 @@ class TestGoldenPersona:
         for q in self._TECH_QUERIES:
             result = _match_persona(q, "Sport Sharp")
             assert result is None, f"'{q}' should be None in Sport Sharp"
+
+
+# ========================================================================
+# Sounddevice capture backend tests (Phase 5 — parecord pipe fix)
+# ========================================================================
+
+
+class TestSounddeviceBackend:
+    """Verify sounddevice-based mic capture and parecord fallback."""
+
+    def test_run_arecord_tries_sounddevice_first(self, monkeypatch):
+        """_run_arecord should attempt sounddevice before parecord."""
+        calls = []
+
+        mic = MicCapture(device="nonexistent")
+        mic._vad_type = "silero"
+        monkeypatch.setattr(mic, "_run_sounddevice", lambda: calls.append("sd"))
+        monkeypatch.setattr(mic, "_run_parecord", lambda: calls.append("pa"))
+
+        mic._run_arecord()
+        assert calls == ["sd"]
+
+    def test_run_arecord_falls_back_to_parecord(self, monkeypatch):
+        """If sounddevice fails, _run_arecord falls back to parecord."""
+        calls = []
+
+        mic = MicCapture(device="nonexistent")
+        mic._vad_type = "silero"
+
+        def fail_sd():
+            calls.append("sd_fail")
+            raise ImportError("No module named 'sounddevice'")
+
+        monkeypatch.setattr(mic, "_run_sounddevice", fail_sd)
+        monkeypatch.setattr(mic, "_run_parecord", lambda: calls.append("pa"))
+
+        mic._run_arecord()
+        assert calls == ["sd_fail", "pa"]
+
+    def test_find_sd_device_returns_usb(self, monkeypatch):
+        """_find_sd_device picks USB mic from device list."""
+        import voice.mic_capture as mc
+
+        fake_devices = [
+            {"name": "HDA Intel PCH: ALC1220", "max_input_channels": 2},
+            {"name": "KTMicro USB MIC", "max_input_channels": 1},
+            {"name": "HDMI Monitor", "max_input_channels": 0},
+        ]
+
+        sd_mock = type(sys)("sounddevice")
+        sd_mock.query_devices = lambda: fake_devices
+        monkeypatch.setitem(sys.modules, "sounddevice", sd_mock)
+
+        mic = MicCapture(device="default")
+        idx = mic._find_sd_device()
+        assert idx == 1  # KTMicro USB MIC
+
+    def test_find_sd_device_returns_none_no_usb(self, monkeypatch):
+        """_find_sd_device returns None when no USB mic found."""
+        import voice.mic_capture as mc
+
+        fake_devices = [
+            {"name": "HDA Intel PCH", "max_input_channels": 2},
+        ]
+
+        sd_mock = type(sys)("sounddevice")
+        sd_mock.query_devices = lambda: fake_devices
+        monkeypatch.setitem(sys.modules, "sounddevice", sd_mock)
+
+        mic = MicCapture(device="default")
+        idx = mic._find_sd_device()
+        assert idx is None
+
+    def test_vad_process_accepts_callables(self, monkeypatch):
+        """_vad_process works with generic read_fn/alive_fn (not just subprocess)."""
+        mic = MicCapture(device="nonexistent")
+        mic._vad_type = "silero"
+        mic._running = True
+        mic._paused = False
+        mic._barge_in_mode = False
+        mic._oww = None
+
+        # Generate 10 frames of silence, then stop
+        frame_count = [0]
+        silence_frame = b"\x00" * FRAME_BYTES
+
+        def mock_read(n):
+            frame_count[0] += 1
+            if frame_count[0] > 10:
+                mic._running = False
+                return b""
+            return silence_frame
+
+        # Mock Silero VAD
+        mock_vad = lambda audio, sr: type("T", (), {"item": lambda self: 0.01})()
+        mic._vad = mock_vad
+
+        # Mock torch/numpy at module level
+        import types
+        import numpy as np
+        fake_torch = types.ModuleType("torch")
+        fake_torch.from_numpy = lambda x: x
+        monkeypatch.setitem(sys.modules, "torch", fake_torch)
+
+        mic._vad_process(read_fn=mock_read, alive_fn=lambda: True)
+        assert frame_count[0] > 10  # Processed all frames before stopping
