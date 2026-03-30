@@ -1,11 +1,18 @@
 #!/bin/bash
 # KiSTI — Test iPhone hotspot connectivity + rclone Nextcloud sync
-# Run on Jetson: bash scripts/test_hotspot_sync.sh
+# Run on Jetson: sudo bash scripts/test_hotspot_sync.sh
+# Requires sudo for nmcli network control on Jetson
 
 set -e
 
 echo "=== KiSTI Hotspot Sync Test ==="
 echo ""
+
+# Check sudo
+if [ "$(id -u)" -ne 0 ]; then
+    echo "Need sudo for network control. Re-running..."
+    exec sudo bash "$0" "$@"
+fi
 
 # 1. Drop home WiFi
 echo "[1/5] Disconnecting Heckler..."
