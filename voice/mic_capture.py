@@ -219,9 +219,9 @@ class MicCapture(QObject):
                       "--channels", "1", "--format", "s16le"]
         if self._device:
             record_cmd.extend(["--device", self._device])
-        # stdbuf -oL forces line-buffered stdout — parecord buffers indefinitely
-        # when piped without it, causing the capture thread to block forever.
-        cmd = ["stdbuf", "-oL"] + record_cmd
+        # stdbuf -o0 disables output buffering — parecord buffers indefinitely
+        # when piped without it (raw binary has no newlines for line-buffering).
+        cmd = ["stdbuf", "-o0"] + record_cmd
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
