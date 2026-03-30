@@ -425,7 +425,7 @@ UI_REFRESH_MS: int = 1000 // UI_REFRESH_HZ  # 50 ms
 # Mock mode
 # ---------------------------------------------------------------------------
 
-MOCK_ENABLED: bool = True      # Use mock data when CAN bus unavailable
+MOCK_ENABLED: bool = False     # No mock data — real CAN only (Link G5 pending install)
 MOCK_DIFF_HZ: int = 50        # Mock DIFF frame rate
 MOCK_CONTEXT_HZ: int = 20     # Mock CONTEXT frame rate
 MOCK_WHEEL_HZ: int = 50       # Mock wheel speed frame rate

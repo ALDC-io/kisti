@@ -30,7 +30,7 @@ LAP_DURATION_S = 90
 
 # Valentine One Gen2 Radar
 RADAR_TICK_MS = 500       # 2 Hz update rate
-RADAR_MOCK_ENABLED = True # Use mock generator (True) or BLE driver (False)
+RADAR_MOCK_ENABLED = False # No mock data — real BLE driver pending
 RADAR_SIGNAL_WARN = 3     # Signal strength warning threshold (out of 8)
 RADAR_SIGNAL_CRIT = 6     # Signal strength critical threshold (out of 8)
 
