@@ -155,10 +155,7 @@ class MicCapture(QObject):
             name="kisti-mic-capture",
         )
         self._thread.start()
-        # TEMP: bypass OWW gate — OWW scores near-zero despite clear speech.
-        # All speech goes to STT until OWW is debugged.
-        self._passthrough = True
-        log.info("Mic capture started (device=%s, VAD mode=%d, passthrough=FORCED)", self._device, VAD_MODE)
+        log.info("Mic capture started (device=%s, VAD mode=%d)", self._device, VAD_MODE)
 
     def stop(self) -> None:
         """Stop capture thread."""
@@ -330,20 +327,12 @@ class MicCapture(QObject):
         oww_buffer = b""       # Accumulate frames for openwakeword (needs 1280 samples)
         wake_detected = False  # Wake word detected in current utterance
 
-        _diag_counter = 0
-        _oww_running_max = 0.0  # Track peak OWW score across all frames
         while self._running and alive_fn():
             frame = read_fn(FRAME_BYTES)
             if len(frame) < FRAME_BYTES:
-                log.warning("parecord EOF — read %d < %d expected", len(frame), FRAME_BYTES)
                 break
 
-            _diag_counter += 1
-            _diag_log = (_diag_counter % 250 == 0)  # ~every 8s
-
             if self._paused:
-                if _diag_log:
-                    log.info("Mic diag: frames=%d PAUSED", _diag_counter)
                 voiced_count = 0
                 silent_count = 0
                 in_speech = False
@@ -387,8 +376,6 @@ class MicCapture(QObject):
                     oww_audio = np.frombuffer(chunk, dtype=np.int16)
                     preds = self._oww.predict(oww_audio)
                     for model_name, score in preds.items():
-                        if score > _oww_running_max:
-                            _oww_running_max = score
                         if score > self._active_oww_threshold:
                             if not wake_detected:
                                 log.info("Wake word detected: %s (%.2f)", model_name, score)
@@ -402,14 +389,7 @@ class MicCapture(QObject):
                 confidence = self._vad(audio_float, SAMPLE_RATE).item()
                 is_speech = confidence > SPEECH_THRESHOLD
             else:
-                confidence = 0.0
                 is_speech = self._vad.is_speech(frame, SAMPLE_RATE)
-
-            if _diag_log:
-                rms = int((np.frombuffer(frame, dtype=np.int16).astype(float) ** 2).mean() ** 0.5)
-                log.info("Mic diag: frames=%d rms=%d silero=%.3f oww_peak=%.3f voiced=%d in_speech=%s",
-                         _diag_counter, rms, confidence, _oww_running_max, voiced_count, in_speech)
-                _oww_running_max = 0.0  # Reset after logging
 
             if not in_speech:
                 pre_roll.append(frame)
@@ -460,10 +440,13 @@ class MicCapture(QObject):
                         log.info("Discarding short utterance: %.1fs", duration)
 
                     speech_buffer.clear()
-                    wake_detected = False
-                    oww_buffer = b""
-                    if self._oww is not None:
+                    # Only reset OWW after successful detection — preserving the
+                    # sliding window across utterance boundaries lets OWW detect
+                    # "Hey Jarvis" even when Silero splits it at a natural pause.
+                    if wake_detected and self._oww is not None:
                         self._oww.reset()
+                        oww_buffer = b""
+                    wake_detected = False
                     if use_silero:
                         self._vad.reset_states()
                     self.listening_stopped.emit()
