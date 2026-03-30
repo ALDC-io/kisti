@@ -45,19 +45,37 @@ else
 fi
 
 # 4. Test rclone Nextcloud access (use aldc's config even under sudo)
-echo "[4/5] Testing rclone Nextcloud sync..."
 RCLONE_CONFIG="/home/aldc/.config/rclone/rclone.conf"
+echo "[4/6] Testing rclone Nextcloud connectivity..."
 if rclone --config "$RCLONE_CONFIG" lsd kisti: --max-depth 1; then
-    echo "  Nextcloud reachable via rclone"
+    echo "  Nextcloud reachable"
 else
     echo "  FAILED — rclone cannot reach Nextcloud"
     nmcli con up Heckler 2>/dev/null
     exit 1
 fi
 
-# 5. Restore home WiFi
-echo "[5/5] Reconnecting Heckler..."
+# 5. Full round-trip sync test: write a file, read it back, delete it
+echo "[5/6] Full sync round-trip test..."
+TEST_FILE="/tmp/kisti_hotspot_test_$(date +%s).txt"
+echo "KiSTI hotspot sync test — $(date)" > "$TEST_FILE"
+REMOTE_PATH="Project KiSTI/config/hotspot_test.txt"
+
+if rclone --config "$RCLONE_CONFIG" copyto "$TEST_FILE" "kisti:$REMOTE_PATH" && \
+   rclone --config "$RCLONE_CONFIG" cat "kisti:$REMOTE_PATH" | grep -q "KiSTI hotspot sync test" && \
+   rclone --config "$RCLONE_CONFIG" deletefile "kisti:$REMOTE_PATH"; then
+    echo "  Write/read/delete round-trip OK"
+    rm -f "$TEST_FILE"
+else
+    echo "  FAILED — round-trip sync failed"
+    rm -f "$TEST_FILE"
+    nmcli con up Heckler 2>/dev/null
+    exit 1
+fi
+
+# 6. Restore home WiFi
+echo "[6/6] Reconnecting Heckler..."
 nmcli con up Heckler 2>/dev/null || true
 
 echo ""
-echo "=== HOTSPOT SYNC TEST PASSED ==="
+echo "=== HOTSPOT SYNC TEST PASSED (full round-trip) ==="
