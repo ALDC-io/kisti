@@ -1,0 +1,16 @@
+[Unit]
+Description=whisper.cpp CUDA inference server for KiSTI
+After=network.target
+Before=gdm.service
+
+[Service]
+Type=simple
+User=aldc
+Environment=PATH=/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+Environment=LD_LIBRARY_PATH=/usr/local/cuda/lib64
+ExecStart=/data/whisper.cpp/build/bin/whisper-server -m /data/whisper.cpp/models/ggml-base.en.bin --host 127.0.0.1 --port 8081 -t 4
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
