@@ -253,6 +253,7 @@ class VoiceManager(QObject):
     speaking_text = Signal(str)
     led_frame_ready = Signal(object)  # LEDFrame
     response_ready = Signal(str)      # LLM response text for UI AudioPlayer
+    waveform_envelope = Signal(object)  # Amplitude envelope for UI waveform viz
 
     def __init__(self, mic_device: str = "default", enable_mic: bool = True,
                  parent: Optional[QObject] = None) -> None:
@@ -874,6 +875,9 @@ class VoiceManager(QObject):
         wav_path = None
         if not self._interrupted:
             play_proc, wav_path = self._start_audio(result.audio_pcm, result.sample_rate)
+            # Send envelope to UI waveform (the sole visual path for query responses —
+            # response_ready is intentionally NOT emitted here to avoid mic race conditions)
+            self.waveform_envelope.emit(result.amplitude_envelope)
 
         # Drive LEDs synchronized with audio playback
         if self._si_drive_mode == SIDriveMode.INTELLIGENT:
