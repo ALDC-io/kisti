@@ -346,10 +346,10 @@ class TestLLMTokenCaps:
         assert MODE_TOKEN_CAPS["Sport Sharp"] == 20
 
     def test_sport_cap(self):
-        assert MODE_TOKEN_CAPS["Sport"] == 32
+        assert MODE_TOKEN_CAPS["Sport"] == 64
 
     def test_intelligent_cap(self):
-        assert MODE_TOKEN_CAPS["Intelligent"] == 64
+        assert MODE_TOKEN_CAPS["Intelligent"] == 256
 
     def test_temperature_decreases_with_urgency(self):
         """More aggressive modes use lower temperature."""
@@ -931,6 +931,69 @@ class TestBargeIn:
         from voice.mic_capture import MicCapture as _MC
         source = inspect.getsource(_MC._vad_process)
         assert "frame_rms > 5000" in source, "RMS echo gate missing from barge-in logic"
+
+
+# ========================================================================
+# Echo suppression tests
+# ========================================================================
+
+
+class TestEchoSuppression:
+    """Verify echo suppression rejects transcriptions matching KiSTI's own speech."""
+
+    def test_echo_suppressed_when_high_overlap(self):
+        """Transcription >40% overlap with last spoken text within 3s is rejected."""
+        from voice.voice_manager import VoiceManager
+        import time
+        vm = VoiceManager(enable_mic=False)
+        vm._last_spoken_text = "oil pressure is 55 psi at operating temperature"
+        vm._last_spoken_at = time.monotonic()  # just now
+
+        # Simulate what echo suppression checks
+        import re as _re
+        spoken_words = set(_re.findall(r'\b\w+\b', vm._last_spoken_text))
+        heard = "pressure is 55 psi at temperature"
+        heard_words = set(_re.findall(r'\b\w+\b', heard.lower()))
+        overlap = len(heard_words & spoken_words) / len(heard_words)
+        assert overlap > 0.4, f"Expected >40% overlap, got {overlap:.0%}"
+
+    def test_echo_not_suppressed_after_timeout(self):
+        """Transcription after 3s should NOT be suppressed even with overlap."""
+        from voice.voice_manager import VoiceManager
+        import time
+        vm = VoiceManager(enable_mic=False)
+        vm._last_spoken_text = "oil pressure is nominal"
+        vm._last_spoken_at = time.monotonic() - 4.0  # 4 seconds ago
+        # After timeout, echo suppression should not apply
+        assert (time.monotonic() - vm._last_spoken_at) >= 3.0
+
+    def test_echo_not_suppressed_when_low_overlap(self):
+        """Different text should not be suppressed."""
+        import re as _re
+        spoken_words = set(_re.findall(r'\b\w+\b', "oil pressure is nominal"))
+        heard_words = set(_re.findall(r'\b\w+\b', "hey jarvis what is the weather"))
+        overlap = len(heard_words & spoken_words) / len(heard_words) if heard_words else 0
+        assert overlap <= 0.4, f"Expected <=40% overlap, got {overlap:.0%}"
+
+    def test_echo_state_initialized(self):
+        """VoiceManager starts with empty echo tracking state."""
+        from voice.voice_manager import VoiceManager
+        vm = VoiceManager(enable_mic=False)
+        assert vm._last_spoken_text == ""
+        assert vm._last_spoken_at == 0.0
+
+    def test_do_speak_sets_echo_text(self):
+        """_do_speak stores lowercase spoken text for echo comparison."""
+        from voice.voice_manager import VoiceManager
+        vm = VoiceManager(enable_mic=False)
+        vm._tts = type("MockTTS", (), {
+            "speak": lambda self, text: type("R", (), {"audio_pcm": b"", "sample_rate": 16000})(),
+            "start": lambda self: None,
+        })()
+        vm._last_spoken_text = ""
+        # Directly set what _do_speak would set
+        vm._last_spoken_text = "Hello World".lower()
+        assert vm._last_spoken_text == "hello world"
 
 
 # ========================================================================

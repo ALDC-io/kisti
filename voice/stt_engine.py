@@ -317,8 +317,11 @@ class STTEngine:
 
     @property
     def is_real(self) -> bool:
-        """True if using real Whisper (not mock)."""
-        return self._model is not None
+        """True if using real Whisper (not mock).
+
+        whisper.cpp server mode sets _backend but not _model, so check _backend.
+        """
+        return self._backend is not None
 
 
 class HybridSTTEngine(STTEngine):
