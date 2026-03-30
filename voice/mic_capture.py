@@ -155,7 +155,10 @@ class MicCapture(QObject):
             name="kisti-mic-capture",
         )
         self._thread.start()
-        log.info("Mic capture started (device=%s, VAD mode=%d)", self._device, VAD_MODE)
+        # TEMP: bypass OWW gate — OWW scores near-zero despite clear speech.
+        # All speech goes to STT until OWW is debugged.
+        self._passthrough = True
+        log.info("Mic capture started (device=%s, VAD mode=%d, passthrough=FORCED)", self._device, VAD_MODE)
 
     def stop(self) -> None:
         """Stop capture thread."""
