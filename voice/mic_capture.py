@@ -326,9 +326,14 @@ class MicCapture(QObject):
         use_silero = self._vad_type == "silero"
         oww_buffer = b""       # Accumulate frames for openwakeword (needs 1280 samples)
         wake_detected = False  # Wake word detected in current utterance
+        _diag_count = 0        # Diagnostic frame counter (temporary)
 
         while self._running and alive_fn():
             frame = read_fn(FRAME_BYTES)
+            _diag_count += 1
+            if _diag_count <= 5 or _diag_count % 500 == 0:
+                rms = np.sqrt(np.mean(np.frombuffer(frame[:FRAME_BYTES], dtype=np.int16).astype(np.float32) ** 2))
+                log.info("mic diag frame=%d len=%d rms=%.0f", _diag_count, len(frame), rms)
             if len(frame) < FRAME_BYTES:
                 break
 
