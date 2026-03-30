@@ -18,7 +18,7 @@ import subprocess
 import struct
 import threading
 import time
-from typing import Optional
+from typing import Callable, Optional
 
 from PySide6.QtCore import QObject, Signal
 
@@ -214,13 +214,60 @@ class MicCapture(QObject):
                     time.sleep(2.0)  # Back off before retry
 
     def _run_arecord(self) -> None:
-        """Stream audio from parecord (PulseAudio) and run VAD on each frame."""
+        """Stream audio and run VAD. Tries sounddevice first, falls back to parecord."""
+        try:
+            self._run_sounddevice()
+        except Exception as exc:
+            log.warning("sounddevice unavailable (%s), falling back to parecord", exc)
+            self._run_parecord()
+
+    def _run_sounddevice(self) -> None:
+        """Capture audio via sounddevice (PortAudio) — no subprocess, no pipe."""
+        import sounddevice as sd
+
+        device_idx = self._find_sd_device()
+        log.info("sounddevice capture: device=%s, rate=%d", device_idx, SAMPLE_RATE)
+
+        stream = sd.InputStream(
+            samplerate=SAMPLE_RATE,
+            channels=1,
+            dtype="int16",
+            blocksize=SILERO_CHUNK_SAMPLES,
+            device=device_idx,
+        )
+        stream.start()
+
+        def read_fn(n_bytes: int) -> bytes:
+            n_frames = n_bytes // 2  # 16-bit = 2 bytes per sample
+            data, overflowed = stream.read(n_frames)
+            if overflowed:
+                log.debug("sounddevice overflow (frames dropped)")
+            return data.tobytes()
+
+        try:
+            self._vad_process(read_fn, alive_fn=lambda: stream.active)
+        finally:
+            stream.stop()
+            stream.close()
+
+    def _find_sd_device(self) -> int | None:
+        """Find the USB mic in sounddevice's device list. Returns index or None for default."""
+        import sounddevice as sd
+        for i, dev in enumerate(sd.query_devices()):
+            if dev["max_input_channels"] > 0:
+                name_lower = dev["name"].lower()
+                if "usb" in name_lower or "ktmicro" in name_lower:
+                    log.info("sounddevice USB mic: [%d] %s", i, dev["name"])
+                    return i
+        log.info("No USB mic in sounddevice — using default input")
+        return None
+
+    def _run_parecord(self) -> None:
+        """Fallback: stream audio from parecord subprocess."""
         record_cmd = ["parecord", "--raw", "--rate", str(SAMPLE_RATE),
                       "--channels", "1", "--format", "s16le"]
         if self._device:
             record_cmd.extend(["--device", self._device])
-        # stdbuf -o0 disables output buffering — parecord buffers indefinitely
-        # when piped without it (raw binary has no newlines for line-buffering).
         cmd = ["stdbuf", "-o0"] + record_cmd
         proc = subprocess.Popen(
             cmd,
@@ -229,13 +276,20 @@ class MicCapture(QObject):
         )
 
         try:
-            self._vad_process(proc)
+            self._vad_process(
+                read_fn=lambda n: proc.stdout.read(n),
+                alive_fn=lambda: proc.poll() is None,
+            )
         finally:
             proc.terminate()
             proc.wait(timeout=2)
 
-    def _vad_process(self, proc: subprocess.Popen) -> None:
-        """Read frames from parecord stdout and detect speech utterances."""
+    def _vad_process(
+        self,
+        read_fn: Callable[[int], bytes],
+        alive_fn: Callable[[], bool],
+    ) -> None:
+        """Read frames via read_fn and detect speech utterances."""
         import torch
         import numpy as np
 
@@ -249,8 +303,8 @@ class MicCapture(QObject):
         oww_buffer = b""       # Accumulate frames for openwakeword (needs 1280 samples)
         wake_detected = False  # Wake word detected in current utterance
 
-        while self._running and proc.poll() is None:
-            frame = proc.stdout.read(FRAME_BYTES)
+        while self._running and alive_fn():
+            frame = read_fn(FRAME_BYTES)
             if len(frame) < FRAME_BYTES:
                 break
 
