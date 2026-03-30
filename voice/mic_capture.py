@@ -155,7 +155,13 @@ class MicCapture(QObject):
             name="kisti-mic-capture",
         )
         self._thread.start()
-        log.info("Mic capture started (device=%s, VAD mode=%d)", self._device, VAD_MODE)
+        # Default to passthrough — route all speech to STT, which checks for
+        # wake words in the transcription text. OWW scores near-zero in the
+        # current PA/gain/mic configuration despite clear speech. Whisper's
+        # text-based check ("hey jarvis" / "hey kisti") is authoritative.
+        # Cost: ~0.3s GPU per false VAD trigger (1-2/min ambient) — acceptable.
+        self._passthrough = True
+        log.info("Mic capture started (device=%s, VAD mode=%d, wake=text)", self._device, VAD_MODE)
 
     def stop(self) -> None:
         """Stop capture thread."""
