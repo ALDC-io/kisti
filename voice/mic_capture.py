@@ -215,10 +215,13 @@ class MicCapture(QObject):
 
     def _run_arecord(self) -> None:
         """Stream audio from parecord (PulseAudio) and run VAD on each frame."""
-        cmd = ["parecord", "--raw", "--rate", str(SAMPLE_RATE),
-               "--channels", "1", "--format", "s16le"]
+        record_cmd = ["parecord", "--raw", "--rate", str(SAMPLE_RATE),
+                      "--channels", "1", "--format", "s16le"]
         if self._device:
-            cmd.extend(["--device", self._device])
+            record_cmd.extend(["--device", self._device])
+        # stdbuf -oL forces line-buffered stdout — parecord buffers indefinitely
+        # when piped without it, causing the capture thread to block forever.
+        cmd = ["stdbuf", "-oL"] + record_cmd
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
