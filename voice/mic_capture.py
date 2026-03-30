@@ -327,10 +327,19 @@ class MicCapture(QObject):
         oww_buffer = b""       # Accumulate frames for openwakeword (needs 1280 samples)
         wake_detected = False  # Wake word detected in current utterance
 
+        _diag_counter = 0
         while self._running and alive_fn():
             frame = read_fn(FRAME_BYTES)
             if len(frame) < FRAME_BYTES:
+                log.warning("parecord EOF — read %d < %d expected", len(frame), FRAME_BYTES)
                 break
+
+            _diag_counter += 1
+            if _diag_counter % 500 == 0:  # ~every 16s at 32ms/frame
+                import numpy as _diag_np
+                rms = int((_diag_np.frombuffer(frame, dtype=_diag_np.int16).astype(float) ** 2).mean() ** 0.5)
+                log.info("Mic diag: frames=%d paused=%s barge=%s rms=%d",
+                         _diag_counter, self._paused, self._barge_in_mode, rms)
 
             if self._paused:
                 voiced_count = 0
