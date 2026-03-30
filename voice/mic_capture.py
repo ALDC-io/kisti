@@ -39,8 +39,9 @@ SPEECH_END_FRAMES = 8     # ~256ms of silence to end utterance (was 12/384ms)
 MAX_UTTERANCE_S = 10.0    # Hard cap — prevent runaway capture
 MIN_UTTERANCE_S = 0.3     # Ignore very short bursts (clicks, bumps)
 
-# Pre-roll: keep N frames before speech detection fires
-PRE_ROLL_FRAMES = 5       # ~160ms lookback
+# Pre-roll: keep N frames before speech detection fires.
+# 10 frames (~320ms) captures the wake word onset that Whisper otherwise drops.
+PRE_ROLL_FRAMES = 10
 
 # openwakeword settings
 OWW_CHUNK_SAMPLES = 1280  # 80ms at 16kHz (openwakeword requirement)
