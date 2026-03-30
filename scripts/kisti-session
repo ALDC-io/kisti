@@ -82,9 +82,10 @@ fi
 PA_MIC=$(pactl list sources short 2>/dev/null | grep -i 'usb.*input\|usb.*mic\|usb.*audio' | grep -v monitor | head -1 | awk '{print $2}')
 if [ -n "$PA_MIC" ]; then
     MIC_DEVICE="$PA_MIC"
-    # PA source volume 200% — sweet spot for Silero VAD (500% drowns in noise, 150% too quiet)
-    pactl set-source-volume "$PA_MIC" 200% 2>/dev/null || true
-    echo "$(date) USB mic via PulseAudio: $MIC_DEVICE (ALSA=100%, PA=200%)" >> "$LOG"
+    # PA source volume 300% — USB mic has no ALSA capture gain, PA is sole amplifier.
+    # 200% gave RMS ~200 (too quiet for Silero), 400% clips, 300% sweet spot.
+    pactl set-source-volume "$PA_MIC" 300% 2>/dev/null || true
+    echo "$(date) USB mic via PulseAudio: $MIC_DEVICE (PA=300%)" >> "$LOG"
 else
     MIC_DEVICE="default"
     echo "$(date) No USB mic found, using default PA source" >> "$LOG"

@@ -326,17 +326,9 @@ class MicCapture(QObject):
         use_silero = self._vad_type == "silero"
         oww_buffer = b""       # Accumulate frames for openwakeword (needs 1280 samples)
         wake_detected = False  # Wake word detected in current utterance
-        _diag_count = 0        # Diagnostic frame counter (temporary)
 
         while self._running and alive_fn():
             frame = read_fn(FRAME_BYTES)
-            _diag_count += 1
-            if _diag_count <= 10 or _diag_count % 100 == 0:
-                _d_arr = np.frombuffer(frame[:FRAME_BYTES], dtype=np.int16).astype(np.float32)
-                rms = np.sqrt(np.mean(_d_arr ** 2))
-                peak = np.max(np.abs(_d_arr))
-                log.info("mic diag frame=%d rms=%.0f peak=%.0f paused=%s bargein=%s",
-                         _diag_count, rms, peak, self._paused, self._barge_in_mode)
             if len(frame) < FRAME_BYTES:
                 break
 
@@ -392,11 +384,6 @@ class MicCapture(QObject):
                 )
                 confidence = self._vad(audio_float, SAMPLE_RATE).item()
                 is_speech = confidence > SPEECH_THRESHOLD
-                # Diagnostic: log VAD for every high-RMS or high-conf frame
-                _d_rms = np.sqrt(np.mean(np.frombuffer(frame, dtype=np.int16).astype(np.float32) ** 2))
-                if confidence > 0.1 or _d_rms > 500:
-                    log.info("VAD conf=%.3f rms=%.0f speech=%s voiced=%d shape=%s",
-                             confidence, _d_rms, is_speech, voiced_count, audio_float.shape)
             else:
                 is_speech = self._vad.is_speech(frame, SAMPLE_RATE)
 
