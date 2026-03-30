@@ -392,9 +392,11 @@ class MicCapture(QObject):
                 )
                 confidence = self._vad(audio_float, SAMPLE_RATE).item()
                 is_speech = confidence > SPEECH_THRESHOLD
-                if confidence > 0.2:  # Log when VAD sees anything interesting
-                    log.info("VAD conf=%.3f speech=%s voiced=%d silent=%d",
-                             confidence, is_speech, voiced_count, silent_count)
+                # Diagnostic: log VAD for every high-RMS or high-conf frame
+                _d_rms = np.sqrt(np.mean(np.frombuffer(frame, dtype=np.int16).astype(np.float32) ** 2))
+                if confidence > 0.1 or _d_rms > 500:
+                    log.info("VAD conf=%.3f rms=%.0f speech=%s voiced=%d shape=%s",
+                             confidence, _d_rms, is_speech, voiced_count, audio_float.shape)
             else:
                 is_speech = self._vad.is_speech(frame, SAMPLE_RATE)
 
