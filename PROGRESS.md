@@ -291,3 +291,23 @@ Added complete Mission Raceway track day session with 6 laps (1 warm-up, 3 hot, 
 - **Ollama systemd CPU mode**: `echo -e "[Service]\nEnvironment=\"CUDA_VISIBLE_DEVICES=\"" > /etc/systemd/system/ollama.service.d/override.conf`
 - **Echo suppression via text overlap**: compare Set(transcribed_words) ∩ Set(last_spoken_words) / len(transcribed_words). Threshold 0.4, window 3s.
 - **whisper.cpp -ng flag**: `--no-gpu` forces CPU mode. Confirmed working on Orin Nano.
+
+## Session: kisti-08 (2026-03-30) — Phase 3 TimingManager + Mic Bug Investigation
+
+### Completed (1 commit: 87fd800)
+- **Phase 3 TimingManager**: `timing/timing_manager.py` wired to DiffStateBridge. Connects GPS → LapTimer, emits `lap_completed`/`sector_completed`/`track_detected`. Voice announcements in main.py, session lifecycle with pit lane debrief.
+- **MockCanGenerator**: GPS trace replaced from oval approximation to Laguna Seca waypoint interpolation — crosses S/F + all 3 sector lines per lap.
+- **26 tests** (`tests/test_timing_manager.py`, synthetic rectangular track). 522 total.
+- **Bug fix — re-entrant state_changed**: `_update_bridge_timing()` was calling `bridge.update_timing()` which re-emitted `state_changed` synchronously on every GPS tick, doubling signal traffic. Fixed with `bridge.blockSignals(True/False)` wrapper. Also fixed double-lap detection (LapTimer was processing each GPS point twice).
+- **Bug fix — lap_count field**: `duckdb_store.py:344` used `getattr(state, 'lap_number')` but DiffState field is `lap_count`. Was recording NULL for lap number in telemetry.
+- **Jetson deploy**: `git -C /home/aldc/repos/kisti pull` — code live on Jetson.
+
+### Failed Approaches
+- **blockSignals alone insufficient**: Fixed signal traffic but KiSTI still not responding to voice on Jetson after deploy. Root cause TBD — check _paused/_barge_in state in logs, AudioPlayer echo protection race at `main.py:525-534`.
+- **SSH git pull with ~/kisti path**: Fails in non-interactive SSH. Use `git -C /absolute/path pull` or `git --git-dir=/path/.git pull`.
+- **sudo via SSH without tty**: `sudo systemctl restart kisti` over SSH fails — requires tty or sudoers entry. kisti runs via GDM session on tty2, not as a restartable systemd service from SSH.
+
+### New Patterns
+- **Qt re-entrant signal guard**: When a signal handler emits another signal on the same QObject, use `obj.blockSignals(True/False)` wrapper to prevent feedback loops. Especially important for bridge objects connected to multiple listeners.
+- **DiffState field audit**: After extending DiffState, grep all `getattr(state, ...)` calls in duckdb_store.py to verify field names match exactly.
+- **CCE team broadcast restriction**: Only the original session conductor can post `broadcast` events. Joined agents should use `learning`, `task_claimed`, `task_completed` types.
