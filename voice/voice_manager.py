@@ -20,6 +20,7 @@ import struct
 import subprocess
 import threading
 import time
+from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Optional
 
@@ -33,6 +34,23 @@ from voice.tts_engine import TTSEngine
 from voice.led_waveform import LEDFrame, LEDWaveformGenerator
 
 log = logging.getLogger("kisti.voice")
+
+
+@dataclass
+class VoiceResponse:
+    """Structured output contract for all KiSTI response paths.
+
+    Every response path (persona, sensor, LLM, command) produces one of these.
+    Enables a future unified Response Composer to generate consistent speech.
+    """
+    text: str                          # What to speak
+    source: str                        # "persona" | "sensor" | "llm" | "command" | "system"
+    tier: str = "deterministic"        # "deterministic" | "interpretive" | "system"
+    latency_ms: int = 0               # Response generation time
+    facts: list = field(default_factory=list)  # Structured data for display/logging
+    status: str = "ok"                 # "ok" | "warn" | "critical"
+    can_interrupt: bool = True         # Safe to barge-in during this response
+
 
 SAMPLE_RATE = 16000
 CHUNK_SIZE = 1024  # samples per audio read
@@ -112,6 +130,9 @@ class VoiceManager(QObject):
 
         # Recent event log — ring buffer for LLM context injection
         self._recent_events: collections.deque[tuple[float, str]] = collections.deque(maxlen=20)
+
+        # Last structured response (for future composer / display / logging)
+        self._last_response: Optional[VoiceResponse] = None
 
         # Edge memory for "remember" commands and LLM context
         self._edge_memory = None
@@ -302,6 +323,9 @@ class VoiceManager(QObject):
         # Live sensor query — intercept ambient/weather questions with real data
         live = self._answer_from_sensors(lower)
         if live:
+            self._last_response = VoiceResponse(
+                text=live, source="sensor", tier="deterministic", latency_ms=0,
+            )
             log.info("Live sensor response: %s", live[:80])
             self.response_ready.emit(live)
             return
@@ -326,6 +350,11 @@ class VoiceManager(QObject):
             si_drive_mode=self._si_drive_mode.label,
         )
 
+        tier = "deterministic" if response.tier == "persona_match" else "interpretive"
+        self._last_response = VoiceResponse(
+            text=response.text, source=response.tier, tier=tier,
+            latency_ms=int(response.latency_s * 1000),
+        )
         log.info("LLM response (tier=%s, %.1fs): %s", response.tier, response.latency_s, response.text[:80])
         self.response_ready.emit(response.text)
 
