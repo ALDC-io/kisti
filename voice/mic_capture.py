@@ -328,6 +328,7 @@ class MicCapture(QObject):
         wake_detected = False  # Wake word detected in current utterance
 
         _diag_counter = 0
+        _oww_running_max = 0.0  # Track peak OWW score across all frames
         while self._running and alive_fn():
             frame = read_fn(FRAME_BYTES)
             if len(frame) < FRAME_BYTES:
@@ -375,7 +376,6 @@ class MicCapture(QObject):
                 continue
 
             # Feed openwakeword (accumulate to 1280-sample chunks)
-            _oww_max_score = 0.0
             if self._oww is not None:
                 oww_buffer += frame
                 while len(oww_buffer) >= OWW_CHUNK_SAMPLES * 2:
@@ -384,8 +384,8 @@ class MicCapture(QObject):
                     oww_audio = np.frombuffer(chunk, dtype=np.int16)
                     preds = self._oww.predict(oww_audio)
                     for model_name, score in preds.items():
-                        if score > _oww_max_score:
-                            _oww_max_score = score
+                        if score > _oww_running_max:
+                            _oww_running_max = score
                         if score > self._active_oww_threshold:
                             if not wake_detected:
                                 log.info("Wake word detected: %s (%.2f)", model_name, score)
@@ -404,8 +404,9 @@ class MicCapture(QObject):
 
             if _diag_log:
                 rms = int((np.frombuffer(frame, dtype=np.int16).astype(float) ** 2).mean() ** 0.5)
-                log.info("Mic diag: frames=%d rms=%d silero=%.3f oww=%.3f voiced=%d in_speech=%s",
-                         _diag_counter, rms, confidence, _oww_max_score, voiced_count, in_speech)
+                log.info("Mic diag: frames=%d rms=%d silero=%.3f oww_peak=%.3f voiced=%d in_speech=%s",
+                         _diag_counter, rms, confidence, _oww_running_max, voiced_count, in_speech)
+                _oww_running_max = 0.0  # Reset after logging
 
             if not in_speech:
                 pre_roll.append(frame)
