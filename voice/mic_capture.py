@@ -263,15 +263,27 @@ class MicCapture(QObject):
             stream.close()
 
     def _find_sd_device(self) -> int | None:
-        """Find the USB mic in sounddevice's device list. Returns index or None for default."""
+        """Find the best input device in sounddevice's device list.
+
+        Priority: USB mic by name → 'pulse' device (PA routing) → None (default).
+        On Jetson, the USB mic is only reachable through the 'pulse' PortAudio
+        device, not as a named ALSA device. Using None would hit an NVIDIA APE
+        input (silent).
+        """
         import sounddevice as sd
+        pulse_idx = None
         for i, dev in enumerate(sd.query_devices()):
             if dev["max_input_channels"] > 0:
                 name_lower = dev["name"].lower()
                 if "usb" in name_lower or "ktmicro" in name_lower:
                     log.info("sounddevice USB mic: [%d] %s", i, dev["name"])
                     return i
-        log.info("No USB mic in sounddevice — using default input")
+                if name_lower == "pulse":
+                    pulse_idx = i
+        if pulse_idx is not None:
+            log.info("sounddevice using pulse device [%d] (USB mic via PA)", pulse_idx)
+            return pulse_idx
+        log.info("No USB/pulse device in sounddevice — using default input")
         return None
 
     def _run_parecord(self) -> None:
