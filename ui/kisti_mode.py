@@ -592,6 +592,14 @@ class KistiModeWidget(QWidget):
         self._idle_check.timeout.connect(self._idle_tick)
         self._idle_check.start()
 
+        # Voice manager waveform polling (no cross-thread signals)
+        self._voice_mgr = None
+        self._voice_waveform_active = False
+        self._voice_poll_timer = QTimer(self)
+        self._voice_poll_timer.setInterval(25)  # 40 Hz — matches envelope rate
+        self._voice_poll_timer.timeout.connect(self._voice_poll_tick)
+        self._voice_poll_timer.start()
+
         # Audio player for Piper TTS (real voice output + waveform sync)
         self._audio_player = None
         # Envelope playback state (driven by _envelope_timer on main thread)
@@ -714,21 +722,36 @@ class KistiModeWidget(QWidget):
 
         self._waveform.set_amplitude(self._envelope[frame])
 
-    def on_voice_envelope(self, envelope: list):
-        """Voice manager sent a TTS envelope — animate waveform in sync with its audio."""
-        self._envelope = envelope
-        self._envelope_idx = 0
-        self._envelope_playing = True
-        self._waveform.set_active(True)
-        # Delay 150ms to align with paplay buffering — signal arrives before
-        # audio is audible, so starting the timer immediately leads the audio.
-        QTimer.singleShot(150, self._start_voice_envelope)
+    def set_voice_manager(self, voice_mgr):
+        """Store voice manager reference for waveform polling."""
+        self._voice_mgr = voice_mgr
 
-    def _start_voice_envelope(self):
-        """Begin envelope playback after paplay buffering delay."""
-        if self._envelope_playing and self._envelope:
-            self._playback_start_time = time.monotonic()
-            self._envelope_timer.start()
+    def _voice_poll_tick(self):
+        """Poll voice manager for waveform data — no cross-thread signals."""
+        vm = self._voice_mgr
+        if vm is None:
+            return
+        data = vm._waveform_data  # (envelope, start_time) or None
+        if data is not None:
+            envelope, start_time = data
+            elapsed = time.monotonic() - start_time
+            frame = int(elapsed * 40)  # 40 FPS envelope
+            if frame < len(envelope):
+                if not self._voice_waveform_active:
+                    self._voice_waveform_active = True
+                    self._waveform.set_active(True)
+                self._waveform.set_amplitude(envelope[frame])
+            else:
+                # Envelope exhausted
+                if self._voice_waveform_active:
+                    self._voice_waveform_active = False
+                    self._waveform.set_amplitude(0.0)
+                    self._waveform.set_active(False)
+        elif self._voice_waveform_active:
+            # Voice manager cleared data — stop animating
+            self._voice_waveform_active = False
+            self._waveform.set_amplitude(0.0)
+            self._waveform.set_active(False)
 
     def _warmup_piper(self):
         """Background: warm up Piper model by synthesizing a discarded phrase."""
