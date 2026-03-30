@@ -173,12 +173,10 @@ WAKE_WORDS = [
     "keys to", "keeps to", "key stee", "keisti",
     "christy", "cristy", "kisty", "heykisti",
     "ki sti", "kist", "key sti", "kissty",
-    # Phrases that imply talking to KiSTI (Whisper often drops the wake word)
-    "can you hear me", "are you there", "are you listening",
-    # Sensor/telemetry questions — only a human would ask these aloud
-    "temperature", "what's the temp", "how hot", "how cold",
-    "humidity", "boost", "oil pressure", "tire", "tires",
-    "what tires", "what's the weather", "how's the",
+    # NOTE: sensor/telemetry words (temperature, boost, oil pressure) were here
+    # but caused echo loops — KiSTI says a response containing these words,
+    # echo leaks through guard, Whisper transcribes it, WAKE_WORD matches, repeat.
+    # These queries now work via conversation window: say wake word first, then ask.
 ]
 QUIET_COMMANDS = ["quiet please kisti", "quiet please", "quiet kisti", "be quiet"]
 RESUME_COMMANDS = ["hey kisti"]
@@ -252,6 +250,10 @@ class VoiceManager(QObject):
 
         # Last structured response (for future composer / display / logging)
         self._last_response: Optional[VoiceResponse] = None
+
+        # Echo suppression — track what KiSTI just said to reject mic echo
+        self._last_spoken_text: str = ""
+        self._last_spoken_at: float = 0.0
 
         # Dialogue state — short-horizon conversational memory
         self._dialogue = DialogueState()
@@ -688,6 +690,17 @@ class VoiceManager(QObject):
             lower = text.lower()
             log.info("STT: '%s' (%.2fs latency, conf=%.1f)", text[:60], result.latency_s, result.confidence)
 
+            # Echo suppression — if this sounds like what KiSTI just said, discard it.
+            # Checks within 3s of last speech ending (covers room reverb + Whisper latency).
+            if self._last_spoken_text and (time.monotonic() - self._last_spoken_at) < 3.0:
+                spoken_words = set(re.findall(r'\b\w+\b', self._last_spoken_text))
+                heard_words = set(re.findall(r'\b\w+\b', lower))
+                if heard_words and spoken_words:
+                    overlap = len(heard_words & spoken_words) / len(heard_words)
+                    if overlap > 0.4:
+                        log.info("Echo suppressed (%.0f%% overlap with last speech): '%s'", overlap * 100, text[:60])
+                        return
+
             has_wake_word = any(w in lower for w in WAKE_WORDS)
             in_conversation = (time.monotonic() - self._last_interaction) < self._listen_window_s
 
@@ -734,6 +747,7 @@ class VoiceManager(QObject):
         """Synthesize and play speech with LED waveform."""
         self._set_state(VoiceState.SPEAKING)
         self._interrupted = False
+        self._last_spoken_text = text.lower()
         self.speaking_text.emit(text)
 
         trace = self._active_trace
@@ -769,6 +783,9 @@ class VoiceManager(QObject):
 
         if not self._interrupted:
             self._play_audio(result.audio_pcm, result.sample_rate)
+
+        # Mark when we stopped speaking — echo suppression uses this timestamp
+        self._last_spoken_at = time.monotonic()
 
         # Post-playback echo guard (short — OWW handles echo rejection)
         time.sleep(0.8)  # Echo guard — 0.3s too short for room reverb at 9x gain

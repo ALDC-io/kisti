@@ -71,10 +71,11 @@ Current telemetry:
 {telemetry_context}"""
 
 # Mode-specific token caps — hard limits enforced at generation time.
-# Lower = faster response + forces conciseness.
+# Higher caps allow conversational depth; mode prompt + stop tokens still enforce brevity.
+# llama3.2:3b context window = 8192 tokens (set via num_ctx in Ollama options).
 MODE_TOKEN_CAPS = {
-    "Intelligent": 64,
-    "Sport": 32,
+    "Intelligent": 256,
+    "Sport": 64,
     "Sport Sharp": 20,
 }
 MODE_TEMPERATURE = {
@@ -496,6 +497,7 @@ class LLMEngine:
             ],
             "stream": False,
             "options": {
+                "num_ctx": 8192,
                 "num_predict": max_tokens,
                 "temperature": temperature,
                 "stop": ["\n\n", "---"],
