@@ -525,13 +525,19 @@ def main():
     if voice_mgr and voice_mgr._mic and hasattr(window, '_kisti_mode'):
         _kmode = window._kisti_mode
         if hasattr(_kmode, '_audio_player') and _kmode._audio_player:
-            from PySide6.QtCore import QTimer as _EchoTimer
+            import threading as _echo_threading
             _kmode._audio_player.playback_started.connect(
                 lambda: voice_mgr._mic.pause()
             )
-            _kmode._audio_player.playback_finished.connect(
-                lambda: _EchoTimer.singleShot(800, voice_mgr._mic.resume)
-            )
+            def _echo_guard_resume():
+                """Resume mic 800ms after playback ends (echo guard).
+
+                Uses threading.Timer instead of QTimer.singleShot because
+                playback_finished fires from AudioPlayer's daemon thread
+                which has no Qt event loop — QTimer silently never fires.
+                """
+                _echo_threading.Timer(0.8, voice_mgr._mic.resume).start()
+            _kmode._audio_player.playback_finished.connect(_echo_guard_resume)
             log.info("Echo protection: mic pauses during UI audio playback")
 
     # --- Simulated voice queries ---

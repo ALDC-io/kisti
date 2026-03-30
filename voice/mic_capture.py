@@ -168,10 +168,12 @@ class MicCapture(QObject):
     def pause(self) -> None:
         """Pause capture during TTS playback (echo suppression)."""
         self._paused = True
+        log.info("Mic paused (echo protection)")
 
     def resume(self) -> None:
         """Resume capture after TTS playback ends."""
         self._paused = False
+        log.info("Mic resumed")
 
     @staticmethod
     def _find_pa_usb_source() -> str:
