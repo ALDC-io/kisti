@@ -1,47 +1,95 @@
-# KiSTI Voice Pipeline — Continue from kisti-voice-004
+Continue KiSTI voice pipeline UAT. Repo: /home/aldc/repos/kisti/. Jetson at
+192.168.22.131 (SSH user aldc, sudo password: aldc1234).
 
-Read `claude-next-step-kisti-voice-004.md` for full handoff context. **15 commits shipped, 13/17 tasks done, 344/344 tests passing**. Full voice pipeline verified on Jetson (whisper.cpp CUDA + Silero VAD + openwakeword + reference resolver + keypad control + Deepgram hybrid STT).
+## What was done this session (kisti-04, commits c9b5ebc → 10deecf)
 
-## What was done this session (1 commit)
+### Phase 4 — ALL CODE COMPLETE, 361/361 tests
+- **4.1 Barge-in**: mic stays active during TTS with raised OWW threshold (0.85).
+  Wake word interrupts playback. Critical alerts use full pause. Echo guard 2.0→0.3s.
+- **4.2 Response Composer**: `_compose_and_speak()` unifies all handle_voice_query paths.
+  VoiceResponse created for every response. record_turn for all user queries.
+- **4.3 Latency instrumentation**: PipelineTrace dataclass tracks STT→LLM→TTS→speaker.
+  Logged per interaction. DuckDB voice_latency table stores all traces.
+- **4.4 QA harness**: conftest.py with shared fixtures. 17 new tests.
 
-1. **Deepgram cloud hybrid STT (2.3)** — DONE
-   - `HybridSTTEngine` in `voice/stt_engine.py` — uses Deepgram nova-3 when WiFi reachable, whisper.cpp when offline
-   - WiFi check runs every 30s in background daemon thread (google.com HEAD request)
-   - Auto-selected at VoiceManager init if `DEEPGRAM_API_KEY` env var is set
-   - 3 new tests — 344 total passing
-   - Confidence: 0.98 Deepgram vs 0.95 whisper.cpp
+### Previous session work (kisti-03)
+- Reference resolver upgraded (idiomatic phrase detection, staleness check)
+- Wake word model path configurable (KISTI_WAKE_MODEL env var)
+- Button pad K1/K4 conflict fixed (K4 voice toggle via mode_manager, K2 PTT)
+- Deepgram hybrid STT engine
 
-2. **Custom wake model support (mic_capture.py)** — DONE (landed from previous session)
-   - `KISTI_WAKE_MODEL` env var: file path → custom ONNX, model name → built-in OWW, empty → hey_jarvis_v0.1
-   - VoiceManager passes env var to MicCapture constructor automatically
+### Mic gain tuning
+- kisti-session script: ALSA=100%, PA=200% (was ALSA=60%, PA=150%)
+- 500% drowned Silero VAD in noise. 200% gives clean separation:
+  ambient RMS=110 (conf 0.002), speech RMS=2100-4500 (conf 0.87-1.0)
 
-## Immediate next tasks (in order)
+## CRITICAL BLOCKER: parecord pipe buffering (NOT YET FIXED)
 
-1. **Train custom "hey kisti" openwakeword model** — HIGH PRIORITY
-   - Colab notebook: https://colab.research.google.com/drive/1q1oe2zOyZp7UsB3jJiQ1IFn8z5YfjwEb
-   - Deploy ~200KB ONNX to `/data/models/hey_kisti.onnx` on Jetson
-   - Set `KISTI_WAKE_MODEL=/data/models/hey_kisti.onnx` in Jetson `.env`
-   - Infrastructure already wired — just drop in the file and set env var
+**Problem**: parecord subprocess in mic_capture.py writes ZERO bytes to its stdout
+pipe. `cat /proc/<pid>/fdinfo/1` shows `pos: 0` after minutes of running. The mic
+capture thread blocks forever on `proc.stdout.read(1024)`.
 
-2. **Add DEEPGRAM_API_KEY to Jetson .env** — needed to activate HybridSTTEngine on Jetson
-   - Key in Dashlane vault under "Deepgram" (or create at deepgram.com)
-   - Add to `/home/aldc/.env` on Jetson
-   - Deploy and verify: `kisti-session` log should say "Initialized Deepgram hybrid STT engine"
+**Root cause**: parecord uses PulseAudio's internal buffering, NOT libc stdio.
+`stdbuf -o0` and `stdbuf -oL` don't help because they only affect libc buffers.
+parecord's PA client writes to stdout via PA's async mainloop, which buffers
+independently.
 
-3. **False wake rate + WER baseline (3.7)** — Record audio during a real drive session, measure false triggers per hour and word error rate.
+**Confirmed**: Manual `parecord ... > file` works (62KB/2s). Manual Python
+`subprocess.Popen + stdout=PIPE` in a standalone script works. But inside KiSTI's
+Qt event loop + threading, the pipe stays empty.
 
-## TUI session
-Team session `kisti-voice-004` is still active. Relaunch TUI:
+**Hypothesis**: Qt's event loop or Python's GIL interferes with the pipe read.
+The mic capture thread calls `proc.stdout.read(1024)` which blocks, but the
+parecord child process may need the PA mainloop to run, which requires the GIL
+or event loop attention.
+
+**Possible fixes (try in order)**:
+1. **Use `parec` instead of `parecord`** — same binary, different name, may have
+   different buffering behavior
+2. **Use `--latency-msec=50`** flag on parecord — forces smaller buffer sizes
+3. **Replace parecord with PyAudio/sounddevice** — read directly from PA in Python,
+   no subprocess needed. `sounddevice.InputStream` with callback avoids pipe entirely
+4. **Use `os.pipe()` + `os.read()`** instead of `subprocess.PIPE` — lower-level,
+   avoids Python's buffered IO wrapper
+5. **Set `bufsize=0`** on `subprocess.Popen` (already default, but worth verifying)
+6. **Try `PIPE` + `fcntl.F_SETFL, O_NONBLOCK`** then poll/select loop instead of
+   blocking read
+
+**Key diagnostic commands**:
+```bash
+# Check pipe position (should increase if data flowing):
+pid=$(pgrep -of parecord); cat /proc/$pid/fdinfo/1
+
+# Test parecord standalone:
+timeout 2 parecord --raw --rate 16000 --channels 1 --format s16le \
+  --device alsa_input.usb-KTMicro_USB_MIC_INPUT_Adapter_2020-02-20-0000-0000-0000-00.mono-fallback \
+  | wc -c  # Should be ~62000
+
+# Test Silero VAD (confirms speech detection works at 200%):
+# See test scripts in session logs
+
+# Check PA source state:
+pactl list sources short | grep -i usb
 ```
-python3 /home/aldc/zeus-memory/scripts/cce-team-panel.py --name kisti-voice-004
-```
-Post all progress to TUI — JK expects every task start/complete and inline comments posted there.
 
-## Key context
-- Jetson: 192.168.22.131 (SSH user aldc, sudo: aldc1234)
-- whisper.cpp server: systemd service at :8081, base.en ggml model
-- torchaudio MUST stay at 2.8.0 (2.11 breaks — needs CUDA 13, Jetson has 12.6)
-- ChatGPT deep research stored in Zeus: architecture (cb7f514a), routing model (cf19c8e1), dialogue manager design (c72ccc8d)
-- STT benchmarks in Zeus: 0c5079d0 (3s audio = 211ms P50)
-- Deploy: `bash scripts/deploy-to-jetson.sh` or see handoff for full command
-- kisti-03 and kisti-04 are other contributing CCE instances — coordinate via team session events
+## Team session
+- Session: kisti-voice-004 (a049c437-2b8a-4d2f-9fca-c878fe472427)
+- kisti-04 is conductor
+- TUI: python3 /home/aldc/zeus-memory/scripts/cce-team-panel.py --name kisti-voice-004
+- Project board: 5 phases, 24 tasks, 19 done. Phase 5 = UAT (5 items pending)
+
+## Key files
+- voice/mic_capture.py:216-232 — `_run_arecord()` spawns parecord, THIS IS THE BUG
+- voice/mic_capture.py:234+ — `_vad_process()` reads frames, runs Silero VAD
+- voice/voice_manager.py — PipelineTrace, _compose_and_speak, barge-in in _do_speak
+- data/duckdb_store.py — voice_latency table
+- scripts/kisti-session — mic gain (ALSA=100%, PA=200%)
+- tests/conftest.py — shared fixtures
+- tests/test_voice.py — 361 tests
+
+## Test baseline
+- 361/361 on dev machine (Manx)
+- 358/361 on Jetson (3 pre-existing env-specific failures)
+
+## Deploy command
+ssh aldc@192.168.22.131 "cd ~/repos/kisti && git pull --ff-only && echo aldc1234 | sudo -S cp scripts/kisti-session /usr/local/bin/kisti-session 2>/dev/null && echo aldc1234 | sudo -S systemctl restart gdm 2>/dev/null && echo DEPLOYED"
