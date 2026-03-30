@@ -212,6 +212,17 @@ vercel-live-feedback,
   animation: fabPulse 2s ease-out infinite;
 }
 
+/* Leader line dash crawl */
+@keyframes leaderDash {
+  to {
+    stroke-dashoffset: -26;
+  }
+}
+
+.animate-leader-dash {
+  animation: leaderDash 1.2s linear infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-node-glow,
   .animate-edge-pulse,
@@ -220,6 +231,7 @@ vercel-live-feedback,
   .animate-kitt-divider,
   .animate-cursor-blink,
   .animate-fab-pulse,
+  .animate-leader-dash,
   .animate-ticker-bar,
   .animate-hero-word,
   [style*="zeusVoiceBar"] {
