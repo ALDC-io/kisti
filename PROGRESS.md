@@ -246,3 +246,26 @@ Added complete Mission Raceway track day session with 6 laps (1 warm-up, 3 hot, 
 - Remove debug frame logging from kisti_mode.py once viz confirmed working
 - Permanent AccountsService fix via tmpfiles.d
 - GPS09 Pro IMU/GPS integration (plan saved — placeholder CAN IDs 0x6A4-0x6A7)
+
+---
+
+## Session: kisti-04 (2026-03-29)
+
+### Completed
+- **Phase 4 fully implemented** (361/361 tests)
+  - 4.1 Barge-in: OWW threshold 0.5→0.85 during TTS, mic stays active, wake word interrupts paplay, echo guard 2.0s→0.3s, critical alerts still use full pause
+  - 4.2 Response Composer: `_compose_and_speak()` unifies all 6 response paths, VoiceResponse created for say/remember/quiet/resume/sensor/LLM, record_turn for all user queries
+  - 4.3 PipelineTrace: tracks STT→LLM→TTS→speaker timestamps, logs "Pipeline: STT=Xms LLM=Xms TTS=Xms total=Xms", DuckDB voice_latency table
+  - 4.4 QA harness: tests/conftest.py shared fixtures, TestPipelineTrace/ResponseComposer/BargeIn/VoiceLatencyDuckDB/GoldenPersona
+- **Mic gain tuning**: PA=200% + ALSA=100% is sweet spot for KTMicro USB mic with Silero VAD
+- **sounddevice primary capture**: replaced parecord subprocess (pipe pos=0 bug) with sounddevice.InputStream — no subprocess, no pipe, no buffering issue
+
+### Failed Approaches
+- `stdbuf -oL` and `stdbuf -o0` do NOT fix parecord pipe buffering — PA uses internal async mainloop (not libc stdio), stdbuf can't intercept it
+- PA=500% boost drowns Silero VAD: ambient RMS=2000 at 500%, VAD can't distinguish speech from noise. 200% gives ambient=110 vs speech=2100-4500
+
+### New Patterns
+- **CCE team TUI project board**: POST `/api/team-session/{id}/project` with `phases` array to update the board at top of TUI (separate from event stream)
+- **Conductor transfer**: no API endpoint — use direct psql `UPDATE zeus_core.cce_team_sessions SET conductor = 'name'`
+- **PipelineTrace rounding**: use `round()` not `int()` for ms conversion — float arithmetic causes off-by-one (int(0.1*1000)=99, round=100)
+- **parecord pipe diagnosis**: `cat /proc/<pid>/fdinfo/1` — if `pos: 0` after minutes, pipe is stuck (data never flowing)
