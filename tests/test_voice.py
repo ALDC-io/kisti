@@ -797,3 +797,206 @@ class TestWakeModelConfig:
         monkeypatch.setenv("KISTI_WAKE_MODEL", "/data/models/custom.onnx")
         import os
         assert os.environ.get("KISTI_WAKE_MODEL") == "/data/models/custom.onnx"
+
+
+# ========================================================================
+# PipelineTrace tests (Phase 4.3)
+# ========================================================================
+
+import time
+from voice.voice_manager import PipelineTrace
+
+
+class TestPipelineTrace:
+    """Verify PipelineTrace timing capture and computed properties."""
+
+    def test_computed_properties(self):
+        now = time.monotonic()
+        trace = PipelineTrace(
+            mic_captured_at=now,
+            stt_done_at=now + 0.130,
+            llm_done_at=now + 0.130 + 2.1,
+            tts_done_at=now + 0.130 + 2.1 + 0.450,
+            speaker_start_at=now + 0.130 + 2.1 + 0.450 + 0.010,
+        )
+        assert trace.stt_ms == 130
+        assert trace.llm_ms == 2100
+        assert trace.tts_ms == 450
+        assert trace.total_ms == 2690
+
+    def test_zero_when_not_set(self):
+        trace = PipelineTrace()
+        assert trace.stt_ms == 0
+        assert trace.llm_ms == 0
+        assert trace.tts_ms == 0
+        assert trace.total_ms == 0
+
+    def test_partial_trace(self):
+        """Trace with only STT completed (e.g. sensor shortcut)."""
+        now = time.monotonic()
+        trace = PipelineTrace(
+            mic_captured_at=now,
+            stt_done_at=now + 0.100,
+        )
+        assert trace.stt_ms == 100
+        assert trace.llm_ms == 0
+        assert trace.total_ms == 0
+
+    def test_source_and_query(self):
+        trace = PipelineTrace(source="sensor", query_text="What is the temp?")
+        assert trace.source == "sensor"
+        assert trace.query_text == "What is the temp?"
+
+
+# ========================================================================
+# Response Composer tests (Phase 4.2)
+# ========================================================================
+
+
+class TestResponseComposer:
+    """Verify VoiceResponse creation and dialogue recording."""
+
+    def test_voice_response_records_turn(self):
+        state = DialogueState()
+        resp = VoiceResponse(text="Oil 55 PSI.", source="sensor")
+        state.record_turn("How is the oil?", resp)
+        assert state.turn_counter == 1
+        assert len(state.last_turns) == 1
+        assert state.last_turns[0].response_source == "sensor"
+        assert state.topic == "oil"
+
+    def test_voice_response_all_sources(self):
+        for source in ("persona", "sensor", "llm", "command", "system"):
+            resp = VoiceResponse(text="test", source=source)
+            assert resp.text == "test"
+            assert resp.source == source
+            assert resp.can_interrupt is True
+
+    def test_critical_alert_not_interruptible(self):
+        resp = VoiceResponse(
+            text="Oil pressure critical!", source="system",
+            status="critical", can_interrupt=False,
+        )
+        assert not resp.can_interrupt
+
+    def test_pipeline_trace_attached_to_response(self):
+        now = time.monotonic()
+        trace = PipelineTrace(mic_captured_at=now, stt_done_at=now + 0.1)
+        trace.source = "sensor"
+        trace.query_text = "test query"
+        assert trace.source == "sensor"
+        assert trace.stt_ms == 100
+
+
+# ========================================================================
+# Barge-in tests (Phase 4.1)
+# ========================================================================
+
+from voice.mic_capture import OWW_THRESHOLD_NORMAL, OWW_THRESHOLD_BARGE_IN
+
+
+class TestBargeIn:
+    """Verify MicCapture barge-in mode changes OWW threshold."""
+
+    def test_set_barge_in_mode_raises_threshold(self):
+        mic = MicCapture(device="nonexistent")
+        assert mic._active_oww_threshold == OWW_THRESHOLD_NORMAL
+        mic.set_barge_in_mode(True)
+        assert mic._barge_in_mode is True
+        assert mic._active_oww_threshold == OWW_THRESHOLD_BARGE_IN
+
+    def test_set_barge_in_mode_restores_threshold(self):
+        mic = MicCapture(device="nonexistent")
+        mic.set_barge_in_mode(True)
+        mic.set_barge_in_mode(False)
+        assert mic._barge_in_mode is False
+        assert mic._active_oww_threshold == OWW_THRESHOLD_NORMAL
+
+    def test_threshold_constants(self):
+        assert OWW_THRESHOLD_NORMAL == 0.5
+        assert OWW_THRESHOLD_BARGE_IN == 0.85
+        assert OWW_THRESHOLD_BARGE_IN > OWW_THRESHOLD_NORMAL
+
+    def test_pause_still_works(self):
+        """Full pause (non-interruptible) still works."""
+        mic = MicCapture(device="nonexistent")
+        mic.pause()
+        assert mic._paused is True
+        mic.resume()
+        assert mic._paused is False
+
+
+# ========================================================================
+# Voice Latency DuckDB tests (Phase 4.3)
+# ========================================================================
+
+
+class TestVoiceLatencyDuckDB:
+    """Verify voice_latency table in DuckDB."""
+
+    def test_record_voice_latency(self, tmp_path):
+        pytest.importorskip("duckdb")
+        from data.duckdb_store import DuckDBStore
+        db_path = tmp_path / "test_latency.duckdb"
+        store = DuckDBStore(db_path=db_path)
+        store.open()
+        try:
+            store.record_voice_latency(
+                session_id="test-session",
+                stt_ms=130, llm_ms=2100, tts_ms=450, total_ms=2690,
+                source="local_llm", query_text="How is the oil?",
+            )
+            stats = store.db_stats()
+            assert stats["voice_latency"] == 1
+        finally:
+            store.close()
+
+    def test_voice_latency_in_stats(self, tmp_path):
+        pytest.importorskip("duckdb")
+        from data.duckdb_store import DuckDBStore
+        db_path = tmp_path / "test_latency2.duckdb"
+        store = DuckDBStore(db_path=db_path)
+        store.open()
+        try:
+            stats = store.db_stats()
+            assert "voice_latency" in stats
+            assert stats["voice_latency"] == 0
+        finally:
+            store.close()
+
+
+# ========================================================================
+# Golden Persona tests — verified non-None across modes
+# ========================================================================
+
+
+class TestGoldenPersona:
+    """Specific inputs that MUST produce responses in appropriate modes."""
+
+    _SAFETY_QUERIES = [
+        "How are the brakes?",
+        "What is the oil pressure?",
+        "Is the coolant temperature ok?",
+    ]
+    _TECH_QUERIES = [
+        "How is the boost?",
+        "Tell me about the engine.",
+        "What fuel do you use?",
+    ]
+
+    def test_safety_queries_all_modes(self):
+        for q in self._SAFETY_QUERIES:
+            for mode in ("Intelligent", "Sport", "Sport Sharp"):
+                result = _match_persona(q, mode)
+                assert result is not None, f"'{q}' returned None in {mode}"
+
+    def test_tech_queries_intelligent_and_sport(self):
+        for q in self._TECH_QUERIES:
+            for mode in ("Intelligent", "Sport"):
+                result = _match_persona(q, mode)
+                assert result is not None, f"'{q}' returned None in {mode}"
+
+    def test_tech_queries_blocked_sport_sharp(self):
+        for q in self._TECH_QUERIES:
+            result = _match_persona(q, "Sport Sharp")
+            assert result is None, f"'{q}' should be None in Sport Sharp"
