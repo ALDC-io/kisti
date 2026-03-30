@@ -335,13 +335,11 @@ class MicCapture(QObject):
                 break
 
             _diag_counter += 1
-            if _diag_counter % 500 == 0:  # ~every 16s at 32ms/frame
-                import numpy as _diag_np
-                rms = int((_diag_np.frombuffer(frame, dtype=_diag_np.int16).astype(float) ** 2).mean() ** 0.5)
-                log.info("Mic diag: frames=%d paused=%s barge=%s rms=%d",
-                         _diag_counter, self._paused, self._barge_in_mode, rms)
+            _diag_log = (_diag_counter % 250 == 0)  # ~every 8s
 
             if self._paused:
+                if _diag_log:
+                    log.info("Mic diag: frames=%d PAUSED", _diag_counter)
                 voiced_count = 0
                 silent_count = 0
                 in_speech = False
@@ -398,7 +396,13 @@ class MicCapture(QObject):
                 confidence = self._vad(audio_float, SAMPLE_RATE).item()
                 is_speech = confidence > SPEECH_THRESHOLD
             else:
+                confidence = 0.0
                 is_speech = self._vad.is_speech(frame, SAMPLE_RATE)
+
+            if _diag_log:
+                rms = int((np.frombuffer(frame, dtype=np.int16).astype(float) ** 2).mean() ** 0.5)
+                log.info("Mic diag: frames=%d rms=%d silero=%.3f voiced=%d in_speech=%s",
+                         _diag_counter, rms, confidence, voiced_count, in_speech)
 
             if not in_speech:
                 pre_roll.append(frame)
