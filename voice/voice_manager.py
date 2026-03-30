@@ -1153,7 +1153,7 @@ class VoiceManager(QObject):
             "oil temp", "oil temperature", "oil pressure", "oil psi",
             "coolant temp", "coolant temperature", "engine temp", "water temp",
             "intake temp", "intake air", "iat",
-            "boost pressure", "boost psi", "manifold",
+            "boost pressure", "boost psi", "manifold", "boost",
             "battery", "voltage", "charging",
             "fuel pressure", "fuel rail", "fuel psi",
             "injector duty", "injector", "duty cycle",
@@ -1164,6 +1164,10 @@ class VoiceManager(QObject):
             "brake pressure", "steering angle",
             "lateral g", "g force", "how many g", "yaw",
             "dccd", "what gear", "which gear", "current gear",
+            "tire pressure", "tyre pressure", "tire temp", "tyre temp",
+            "tire", "tyre", "brake", "braking",
+            "suspension", "sway", "camber", "alignment",
+            "speed", "throttle", "accelerat",
         )
         if not s.can_connected and any(kw in query_lower for kw in _ECU_KEYWORDS):
             return "No ECU connected. Link G five not installed yet."
