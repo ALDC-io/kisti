@@ -13,6 +13,7 @@ Handles:
 
 from __future__ import annotations
 
+import collections
 import logging
 import queue
 import struct
@@ -107,6 +108,10 @@ class VoiceManager(QObject):
 
         # Telemetry snapshot for LLM context
         self._telemetry_snapshot: Optional[DiffState] = None
+        self._prev_snapshot: Optional[DiffState] = None
+
+        # Recent event log — ring buffer for LLM context injection
+        self._recent_events: collections.deque[tuple[float, str]] = collections.deque(maxlen=20)
 
         # Edge memory for "remember" commands and LLM context
         self._edge_memory = None
@@ -163,8 +168,41 @@ class VoiceManager(QObject):
         log.info("Voice mode: %s", mode.label)
 
     def set_telemetry(self, state: DiffState) -> None:
-        """Update telemetry snapshot for LLM context."""
+        """Update telemetry snapshot for LLM context. Logs notable changes."""
+        prev = self._telemetry_snapshot
         self._telemetry_snapshot = state
+
+        if prev is None:
+            return
+
+        now = time.monotonic()
+
+        # SI Drive mode change
+        if state.si_drive_mode != prev.si_drive_mode:
+            self._recent_events.append((now, f"SI Drive switched to {state.si_drive_mode.label}"))
+
+        # ABS activation
+        if state.abs_active and not prev.abs_active:
+            self._recent_events.append((now, "ABS activated"))
+
+        # VDC/TC activation
+        if state.vdc_tc and not prev.vdc_tc:
+            self._recent_events.append((now, "Traction control activated"))
+
+        # Significant boost change (>3 PSI jump)
+        if state.map_kpa > 0 and prev.map_kpa > 0:
+            boost_now = (state.map_kpa - 101.325) * 0.145038
+            boost_prev = (prev.map_kpa - 101.325) * 0.145038
+            if boost_now - boost_prev > 3:
+                self._recent_events.append((now, f"Boost spiked to {boost_now:.1f} PSI"))
+
+        # Coolant temp warning (crossing 100°C)
+        if state.coolant_temp >= 100 and prev.coolant_temp < 100:
+            self._recent_events.append((now, f"Coolant temp reached {state.coolant_temp:.0f}°C"))
+
+        # Oil pressure drop (>10 PSI)
+        if prev.oil_psi > 0 and state.oil_psi > 0 and prev.oil_psi - state.oil_psi > 10:
+            self._recent_events.append((now, f"Oil pressure dropped to {state.oil_psi:.0f} PSI"))
 
     def set_edge_memory(self, edge_memory: object) -> None:
         """Inject edge memory for 'remember' commands and LLM context."""
@@ -515,6 +553,16 @@ class VoiceManager(QObject):
             lines.append(f"Barometric: {s.ambient_pressure_hpa:.0f} hPa")
             lines.append(f"Dew Point: {s.dew_point_c:.1f}°C")
             lines.append(f"Density Altitude: {s.density_altitude_ft:.0f} ft")
+
+        # Inject recent events (last 60s) for contextual queries
+        now = time.monotonic()
+        recent = [(ts, msg) for ts, msg in self._recent_events if now - ts < 60]
+        if recent:
+            lines.append("")
+            lines.append("Recent events:")
+            for ts, msg in recent[-5:]:  # Last 5 events max
+                ago = int(now - ts)
+                lines.append(f"  {ago}s ago: {msg}")
 
         return "\n".join(lines) if lines else "No telemetry available."
 
