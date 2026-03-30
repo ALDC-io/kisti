@@ -696,15 +696,21 @@ class KistiModeWidget(QWidget):
     def _envelope_tick(self):
         """Advance to the correct envelope frame based on elapsed wall-clock time."""
         if not self._envelope_playing or not self._envelope:
+            self._envelope_playing = False
             self._envelope_timer.stop()
             self._waveform.set_amplitude(0.0)
+            self._waveform.set_active(False)
             return
 
         elapsed = time.monotonic() - self._playback_start_time
         frame = int(elapsed * 40)  # 40 FPS envelope
         if frame >= len(self._envelope):
+            self._envelope_playing = False
             self._envelope_timer.stop()
+            self._envelope = []
             self._waveform.set_amplitude(0.0)
+            self._waveform.set_active(False)
+            self._waveform.repaint()
             return
 
         self._waveform.set_amplitude(self._envelope[frame])
