@@ -22,7 +22,7 @@ const MEDIA_ITEMS = [
     status: "Coming Soon",
   },
   {
-    title: "Link G4X Configuration Guide",
+    title: "Link G5 Neo 4 Configuration Guide",
     type: "Tutorial",
     status: "Coming Soon",
   },

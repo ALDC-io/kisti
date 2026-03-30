@@ -11,9 +11,9 @@ const PARTNERS = [
   },
   {
     name: "Link Engine Management",
-    role: "ECU Platform",
+    role: "ECU & Electronics Sponsor",
     description:
-      "Link G4X provides the CAN bus backbone — 100+ configurable channels with real-time calibration and logging.",
+      "Link G5 Neo 4 ECU, Razor PDM, CAN Keypad, AiM Strada 7\" Street dash, plus MAP, IAT, flex fuel, and oil pressure sensors — the full electronics stack.",
     color: "#f59e0b",
     logo: "/assets/link_logo.svg",
   },

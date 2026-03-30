@@ -48,10 +48,10 @@ export const ZEUS_RESPONSES: ZeusQA[] = [
       "My edge brain — 40 TOPS of AI. It processes all 4 camera feeds and sensor telemetry in real-time, anomaly detection in under 50ms. When connectivity drops at the track, I buffer locally and sync to Zeus when WiFi comes back.",
   },
   {
-    keywords: ["link", "ecu", "can", "bus", "g4x", "tune", "tuning", "speed density", "launch control"],
+    keywords: ["link", "ecu", "can", "bus", "g5", "neo", "tune", "tuning", "speed density", "launch control"],
     question: "How does your ECU work?",
     answer:
-      "Link G4X standalone, running speed density — no MAF. All sensors route through CAN bus at 500 Kbps. Tune prioritizes smooth torque, conservative timing, and tire management. Launch control is enabled.",
+      "Link G5 Neo 4 standalone, running speed density — no MAF. All sensors route through CAN bus at 500 Kbps. Tune prioritizes smooth torque, conservative timing, and tire management. Launch control is enabled.",
   },
   {
     keywords: ["camera", "vision", "flir", "thermal", "lidar", "depth"],
@@ -63,7 +63,7 @@ export const ZEUS_RESPONSES: ZeusQA[] = [
     keywords: ["kisti", "platform", "what is", "overview", "about"],
     question: "What are you?",
     answer:
-      "Edge telemetry platform on a 2014 STI Hatch — IAG 750 block, BCP X400 turbo, 360-390 WHP, Link G4X ECU, 19 sensors, 4 cameras, and a Jetson Orin running edge AI. Think KITT from Knight Rider, but real — I can actually tell you what I'm feeling.",
+      "Edge telemetry platform on a 2014 STI Hatch — IAG 750 block, BCP X400 turbo, 360-390 WHP, Link G5 Neo 4 ECU, 19 sensors, 4 cameras, and a Jetson Orin running edge AI. Think KITT from Knight Rider, but real — I can actually tell you what I'm feeling.",
   },
   {
     keywords: ["who is kisti", "kisti persona", "personality", "introduce yourself", "who are you", "tell me about yourself", "are you alive", "sentient", "companion", "how old", "age", "when were you", "born", "made"],
@@ -249,7 +249,7 @@ export const ZEUS_RESPONSES: ZeusQA[] = [
     keywords: ["dyno", "tuning", "tune", "cobb", "ecutek", "haltech", "standalone"],
     question: "Does Boost Barn do dyno tuning?",
     answer:
-      "Yes — Cobb, EcuTek, OpenSource, and standalone ECUs including Link, Ecumaster, Haltech, and AEM. My Link G4X was tuned in-house. They prioritize repeatable, heat-stable performance over peak numbers. Visit www.boostbarnmotorsports.com.",
+      "Yes — Cobb, EcuTek, OpenSource, and standalone ECUs including Link, Ecumaster, Haltech, and AEM. My Link G5 Neo 4 was tuned in-house. They prioritize repeatable, heat-stable performance over peak numbers. Visit www.boostbarnmotorsports.com.",
   },
   {
     keywords: ["favorite track", "favourite track", "best track", "prefer track", "like driving", "where do you like"],

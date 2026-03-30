@@ -231,10 +231,10 @@ export const NODES: NodeDef[] = [
     hotThreshold: 5,
     description: "Weather and ambient conditions camera — rain, fog, light detection for adaptive driving",
   },
-  // Link ECU G4X — center of car
+  // Link ECU G5 Neo 4 — center of car
   {
     id: "ecu",
-    label: "Link G4X",
+    label: "Link G5 Neo 4",
     type: "ecu",
     x: 50,
     y: 58,
@@ -243,7 +243,7 @@ export const NODES: NodeDef[] = [
     max: 100,
     warnThreshold: 80,
     hotThreshold: 95,
-    description: "Link ECU G4X — central engine management, CAN bus hub",
+    description: "Link ECU G5 Neo 4 — central engine management, CAN bus hub",
   },
   // Jetson Orin — trunk area
   {

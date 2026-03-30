@@ -16,7 +16,7 @@ const PIPELINE_STAGES = [
   {
     title: "3. ECU Aggregation",
     description:
-      "Link G4X ECU receives all sensor data via CAN bus, applies calibration tables, and streams merged telemetry over USB.",
+      "Link G5 Neo 4 ECU receives all sensor data via CAN bus, applies calibration tables, and streams merged telemetry over USB.",
     detail: "500Kbps CAN, 100+ channels available, configurable output rates, real-time fuel/ignition corrections.",
   },
   {

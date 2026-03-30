@@ -1,7 +1,7 @@
 /**
  * Mission Raceway track day session data.
  * 6 laps: 1 warm-up, 3 hot, 2 cool-down.
- * Full Link G4X ECU telemetry per lap.
+ * Full Link G5 Neo 4 ECU telemetry per lap.
  */
 
 export interface LapTelemetry {

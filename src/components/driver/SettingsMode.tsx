@@ -81,7 +81,7 @@ export default function SettingsMode({ gpsFixed, networkConnected }: SettingsMod
           <span style={{ color: WHITE }}>Kenwood Excelon 800x480</span>
 
           <span style={{ color: GRAY }}>ECU</span>
-          <span style={{ color: WHITE }}>Link G4X (CAN 500kbps)</span>
+          <span style={{ color: WHITE }}>Link G5 Neo 4 (CAN 500kbps)</span>
 
           <span style={{ color: GRAY }}>Cameras</span>
           <span style={{ color: WHITE }}>4 feeds (IR/RGB/LiDAR/WX)</span>

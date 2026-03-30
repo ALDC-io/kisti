@@ -8,7 +8,9 @@ const NAV_LINKS = [
   { href: "/", label: "Live Demo" },
   { href: "/tech", label: "Technology" },
   { href: "/why", label: "Why KiSTI" },
+  { href: "/whyaldc", label: "Why ALDC" },
   { href: "/partners", label: "Partners" },
+  { href: "/zeus", label: "Zeus Chat" },
   { href: "/media", label: "Media" },
 ];
 
