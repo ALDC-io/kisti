@@ -269,3 +269,25 @@ Added complete Mission Raceway track day session with 6 laps (1 warm-up, 3 hot, 
 - **Conductor transfer**: no API endpoint — use direct psql `UPDATE zeus_core.cce_team_sessions SET conductor = 'name'`
 - **PipelineTrace rounding**: use `round()` not `int()` for ms conversion — float arithmetic causes off-by-one (int(0.1*1000)=99, round=100)
 - **parecord pipe diagnosis**: `cat /proc/<pid>/fdinfo/1` — if `pos: 0` after minutes, pipe is stuck (data never flowing)
+
+## Session: kisti-speaks (2026-03-30) — Voice Pipeline + CUDA Strategy
+
+### Completed (4 commits: 775587e → 2bfd3af)
+- **Echo suppression**: WAKE_WORDS cleaned of sensor words (caused echo loops). Text overlap rejection: >40% word match within 3s of last speech discarded.
+- **Dual speech path fix**: `_compose_and_speak` was emitting `response_ready` (AudioPlayer) AND queuing `_speak_queue` (_do_speak). Both toggled mic pause/resume — race left mic permanently stuck. Removed `response_ready` emit; `_do_speak` is now sole audio path.
+- **Token caps**: Intelligent 64→256, Sport 32→64. STT `is_real` fixed to check `_backend` not `_model`.
+- **Ollama warmup**: kisti-session waits for API readiness then sends a warm-up query before GDM starts.
+- **CUDA strategy**: whisper.cpp CUDA + Ollama CPU. Orin Nano pool fits one model at a time; STT wins (every interaction), LLM loses (rare fallback, persona covers 90%).
+- +5 echo suppression tests (385 total at voice session end)
+
+### Failed Approaches
+- `num_ctx=8192` in Ollama options → `cudaMalloc failed: out of memory`. Orin Nano unified CUDA pool is exhausted by whisper.cpp + Qt. NEVER set num_ctx on this hardware.
+- Sensor/telemetry words in WAKE_WORDS (`temperature`, `boost`, `oil pressure`, `humidity`) → echo re-trigger loops. KiSTI says the word, echo matches WAKE_WORDS, same query fires again.
+- Dual speech path (response_ready + _speak_queue) → mic stuck permanently paused after 3-4 interactions.
+- sudo password piping with heredoc via SSH unreliable — write to /tmp file first, then sudo cp.
+
+### New Patterns
+- **CUDA load order matters**: on Jetson, whichever process loads first gets CUDA. Service ordering via systemd `After=` + `Before=` controls allocation.
+- **Ollama systemd CPU mode**: `echo -e "[Service]\nEnvironment=\"CUDA_VISIBLE_DEVICES=\"" > /etc/systemd/system/ollama.service.d/override.conf`
+- **Echo suppression via text overlap**: compare Set(transcribed_words) ∩ Set(last_spoken_words) / len(transcribed_words). Threshold 0.4, window 3s.
+- **whisper.cpp -ng flag**: `--no-gpu` forces CPU mode. Confirmed working on Orin Nano.
