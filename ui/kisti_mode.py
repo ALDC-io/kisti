@@ -709,6 +709,26 @@ class KistiModeWidget(QWidget):
 
         self._waveform.set_amplitude(self._envelope[frame])
 
+    def on_voice_envelope(self, envelope: list):
+        """Voice manager sent a TTS envelope — animate waveform in sync with its audio."""
+        self._envelope = envelope
+        self._envelope_idx = 0
+        self._envelope_playing = True
+        self._playback_start_time = time.monotonic()
+        self._waveform.set_active(True)
+        self._envelope_timer.start()
+
+    def on_voice_state_changed(self, state: int):
+        """Voice manager left SPEAKING — stop waveform if we were driving it."""
+        if state != 3 and self._envelope_playing:  # 3 = VoiceState.SPEAKING
+            self._envelope_playing = False
+            self._envelope_timer.stop()
+            self._envelope = []
+            self._waveform._real_amplitude = 0.0
+            self._waveform._levels = [0, 0, 0]
+            self._waveform.set_active(False)
+            self._waveform.repaint()
+
     def _warmup_piper(self):
         """Background: warm up Piper model by synthesizing a discarded phrase."""
         import subprocess
