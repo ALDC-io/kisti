@@ -1,0 +1,722 @@
+[
+  {
+    "track_id": "a1b2c3d4-1001-4000-8001-000000000001",
+    "name": "WeatherTech Raceway Laguna Seca",
+    "center_lat": 36.5847,
+    "center_lon": -121.7534,
+    "radius_m": 2000,
+    "track_type": "circuit",
+    "country": "US",
+    "region": "California",
+    "length_m": 3602,
+    "start_finish": {
+      "lat1": 36.58432,
+      "lon1": -121.75560,
+      "lat2": 36.58406,
+      "lon2": -121.75525
+    },
+    "sectors": [
+      {
+        "line_lat1": 36.58680,
+        "line_lon1": -121.75710,
+        "line_lat2": 36.58650,
+        "line_lon2": -121.75680,
+        "name": "Sector 1 — Andretti Hairpin to Corkscrew"
+      },
+      {
+        "line_lat1": 36.58220,
+        "line_lon1": -121.74960,
+        "line_lat2": 36.58195,
+        "line_lon2": -121.74925,
+        "name": "Sector 2 — Corkscrew to Rainey Curve"
+      },
+      {
+        "line_lat1": 36.58510,
+        "line_lon1": -121.75370,
+        "line_lat2": 36.58480,
+        "line_lon2": -121.75345,
+        "name": "Sector 3 — Rainey Curve to Start/Finish"
+      }
+    ]
+  },
+  {
+    "track_id": "a1b2c3d4-1002-4000-8002-000000000002",
+    "name": "Thunderhill Raceway Park",
+    "center_lat": 39.5375,
+    "center_lon": -122.3330,
+    "radius_m": 2500,
+    "track_type": "circuit",
+    "country": "US",
+    "region": "California",
+    "length_m": 4612,
+    "start_finish": {
+      "lat1": 39.53870,
+      "lon1": -122.33120,
+      "lat2": 39.53840,
+      "lon2": -122.33090
+    },
+    "sectors": [
+      {
+        "line_lat1": 39.53550,
+        "line_lon1": -122.33850,
+        "line_lat2": 39.53520,
+        "line_lon2": -122.33820,
+        "name": "Sector 1 — Turn 5 exit"
+      },
+      {
+        "line_lat1": 39.53250,
+        "line_lon1": -122.33300,
+        "line_lat2": 39.53220,
+        "line_lon2": -122.33270,
+        "name": "Sector 2 — Turn 10 exit"
+      },
+      {
+        "line_lat1": 39.53680,
+        "line_lon1": -122.32800,
+        "line_lat2": 39.53650,
+        "line_lon2": -122.32770,
+        "name": "Sector 3 — Turn 14 to Start/Finish"
+      }
+    ]
+  },
+  {
+    "track_id": "a1b2c3d4-1003-4000-8003-000000000003",
+    "name": "Sonoma Raceway",
+    "center_lat": 38.1615,
+    "center_lon": -122.4555,
+    "radius_m": 2000,
+    "track_type": "circuit",
+    "country": "US",
+    "region": "California",
+    "length_m": 4060,
+    "start_finish": {
+      "lat1": 38.16160,
+      "lon1": -122.45510,
+      "lat2": 38.16130,
+      "lon2": -122.45475
+    },
+    "sectors": [
+      {
+        "line_lat1": 38.16280,
+        "line_lon1": -122.45780,
+        "line_lat2": 38.16255,
+        "line_lon2": -122.45745,
+        "name": "Sector 1 — Turn 3a apex"
+      },
+      {
+        "line_lat1": 38.15980,
+        "line_lon1": -122.45850,
+        "line_lat2": 38.15960,
+        "line_lon2": -122.45815,
+        "name": "Sector 2 — Turn 7 exit"
+      },
+      {
+        "line_lat1": 38.15920,
+        "line_lon1": -122.45420,
+        "line_lat2": 38.15900,
+        "line_lon2": -122.45385,
+        "name": "Sector 3 — Turn 11 to Start/Finish"
+      }
+    ]
+  },
+  {
+    "track_id": "a1b2c3d4-1004-4000-8004-000000000004",
+    "name": "Buttonwillow Raceway Park",
+    "center_lat": 35.4881,
+    "center_lon": -119.5403,
+    "radius_m": 2000,
+    "track_type": "circuit",
+    "country": "US",
+    "region": "California",
+    "length_m": 4310,
+    "start_finish": {
+      "lat1": 35.48950,
+      "lon1": -119.54260,
+      "lat2": 35.48920,
+      "lon2": -119.54230
+    },
+    "sectors": [
+      {
+        "line_lat1": 35.49050,
+        "line_lon1": -119.53750,
+        "line_lat2": 35.49020,
+        "line_lon2": -119.53720,
+        "name": "Sector 1 — Bus Stop exit"
+      },
+      {
+        "line_lat1": 35.48600,
+        "line_lon1": -119.53700,
+        "line_lat2": 35.48575,
+        "line_lon2": -119.53670,
+        "name": "Sector 2 — Riverside exit"
+      },
+      {
+        "line_lat1": 35.48700,
+        "line_lon1": -119.54350,
+        "line_lat2": 35.48680,
+        "line_lon2": -119.54320,
+        "name": "Sector 3 — Sunset to Start/Finish"
+      }
+    ]
+  },
+  {
+    "track_id": "a1b2c3d4-1005-4000-8005-000000000005",
+    "name": "Area 27",
+    "center_lat": 49.1642,
+    "center_lon": -119.5154,
+    "radius_m": 2500,
+    "track_type": "circuit",
+    "country": "CA",
+    "region": "British Columbia",
+    "length_m": 4830,
+    "start_finish": {
+      "lat1": 49.16480,
+      "lon1": -119.51380,
+      "lat2": 49.16450,
+      "lon2": -119.51350
+    },
+    "sectors": [
+      {
+        "line_lat1": 49.16650,
+        "line_lon1": -119.51800,
+        "line_lat2": 49.16620,
+        "line_lon2": -119.51770,
+        "name": "Sector 1 — Turn 5 exit"
+      },
+      {
+        "line_lat1": 49.16200,
+        "line_lon1": -119.51900,
+        "line_lat2": 49.16175,
+        "line_lon2": -119.51870,
+        "name": "Sector 2 — Turn 10 exit"
+      },
+      {
+        "line_lat1": 49.16350,
+        "line_lon1": -119.51200,
+        "line_lat2": 49.16320,
+        "line_lon2": -119.51170,
+        "name": "Sector 3 — Turn 14 to Start/Finish"
+      }
+    ]
+  },
+  {
+    "track_id": "a1b2c3d4-1006-4000-8006-000000000006",
+    "name": "Mission Raceway Park",
+    "center_lat": 49.1255,
+    "center_lon": -122.3250,
+    "radius_m": 1500,
+    "track_type": "circuit",
+    "country": "CA",
+    "region": "British Columbia",
+    "length_m": 2250,
+    "start_finish": {
+      "lat1": 49.12580,
+      "lon1": -122.32520,
+      "lat2": 49.12555,
+      "lon2": -122.32490
+    },
+    "sectors": [
+      {
+        "line_lat1": 49.12620,
+        "line_lon1": -122.32700,
+        "line_lat2": 49.12595,
+        "line_lon2": -122.32670,
+        "name": "Sector 1 — Turn 3 exit"
+      },
+      {
+        "line_lat1": 49.12450,
+        "line_lon1": -122.32600,
+        "line_lat2": 49.12430,
+        "line_lon2": -122.32570,
+        "name": "Sector 2 — Turn 6 exit"
+      },
+      {
+        "line_lat1": 49.12500,
+        "line_lon1": -122.32350,
+        "line_lat2": 49.12480,
+        "line_lon2": -122.32320,
+        "name": "Sector 3 — Turn 9 to Start/Finish"
+      }
+    ]
+  },
+  {
+    "track_id": "a1b2c3d4-1007-4000-8007-000000000007",
+    "name": "Portland International Raceway",
+    "center_lat": 45.5969,
+    "center_lon": -122.6908,
+    "radius_m": 2000,
+    "track_type": "circuit",
+    "country": "US",
+    "region": "Oregon",
+    "length_m": 3166,
+    "start_finish": {
+      "lat1": 45.59740,
+      "lon1": -122.68950,
+      "lat2": 45.59710,
+      "lon2": -122.68920
+    },
+    "sectors": [
+      {
+        "line_lat1": 45.59850,
+        "line_lon1": -122.69350,
+        "line_lat2": 45.59820,
+        "line_lon2": -122.69320,
+        "name": "Sector 1 — Turn 4 exit"
+      },
+      {
+        "line_lat1": 45.59500,
+        "line_lon1": -122.69250,
+        "line_lat2": 45.59480,
+        "line_lon2": -122.69220,
+        "name": "Sector 2 — Turn 8 exit"
+      },
+      {
+        "line_lat1": 45.59600,
+        "line_lon1": -122.68800,
+        "line_lat2": 45.59580,
+        "line_lon2": -122.68770,
+        "name": "Sector 3 — Chicane to Start/Finish"
+      }
+    ]
+  },
+  {
+    "track_id": "a1b2c3d4-1008-4000-8008-000000000008",
+    "name": "The Ridge Motorsports Park",
+    "center_lat": 47.2547,
+    "center_lon": -123.1933,
+    "radius_m": 2500,
+    "track_type": "circuit",
+    "country": "US",
+    "region": "Washington",
+    "length_m": 3975,
+    "start_finish": {
+      "lat1": 47.25650,
+      "lon1": -123.19200,
+      "lat2": 47.25620,
+      "lon2": -123.19170
+    },
+    "sectors": [
+      {
+        "line_lat1": 47.25750,
+        "line_lon1": -123.19600,
+        "line_lat2": 47.25720,
+        "line_lon2": -123.19570,
+        "name": "Sector 1 — Turn 5 exit"
+      },
+      {
+        "line_lat1": 47.25350,
+        "line_lon1": -123.19550,
+        "line_lat2": 47.25320,
+        "line_lon2": -123.19520,
+        "name": "Sector 2 — Turn 10 exit"
+      },
+      {
+        "line_lat1": 47.25200,
+        "line_lon1": -123.19100,
+        "line_lat2": 47.25180,
+        "line_lon2": -123.19070,
+        "name": "Sector 3 — Turn 15 to Start/Finish"
+      }
+    ]
+  },
+  {
+    "track_id": "a1b2c3d4-1009-4000-8009-000000000009",
+    "name": "Pacific Raceways",
+    "center_lat": 47.3207,
+    "center_lon": -122.1474,
+    "radius_m": 2000,
+    "track_type": "circuit",
+    "country": "US",
+    "region": "Washington",
+    "length_m": 3621,
+    "start_finish": {
+      "lat1": 47.32130,
+      "lon1": -122.14600,
+      "lat2": 47.32100,
+      "lon2": -122.14570
+    },
+    "sectors": [
+      {
+        "line_lat1": 47.32250,
+        "line_lon1": -122.14950,
+        "line_lat2": 47.32220,
+        "line_lon2": -122.14920,
+        "name": "Sector 1 — Turn 3 exit"
+      },
+      {
+        "line_lat1": 47.31900,
+        "line_lon1": -122.14900,
+        "line_lat2": 47.31880,
+        "line_lon2": -122.14870,
+        "name": "Sector 2 — Turn 7 exit"
+      },
+      {
+        "line_lat1": 47.31950,
+        "line_lon1": -122.14500,
+        "line_lat2": 47.31930,
+        "line_lon2": -122.14470,
+        "name": "Sector 3 — Turn 9 to Start/Finish"
+      }
+    ]
+  },
+  {
+    "track_id": "a1b2c3d4-1010-4000-8010-000000000010",
+    "name": "Circuit of the Americas",
+    "center_lat": 30.1328,
+    "center_lon": -97.6411,
+    "radius_m": 3000,
+    "track_type": "circuit",
+    "country": "US",
+    "region": "Texas",
+    "length_m": 5513,
+    "start_finish": {
+      "lat1": 30.13220,
+      "lon1": -97.64020,
+      "lat2": 30.13190,
+      "lon2": -97.63980
+    },
+    "sectors": [
+      {
+        "line_lat1": 30.13750,
+        "line_lon1": -97.63650,
+        "line_lat2": 30.13720,
+        "line_lon2": -97.63610,
+        "name": "Sector 1 — Turn 1 to Turn 6"
+      },
+      {
+        "line_lat1": 30.12950,
+        "line_lon1": -97.63550,
+        "line_lat2": 30.12920,
+        "line_lon2": -97.63510,
+        "name": "Sector 2 — Turn 11 exit (back straight)"
+      },
+      {
+        "line_lat1": 30.12850,
+        "line_lon1": -97.64350,
+        "line_lat2": 30.12830,
+        "line_lon2": -97.64310,
+        "name": "Sector 3 — Turn 15 to Start/Finish"
+      }
+    ]
+  },
+  {
+    "track_id": "a1b2c3d4-1011-4000-8011-000000000011",
+    "name": "Road America",
+    "center_lat": 43.7968,
+    "center_lon": -87.9897,
+    "radius_m": 3000,
+    "track_type": "circuit",
+    "country": "US",
+    "region": "Wisconsin",
+    "length_m": 6515,
+    "start_finish": {
+      "lat1": 43.79820,
+      "lon1": -87.99220,
+      "lat2": 43.79790,
+      "lon2": -87.99190
+    },
+    "sectors": [
+      {
+        "line_lat1": 43.80100,
+        "line_lon1": -87.98850,
+        "line_lat2": 43.80070,
+        "line_lon2": -87.98820,
+        "name": "Sector 1 — Hurry Downs exit"
+      },
+      {
+        "line_lat1": 43.79400,
+        "line_lon1": -87.98600,
+        "line_lat2": 43.79370,
+        "line_lon2": -87.98570,
+        "name": "Sector 2 — Canada Corner exit"
+      },
+      {
+        "line_lat1": 43.79550,
+        "line_lon1": -87.99400,
+        "line_lat2": 43.79530,
+        "line_lon2": -87.99370,
+        "name": "Sector 3 — Carousel to Start/Finish"
+      }
+    ]
+  },
+  {
+    "track_id": "a1b2c3d4-1012-4000-8012-000000000012",
+    "name": "Watkins Glen International",
+    "center_lat": 42.3369,
+    "center_lon": -76.9272,
+    "radius_m": 2500,
+    "track_type": "circuit",
+    "country": "US",
+    "region": "New York",
+    "length_m": 5430,
+    "start_finish": {
+      "lat1": 42.33650,
+      "lon1": -76.92480,
+      "lat2": 42.33620,
+      "lon2": -76.92450
+    },
+    "sectors": [
+      {
+        "line_lat1": 42.33900,
+        "line_lon1": -76.92800,
+        "line_lat2": 42.33870,
+        "line_lon2": -76.92770,
+        "name": "Sector 1 — Esses exit"
+      },
+      {
+        "line_lat1": 42.33450,
+        "line_lon1": -76.93150,
+        "line_lat2": 42.33425,
+        "line_lon2": -76.93120,
+        "name": "Sector 2 — Toe of the Boot"
+      },
+      {
+        "line_lat1": 42.33550,
+        "line_lon1": -76.92350,
+        "line_lat2": 42.33520,
+        "line_lon2": -76.92320,
+        "name": "Sector 3 — Inner Loop to Start/Finish"
+      }
+    ]
+  },
+  {
+    "track_id": "a1b2c3d4-1013-4000-8013-000000000013",
+    "name": "Canadian Tire Motorsport Park",
+    "center_lat": 44.0481,
+    "center_lon": -78.6756,
+    "radius_m": 2500,
+    "track_type": "circuit",
+    "country": "CA",
+    "region": "Ontario",
+    "length_m": 3957,
+    "start_finish": {
+      "lat1": 44.04870,
+      "lon1": -78.67350,
+      "lat2": 44.04840,
+      "lon2": -78.67320
+    },
+    "sectors": [
+      {
+        "line_lat1": 44.05050,
+        "line_lon1": -78.67700,
+        "line_lat2": 44.05020,
+        "line_lon2": -78.67670,
+        "name": "Sector 1 — Turn 2 to Moss Corner"
+      },
+      {
+        "line_lat1": 44.04650,
+        "line_lon1": -78.67900,
+        "line_lat2": 44.04620,
+        "line_lon2": -78.67870,
+        "name": "Sector 2 — Turn 5B exit"
+      },
+      {
+        "line_lat1": 44.04700,
+        "line_lon1": -78.67200,
+        "line_lat2": 44.04680,
+        "line_lon2": -78.67170,
+        "name": "Sector 3 — Turn 9 to Start/Finish"
+      }
+    ]
+  },
+  {
+    "track_id": "a1b2c3d4-1014-4000-8014-000000000014",
+    "name": "Circuit Mont-Tremblant",
+    "center_lat": 46.1877,
+    "center_lon": -74.6099,
+    "radius_m": 2000,
+    "track_type": "circuit",
+    "country": "CA",
+    "region": "Quebec",
+    "length_m": 4260,
+    "start_finish": {
+      "lat1": 46.18810,
+      "lon1": -74.60750,
+      "lat2": 46.18780,
+      "lon2": -74.60720
+    },
+    "sectors": [
+      {
+        "line_lat1": 46.19000,
+        "line_lon1": -74.61200,
+        "line_lat2": 46.18970,
+        "line_lon2": -74.61170,
+        "name": "Sector 1 — Turn 4 exit"
+      },
+      {
+        "line_lat1": 46.18600,
+        "line_lon1": -74.61300,
+        "line_lat2": 46.18575,
+        "line_lon2": -74.61270,
+        "name": "Sector 2 — Turn 9 exit"
+      },
+      {
+        "line_lat1": 46.18650,
+        "line_lon1": -74.60600,
+        "line_lat2": 46.18625,
+        "line_lon2": -74.60570,
+        "name": "Sector 3 — Turn 14 to Start/Finish"
+      }
+    ]
+  },
+  {
+    "track_id": "a1b2c3d4-1015-4000-8015-000000000015",
+    "name": "Nurburgring Nordschleife",
+    "center_lat": 50.3314,
+    "center_lon": 6.9383,
+    "radius_m": 5000,
+    "track_type": "circuit",
+    "country": "DE",
+    "region": "Rhineland-Palatinate",
+    "length_m": 20832,
+    "start_finish": {
+      "lat1": 50.33440,
+      "lon1": 6.94160,
+      "lat2": 50.33410,
+      "lon2": 6.94200
+    },
+    "sectors": [
+      {
+        "line_lat1": 50.35050,
+        "line_lon1": 6.95500,
+        "line_lat2": 50.35020,
+        "line_lon2": 6.95540,
+        "name": "Sector 1 — Hatzenbach to Adenauer Forst"
+      },
+      {
+        "line_lat1": 50.34100,
+        "line_lon1": 6.90200,
+        "line_lat2": 50.34070,
+        "line_lon2": 6.90240,
+        "name": "Sector 2 — Carousel to Brunnchen"
+      },
+      {
+        "line_lat1": 50.33150,
+        "line_lon1": 6.94800,
+        "line_lat2": 50.33120,
+        "line_lon2": 6.94840,
+        "name": "Sector 3 — Dottinger Hohe to Start/Finish"
+      }
+    ]
+  },
+  {
+    "track_id": "a1b2c3d4-1016-4000-8016-000000000016",
+    "name": "Circuit de Spa-Francorchamps",
+    "center_lat": 50.4357,
+    "center_lon": 5.9695,
+    "radius_m": 3000,
+    "track_type": "circuit",
+    "country": "BE",
+    "region": "Wallonia",
+    "length_m": 7004,
+    "start_finish": {
+      "lat1": 50.43720,
+      "lon1": 5.97120,
+      "lat2": 50.43690,
+      "lon2": 5.97160
+    },
+    "sectors": [
+      {
+        "line_lat1": 50.44350,
+        "line_lon1": 5.97000,
+        "line_lat2": 50.44320,
+        "line_lon2": 5.97040,
+        "name": "Sector 1 — La Source to Les Combes"
+      },
+      {
+        "line_lat1": 50.43200,
+        "line_lon1": 5.96100,
+        "line_lat2": 50.43170,
+        "line_lon2": 5.96140,
+        "name": "Sector 2 — Rivage to Stavelot"
+      },
+      {
+        "line_lat1": 50.43250,
+        "line_lon1": 5.97700,
+        "line_lat2": 50.43220,
+        "line_lon2": 5.97740,
+        "name": "Sector 3 — Blanchimont to Start/Finish"
+      }
+    ]
+  },
+  {
+    "track_id": "a1b2c3d4-1017-4000-8017-000000000017",
+    "name": "Suzuka International Racing Course",
+    "center_lat": 34.8431,
+    "center_lon": 136.5406,
+    "radius_m": 2500,
+    "track_type": "circuit",
+    "country": "JP",
+    "region": "Mie Prefecture",
+    "length_m": 5807,
+    "start_finish": {
+      "lat1": 34.84380,
+      "lon1": 136.53880,
+      "lat2": 34.84350,
+      "lon2": 136.53920
+    },
+    "sectors": [
+      {
+        "line_lat1": 34.84550,
+        "line_lon1": 136.54250,
+        "line_lat2": 34.84520,
+        "line_lon2": 136.54290,
+        "name": "Sector 1 — First S-curves to Dunlop"
+      },
+      {
+        "line_lat1": 34.84050,
+        "line_lon1": 136.54400,
+        "line_lat2": 34.84020,
+        "line_lon2": 136.54440,
+        "name": "Sector 2 — Hairpin to Spoon"
+      },
+      {
+        "line_lat1": 34.84200,
+        "line_lon1": 136.53650,
+        "line_lat2": 34.84170,
+        "line_lon2": 136.53690,
+        "name": "Sector 3 — 130R to Start/Finish"
+      }
+    ]
+  },
+  {
+    "track_id": "a1b2c3d4-1018-4000-8018-000000000018",
+    "name": "Mount Panorama Circuit",
+    "center_lat": -33.4418,
+    "center_lon": 149.5538,
+    "radius_m": 2500,
+    "track_type": "circuit",
+    "country": "AU",
+    "region": "New South Wales",
+    "length_m": 6213,
+    "start_finish": {
+      "lat1": -33.44380,
+      "lon1": 149.55780,
+      "lat2": -33.44350,
+      "lon2": 149.55820
+    },
+    "sectors": [
+      {
+        "line_lat1": -33.43900,
+        "line_lon1": 149.55650,
+        "line_lat2": -33.43870,
+        "line_lon2": 149.55690,
+        "name": "Sector 1 — Mountain Straight to The Cutting"
+      },
+      {
+        "line_lat1": -33.43600,
+        "line_lon1": 149.55150,
+        "line_lat2": -33.43570,
+        "line_lon2": 149.55190,
+        "name": "Sector 2 — Skyline to Forrest Elbow"
+      },
+      {
+        "line_lat1": -33.44150,
+        "line_lon1": 149.55650,
+        "line_lat2": -33.44120,
+        "line_lon2": 149.55690,
+        "name": "Sector 3 — Conrod Straight to Start/Finish"
+      }
+    ]
+  }
+]
