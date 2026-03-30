@@ -37,6 +37,75 @@ log = logging.getLogger("kisti.voice")
 
 
 @dataclass
+class DialogueTurn:
+    """Compact record of a single conversation turn."""
+    turn_id: int
+    user_text: str
+    response_source: str       # "persona" | "sensor" | "llm"
+    response_summary: str      # First 80 chars of response
+    timestamp: float           # monotonic time
+
+
+@dataclass
+class DialogueState:
+    """Short-horizon conversational memory for reference resolution.
+
+    Tracks active topic, recent turns, and temporal anchors so the
+    future reference resolver can rewrite "that", "it", "those temps".
+    """
+    topic: str = ""                    # Current active topic (e.g. "brake_temps")
+    topic_since_turn: int = 0          # Turn when topic was set
+    last_turns: list = field(default_factory=list)  # Last 5 DialogueTurns
+    turn_counter: int = 0              # Monotonic turn ID
+    last_event_type: str = ""          # "hard_brake" | "mode_change" | etc.
+    last_event_ts: float = 0.0         # Monotonic time of last notable event
+
+    def record_turn(self, user_text: str, response: "VoiceResponse") -> None:
+        """Record a completed conversation turn."""
+        self.turn_counter += 1
+        turn = DialogueTurn(
+            turn_id=self.turn_counter,
+            user_text=user_text,
+            response_source=response.source,
+            response_summary=response.text[:80],
+            timestamp=time.monotonic(),
+        )
+        self.last_turns.append(turn)
+        if len(self.last_turns) > 5:
+            self.last_turns.pop(0)
+
+        # Infer topic from keywords in user text
+        lower = user_text.lower()
+        topic_keywords = {
+            "brake": "brakes", "oil": "oil", "coolant": "coolant",
+            "boost": "boost", "temp": "temperatures", "tire": "tires",
+            "fuel": "fuel", "ethanol": "ethanol", "pressure": "pressure",
+            "lap": "lap_times", "sector": "sectors", "speed": "speed",
+        }
+        for kw, topic in topic_keywords.items():
+            if kw in lower:
+                self.topic = topic
+                self.topic_since_turn = self.turn_counter
+                break
+
+    def context_summary(self) -> str:
+        """Build a compact context string for LLM injection."""
+        parts = []
+        if self.topic:
+            parts.append(f"Active topic: {self.topic}")
+        if self.last_turns:
+            parts.append("Recent turns:")
+            for t in self.last_turns[-3:]:
+                parts.append(f"  User: {t.user_text[:50]}")
+                parts.append(f"  KiSTI [{t.response_source}]: {t.response_summary[:50]}")
+        if self.last_event_type:
+            ago = int(time.monotonic() - self.last_event_ts)
+            if ago < 120:
+                parts.append(f"Last event: {self.last_event_type} ({ago}s ago)")
+        return "\n".join(parts) if parts else ""
+
+
+@dataclass
 class VoiceResponse:
     """Structured output contract for all KiSTI response paths.
 
@@ -134,6 +203,9 @@ class VoiceManager(QObject):
         # Last structured response (for future composer / display / logging)
         self._last_response: Optional[VoiceResponse] = None
 
+        # Dialogue state — short-horizon conversational memory
+        self._dialogue = DialogueState()
+
         # Edge memory for "remember" commands and LLM context
         self._edge_memory = None
 
@@ -198,32 +270,37 @@ class VoiceManager(QObject):
 
         now = time.monotonic()
 
+        def _log_event(event_type: str, msg: str) -> None:
+            self._recent_events.append((now, msg))
+            self._dialogue.last_event_type = event_type
+            self._dialogue.last_event_ts = now
+
         # SI Drive mode change
         if state.si_drive_mode != prev.si_drive_mode:
-            self._recent_events.append((now, f"SI Drive switched to {state.si_drive_mode.label}"))
+            _log_event("mode_change", f"SI Drive switched to {state.si_drive_mode.label}")
 
         # ABS activation
         if state.abs_active and not prev.abs_active:
-            self._recent_events.append((now, "ABS activated"))
+            _log_event("abs", "ABS activated")
 
         # VDC/TC activation
         if state.vdc_tc and not prev.vdc_tc:
-            self._recent_events.append((now, "Traction control activated"))
+            _log_event("traction_control", "Traction control activated")
 
         # Significant boost change (>3 PSI jump)
         if state.map_kpa > 0 and prev.map_kpa > 0:
             boost_now = (state.map_kpa - 101.325) * 0.145038
             boost_prev = (prev.map_kpa - 101.325) * 0.145038
             if boost_now - boost_prev > 3:
-                self._recent_events.append((now, f"Boost spiked to {boost_now:.1f} PSI"))
+                _log_event("boost_spike", f"Boost spiked to {boost_now:.1f} PSI")
 
         # Coolant temp warning (crossing 100°C)
         if state.coolant_temp >= 100 and prev.coolant_temp < 100:
-            self._recent_events.append((now, f"Coolant temp reached {state.coolant_temp:.0f}°C"))
+            _log_event("coolant_warn", f"Coolant temp reached {state.coolant_temp:.0f}°C")
 
         # Oil pressure drop (>10 PSI)
         if prev.oil_psi > 0 and state.oil_psi > 0 and prev.oil_psi - state.oil_psi > 10:
-            self._recent_events.append((now, f"Oil pressure dropped to {state.oil_psi:.0f} PSI"))
+            _log_event("oil_pressure_drop", f"Oil pressure dropped to {state.oil_psi:.0f} PSI")
 
     def set_edge_memory(self, edge_memory: object) -> None:
         """Inject edge memory for 'remember' commands and LLM context."""
@@ -326,6 +403,7 @@ class VoiceManager(QObject):
             self._last_response = VoiceResponse(
                 text=live, source="sensor", tier="deterministic", latency_ms=0,
             )
+            self._dialogue.record_turn(transcription, self._last_response)
             log.info("Live sensor response: %s", live[:80])
             self.response_ready.emit(live)
             return
@@ -355,6 +433,7 @@ class VoiceManager(QObject):
             text=response.text, source=response.tier, tier=tier,
             latency_ms=int(response.latency_s * 1000),
         )
+        self._dialogue.record_turn(transcription, self._last_response)
         log.info("LLM response (tier=%s, %.1fs): %s", response.tier, response.latency_s, response.text[:80])
         self.response_ready.emit(response.text)
 
