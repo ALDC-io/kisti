@@ -1,106 +1,117 @@
 # KiSTI — Next Session Prompt
 
 **Working dir**: `/home/aldc/repos/kisti/`
-**Jetson**: `192.168.22.131` (user `aldc`, pw `aldc1234`)
+**Jetson**: `192.168.22.131` (user `aldc`, pw `aldc1234`). SSH: `ssh aldc@192.168.22.131`
 **Live URL**: N/A (embedded Qt on Jetson)
-**Test baseline**: 496 tests passing
+**Test baseline**: 522 tests passing
 
-## What Was Done (2026-03-30)
+## Join the CCE Team Session
 
-### Race Analysis Engine — Phases 1 & 2 COMPLETE
+```
+cce-team join project kisti-speaks as kisti-09
+```
 
-Built the core timing subsystem to replace AiM Race Studio 3 post-session analysis with real-time, in-car, voice-delivered race analysis.
+Key context from kisti-08 (previous contributor):
+- Committed + pushed Phase 3 (TimingManager Qt integration) + 3 bug fixes
+- **OPEN BUG**: Mic still not responding to voice on Jetson after restart. blockSignals fix deployed but voice UAT failed — KiSTI doesn't respond to speech. The re-entrant signal fix was necessary but NOT sufficient. Deeper mic investigation needed.
+- Code is deployed on Jetson (git pull done, service restarted)
+- 522 tests passing on workstation
 
-**Phase 1 — GPS Geometry & Track Database:**
-- `timing/geo.py` — 7 GPS primitives (haversine, line_segment_crossing, bearing, perpendicular_line, etc.)
-- `timing/track_db.py` — DuckDB-backed TrackDatabase (find_track by GPS, sectors, seed import)
-- `data/tracks_seed.json` — 18 seed tracks (Laguna Seca, Area 27, Mission, COTA, Nurburgring, etc.)
-- DuckDB schema extended: `tracks`, `track_sectors`, `lap_times` tables + `imu_gyro_z` column + timing telemetry columns
-- 67 tests (42 geo + 25 track DB)
+## What Was Done (kisti-08, 2026-03-30)
 
-**Phase 2 — Lap Timer Core Engine:**
-- `timing/lap_timer.py` — LapTimer with update(), get_delta(), get_predicted_lap(), get_theoretical_best()
-- ReferenceLap with distance-indexed time_at_distance() (binary search + interpolation)
-- Point-to-point mode (set_p2p_mode/set_circuit_mode)
-- DiffState extended: 10 timing fields + update_timing() on DiffStateBridge
-- 44 tests (lap detection, sectors, delta, predictive, theoretical best, P2P, edge cases)
+### Phase 3 — TimingManager Qt Integration: COMPLETE
+- `timing/timing_manager.py` — TimingManager(QObject) wired to DiffStateBridge
+  - Connects to `bridge.state_changed`, detects GPS updates, calls `LapTimer.update()`
+  - Emits signals: `lap_completed`, `sector_completed`, `track_detected`, `p2p_completed`
+  - Pushes timing data to bridge via `update_timing()` with `blockSignals` guard
+- `main.py` — TimingManager wired after bridge creation (~line 333)
+  - Voice announcements for lap complete + track detected
+  - Session lifecycle: `set_session_id()` on K1 start, pit lane debrief on stop
+- `can/kisti_can.py` — MockCanGenerator GPS trace replaced with Laguna Seca waypoint interpolation (crosses S/F + all 3 sector lines per lap)
+- `tests/test_timing_manager.py` — 26 tests (synthetic rectangular track)
 
-**Also this session:**
-- Validated iPhone hotspot sync (full write/read/delete round-trip to Nextcloud)
-- Updated KiSTI memory files (test count 268→380→496, voice pipeline status, GPS09 Pro)
-- Saved GPS09 Pro Open IMU as key sensor to memory
-- Saved race analysis vision: "Drive into pits, KiSTI explains it all"
+### Bug Fixes (committed in same push)
+1. **blockSignals in `_update_bridge_timing()`** (`timing/timing_manager.py:216-248`) — `update_timing()` was re-emitting `state_changed`, doubling signal traffic per GPS tick. Fixed with `blockSignals(True/False)` wrapper. This fixed the double-lap test failure.
+2. **`lap_number` → `lap_count`** (`data/duckdb_store.py:344`) — telemetry INSERT was using wrong field name, recording NULL for lap count.
+3. **Double-lap detection** — root cause was bug #1 (re-entrant signal). blockSignals fix resolved it.
 
-## Prioritized TODO
+### Phases 1 & 2 (done by prior sessions)
+- `timing/geo.py` — 7 GPS primitives, `timing/track_db.py` — track database, `timing/lap_timer.py` — core LapTimer
+- DiffState: 10 timing fields + `update_timing()` on DiffStateBridge
+- 18 seed tracks, DuckDB timing tables
 
-### Phase 3: Qt Integration & Mock Enhancement (NEXT)
-1. **Create `timing/timing_manager.py`** — TimingManager(QObject) wired to DiffStateBridge
-   - Connect to `bridge.state_changed`, detect GPS updates, call `LapTimer.update()`
-   - Emit signals: `lap_completed(dict)`, `sector_completed(dict)`, `track_detected(str)`
-   - Push timing data to bridge via `update_timing()`
-   - Files: new `timing/timing_manager.py`, modify `main.py` (wire after bridge creation ~line 317)
+## Prioritized TODO — START HERE
 
-2. **Enhance MockCanGenerator GPS trace** — Replace Laguna Seca oval with realistic circuit loop
-   - Must cross known start/finish line so LapTimer detects laps in sim mode
-   - File: `can/kisti_can.py` lines 1177-1216 (`_gps_tick()`)
+### 1. FIX: Mic not capturing speech on Jetson (CRITICAL)
+The blockSignals fix reduced signal traffic but KiSTI still doesn't respond to voice. Investigate on the Jetson:
+- SSH in and check logs: `ssh aldc@192.168.22.131 "journalctl -u kisti --no-pager -n 100"` or check `~/.kisti/logs/`
+- Look for: "Mic capture started", "Speech start detected", "Speech captured", "STT:", "Echo suppressed"
+- Key suspects:
+  - AudioPlayer echo protection at `main.py:525-534` — `playback_started` → `mic.pause()`, `playback_finished` → 800ms delay → `mic.resume()`. If startup speech queue never fully drains, mic may stay paused
+  - Echo suppression at `voice/voice_manager.py:698` — 40% word overlap within 3s, may be too aggressive at 9x mic gain
+  - PulseAudio source conflict — parecord may not get the USB mic if PA reassigned it
+  - Wake word gate at `voice/mic_capture.py:430` — OWW must detect wake word OR passthrough must be True
+- Debug approach: add `log.info("_paused=%s, _barge_in=%s", self._paused, self._barge_in_mode)` at top of `_vad_process` loop to see if mic is stuck
 
-3. **Tests**: `tests/test_timing_manager.py` — 20+ integration tests
+### 2. Conversation quality UAT (after mic fix)
+- Live voice test on Jetson with real mic
+- Test "Hey KiSTI" / "Hey Jarvis" wake word
+- Verify multi-turn conversation window (passthrough mode)
 
-### Phase 4: Track Intelligence
-4. **Create `timing/track_learner.py`** — TrackLearner (GPS trace → auto-detect start/finish + sectors)
-5. **Track auto-recognition** in TimingManager — find_track on first GPS fix
-6. **Point-to-point voice commands** — "set start point", "set end point"
+### 3. Train "Hey KiSTI" wake word
+- Script exists: `scripts/train_wake_word.py`
+- Must run on Jetson (needs Piper TTS for synthetic samples)
 
-### Phase 5: Voice Integration
-7. **Timing voice announcements** in `main.py` — lap complete, sector complete (mode-aware I/S/S#)
-8. **Voice queries** in `voice/voice_manager.py` — "what's my delta?", "theoretical best?", "what track?"
-9. **Pit lane debrief** — auto-triggered on session end, speaks full summary
-
-### Phase 6: UI + Data Sync
-10. **`ui/widgets/timing_display.py`** — live delta, predicted, sector splits (800x480)
-11. **Three SI Drive mode screen layouts** — I=full info, S=timing focus, S#=minimal/critical only (saved to memory: `project_kisti_gui_refactor.md`)
-12. **Parquet export** — add lap_times to sync
-13. **Zeus Memory** — timing summary push on session end
+### 4. Response quality tuning
+- Token caps: I=256, S=64, SS=20
+- Echo suppression: 40% word overlap within 3s
+- Echo guard: 0.8s post-playback delay
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `timing/geo.py` | GPS geometry primitives (haversine, crossing) |
+| `timing/timing_manager.py` | Qt bridge: GPS → LapTimer → signals + DuckDB |
+| `timing/geo.py` | GPS geometry primitives |
 | `timing/track_db.py` | Track database (find, save, seed) |
-| `timing/lap_timer.py` | Core LapTimer engine (delta, predictive, theo best) |
+| `timing/lap_timer.py` | Core LapTimer engine |
+| `voice/mic_capture.py` | Mic capture + VAD + wake word gate |
+| `voice/voice_manager.py` | Voice pipeline orchestrator |
+| `voice/audio_player.py` | AudioPlayer (UI path, Piper TTS → paplay) |
+| `main.py:333-358` | TimingManager creation + voice wiring |
+| `main.py:525-534` | Echo protection: AudioPlayer → mic pause/resume |
 | `model/vehicle_state.py:207-218` | DiffState timing fields |
 | `model/vehicle_state.py:581-612` | DiffStateBridge.update_timing() |
-| `data/duckdb_store.py:175-210` | Timing DuckDB tables |
-| `data/duckdb_store.py:639-700` | Timing CRUD methods |
-| `data/tracks_seed.json` | 18 seed tracks |
-| `main.py:317-331` | SyncManager wiring (pattern for TimingManager) |
-| `main.py:371-385` | Session toggle (K1) — hook timing signals here |
-| `can/kisti_can.py:1177-1216` | MockCanGenerator._gps_tick() — needs realistic trace |
+| `can/kisti_can.py:807-860` | Laguna Seca waypoint data + interpolation |
 
 ## Architecture Notes
 
-### Data Flow (target state)
+### Data Flow
 ```
 GPS09 Pro (CAN) → CanListener → DiffStateBridge → TimingManager → LapTimer
-                                                        ↓
-                                              ┌────────┼────────┐
-                                              ↓        ↓        ↓
-                                           Voice    DuckDB    UI
-                                          (debrief) (persist) (display)
+                                        ↓                  ↓
+                                   state_changed      ┌────┼────┐
+                                   (blockSignals)     ↓    ↓    ↓
+                                                   Voice DuckDB  UI
+```
+
+### Voice Pipeline (mic → speech)
+```
+parecord (USB mic) → os.pipe2() → 3x gain → Silero VAD → OWW wake gate
+    → speech_captured signal → VoiceManager._on_speech_captured
+    → whisper.cpp STT → echo suppression → wake word check
+    → handle_voice_query → LLM/persona → _speak_queue → _do_speak
+    → Piper TTS → paplay (HDMI) → echo guard 0.8s → mic resumes
 ```
 
 ### Key Design Decisions
-- **Distance-indexed delta** (not time-indexed) — handles variable speed through corners
-- **Pure Python timing engine** — zero new dependencies on Jetson
-- **Voice-first, screen-second** — pit debrief is primary UX
-- **Mode-aware verbosity**: I=full, S=lap+delta, S#=PBs only
+- `blockSignals` on `_update_bridge_timing` — prevents re-entrant `state_changed`
+- Distance-indexed delta (not time-indexed) — handles variable speed through corners
+- Voice-first, screen-second — pit debrief is primary UX
+- Mode-aware verbosity: I=full, S=lap+delta, S#=PBs only
 
-### GPS09 Pro Open
-- Hardware pending install. Software fully integrated (CAN 0x6A4-0x6A7)
-- 25Hz GPS + 100Hz 6-axis IMU. CAN configurable in Race Studio 3
-- **IMU is the key sensor** — grip analysis, body dynamics, corner profiling
-
-### Project File
-- `/home/aldc/projects/active/2026-03-30-kisti-race-analysis/README.md`
-- Full 6-phase plan with task breakdown
+### CCE Team Session
+- Session: `kisti-speaks` (ID: `71182e9b-8794-458f-b9d6-01a301c9ff58`)
+- TUI panel running on pts/7: `python3 /home/aldc/zeus-memory/scripts/cce-team-panel.py --name kisti-speaks`
+- Post events via: `curl -X POST -H "X-API-Key: $ZEUS_ALDC_API_KEY" -H "Content-Type: application/json" -d '{"type":"task_claimed","actor":"kisti-09","content":"..."}' "$ZEUS_API_BASE_URL/api/team-session/71182e9b-8794-458f-b9d6-01a301c9ff58/event"`
+- Use `learning` or `task_claimed`/`task_completed` event types (broadcast requires original conductor)
