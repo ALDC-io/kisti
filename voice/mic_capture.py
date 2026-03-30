@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import logging
 import subprocess
-import struct
 import threading
 import time
 from typing import Callable, Optional
@@ -285,30 +284,6 @@ class MicCapture(QObject):
             proc.wait(timeout=2)
             _os.close(read_fd)
 
-    def _find_sd_device(self) -> int | None:
-        """Find the best input device in sounddevice's device list.
-
-        Priority: USB mic by name → 'pulse' device (PA routing) → None (default).
-        On Jetson, the USB mic is only reachable through the 'pulse' PortAudio
-        device, not as a named ALSA device. Using None would hit an NVIDIA APE
-        input (silent).
-        """
-        import sounddevice as sd
-        pulse_idx = None
-        for i, dev in enumerate(sd.query_devices()):
-            if dev["max_input_channels"] > 0:
-                name_lower = dev["name"].lower()
-                if "usb" in name_lower or "ktmicro" in name_lower:
-                    log.info("sounddevice USB mic: [%d] %s", i, dev["name"])
-                    return i
-                if name_lower == "pulse":
-                    pulse_idx = i
-        if pulse_idx is not None:
-            log.info("sounddevice using pulse device [%d] (USB mic via PA)", pulse_idx)
-            return pulse_idx
-        log.info("No USB/pulse device in sounddevice — using default input")
-        return None
-
     def _run_parecord(self) -> None:
         """Fallback: stream audio from parecord subprocess."""
         record_cmd = ["parecord", "--raw", "--rate", str(SAMPLE_RATE),
@@ -350,13 +325,8 @@ class MicCapture(QObject):
         oww_buffer = b""       # Accumulate frames for openwakeword (needs 1280 samples)
         wake_detected = False  # Wake word detected in current utterance
 
-        log.info("VAD loop starting — waiting for first audio frame...")
-        _frame_n = 0
         while self._running and alive_fn():
             frame = read_fn(FRAME_BYTES)
-            _frame_n += 1
-            if _frame_n == 1:
-                log.info("First frame received (%d bytes)", len(frame))
             if len(frame) < FRAME_BYTES:
                 break
 
