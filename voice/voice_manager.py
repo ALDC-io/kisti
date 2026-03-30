@@ -167,6 +167,8 @@ SAMPLE_RATE = 16000
 CHUNK_SIZE = 1024  # samples per audio read
 WAKE_WORDS = [
     "hey kisti", "hey ki", "kisti",
+    # hey_jarvis_v0.1 wake model — Whisper transcribes as "Jarvis"
+    "jarvis", "hey jarvis",
     # Common Whisper misheards of "KiSTI"
     "keys to", "keeps to", "key stee", "keisti",
     "christy", "cristy", "kisty", "heykisti",
