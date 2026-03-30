@@ -20,6 +20,7 @@ from PySide6.QtCore import QObject, Signal
 
 from timing.lap_timer import LapTimer, TimingEvent, TimingEventType
 from timing.track_db import TrackDatabase
+from timing.track_learner import TrackLearner
 
 log = logging.getLogger("kisti.timing.timing_manager")
 
@@ -59,6 +60,10 @@ class TimingManager(QObject):
             except Exception as exc:
                 log.warning("TrackDatabase init failed: %s", exc)
 
+        # Track learning (when no seeded track matches)
+        self._track_learner: Optional[TrackLearner] = None
+        self._learning_active: bool = False
+
         # Previous GPS for change detection
         self._prev_gps_lat: float = 0.0
         self._prev_gps_lon: float = 0.0
@@ -87,6 +92,8 @@ class TimingManager(QObject):
             # Session ended — reset timing for next session
             self._timer.reset()
             self._track_detected = False
+            self._track_learner = None
+            self._learning_active = False
 
     def get_session_summary(self) -> dict:
         """Build a summary dict for voice debrief on session end."""
@@ -155,16 +162,47 @@ class TimingManager(QObject):
         self._update_bridge_timing()
 
     def _try_detect_track(self, lat: float, lon: float) -> None:
-        """Attempt to auto-detect track from GPS position."""
+        """Attempt to auto-detect track, or learn a new one from GPS trace."""
+        # Check database first (seeded or previously learned)
         track = self._track_db.find_track(lat, lon)
-        if track is None:
+        if track is not None:
+            sectors = track.sectors
+            self._timer.set_track(track, sectors)
+            self._track_detected = True
+            self._track_learner = None
+            self._learning_active = False
+            log.info("Track detected: %s (%d sectors)", track.name, len(sectors))
+            self.track_detected.emit(track.name)
             return
 
-        sectors = track.sectors
+        # No known track — start or continue learning
+        if self._track_learner is None:
+            self._track_learner = TrackLearner()
+            self._learning_active = True
+            log.info("No known track at (%.4f, %.4f) — learning started", lat, lon)
+
+        if self._learning_active:
+            closed = self._track_learner.update(lat, lon)
+            if closed:
+                self._finish_track_learning()
+
+    def _finish_track_learning(self) -> None:
+        """Handle track learner loop closure — save and configure."""
+        track, sectors = self._track_learner.result()
+
+        # Save to DuckDB
+        self._track_db.save_track(track)
+        self._track_db.save_sectors(track.track_id, sectors)
+
+        # Configure LapTimer
         self._timer.set_track(track, sectors)
         self._track_detected = True
+        self._learning_active = False
 
-        log.info("Track detected: %s (%d sectors)", track.name, len(sectors))
+        log.info(
+            "Learned track: %s (%.0fm, %d sectors)",
+            track.name, track.length_m, len(sectors),
+        )
         self.track_detected.emit(track.name)
 
     def _handle_event(self, event: TimingEvent) -> None:

@@ -524,3 +524,99 @@ class TestEdgeCases:
         bridge.update_gps(latitude=_BASE_LAT, longitude=_BASE_LON)
 
         assert len(detected) == 0
+
+
+# ── TestTrackLearning ─────────────────────────────────────────────────
+
+# Learning trace: rectangular loop at a location far from any seeded track
+_LEARN_LAT = 50.0
+_LEARN_LON = -100.0
+_LEARN_HALF = 0.0018
+
+
+def _make_learn_loop(pts_per_side: int = 20) -> list[tuple[float, float]]:
+    """Rectangular GPS loop at (_LEARN_LAT, _LEARN_LON) for learning tests."""
+    sw = (_LEARN_LAT - _LEARN_HALF, _LEARN_LON - _LEARN_HALF)
+    se = (_LEARN_LAT - _LEARN_HALF, _LEARN_LON + _LEARN_HALF)
+    ne = (_LEARN_LAT + _LEARN_HALF, _LEARN_LON + _LEARN_HALF)
+    nw = (_LEARN_LAT + _LEARN_HALF, _LEARN_LON - _LEARN_HALF)
+    corners = [sw, se, ne, nw, sw]
+    trace = []
+    for i in range(len(corners) - 1):
+        lat0, lon0 = corners[i]
+        lat1, lon1 = corners[i + 1]
+        for j in range(pts_per_side):
+            frac = j / pts_per_side
+            trace.append((lat0 + frac * (lat1 - lat0), lon0 + frac * (lon1 - lon0)))
+    trace.append(sw)
+    return trace
+
+
+@pytest.fixture
+def learning_mgr(bridge, db_store):
+    """TimingManager with empty track DB (no seeded tracks) for learning tests."""
+    mgr = TimingManager(bridge=bridge, db_store=db_store)
+    mgr.start()
+    yield mgr
+    mgr.stop()
+
+
+class TestTrackLearning:
+    """Track learning when no seeded track matches GPS position."""
+
+    def test_learning_starts_when_no_track_found(self, learning_mgr, bridge):
+        """GPS at unknown location starts a TrackLearner."""
+        bridge.update_gps(latitude=_LEARN_LAT, longitude=_LEARN_LON)
+        assert learning_mgr._track_learner is not None
+        assert learning_mgr._learning_active is True
+
+    def test_learning_detects_loop_and_saves(self, learning_mgr, bridge, db_store):
+        """Complete loop at unknown location → track detected + saved to DB."""
+        detected = []
+        learning_mgr.track_detected.connect(lambda name: detected.append(name))
+
+        _feed_gps(bridge, _make_learn_loop())
+
+        assert len(detected) == 1
+        assert "Track at" in detected[0]
+
+        # Verify saved to DuckDB
+        from timing.track_db import TrackDatabase
+        tdb = TrackDatabase(db_store._conn)
+        found = tdb.find_track(_LEARN_LAT, _LEARN_LON)
+        assert found is not None
+
+    def test_learned_track_has_correct_source(self, learning_mgr, bridge, db_store):
+        """Learned track has source='learned'."""
+        _feed_gps(bridge, _make_learn_loop())
+
+        from timing.track_db import TrackDatabase
+        tdb = TrackDatabase(db_store._conn)
+        track = tdb.find_track(_LEARN_LAT, _LEARN_LON)
+        assert track.source == "learned"
+
+    def test_learned_track_configures_lap_timer(self, learning_mgr, bridge):
+        """After learning, LapTimer has a track configured."""
+        _feed_gps(bridge, _make_learn_loop())
+        assert learning_mgr._timer._track is not None
+
+    def test_subsequent_session_finds_learned_track(self, learning_mgr, bridge):
+        """After learning + session reset, next GPS fix finds learned track."""
+        _feed_gps(bridge, _make_learn_loop())
+        learning_mgr.set_session_id(None)  # reset
+
+        detected = []
+        learning_mgr.track_detected.connect(lambda name: detected.append(name))
+
+        bridge.update_gps(latitude=_LEARN_LAT, longitude=_LEARN_LON)
+        assert len(detected) == 1
+
+    def test_learning_cancelled_on_session_reset(self, learning_mgr, bridge):
+        """Session reset cancels active learning."""
+        bridge.update_gps(latitude=_LEARN_LAT, longitude=_LEARN_LON)
+        assert learning_mgr._track_learner is not None
+
+        learning_mgr.set_session_id(None)
+
+        assert learning_mgr._track_learner is None
+        assert learning_mgr._learning_active is False
