@@ -436,3 +436,132 @@ class TestSetTimingManager:
     def test_p2p_start_initially_none(self):
         vm = _make_vm()
         assert vm._p2p_start is None
+
+
+# ── Phase 8: Additional voice queries ────────────────────────────────
+
+
+class TestAdditionalQueries:
+    """Test 'what lap', 'best lap', 'pace' queries added in Phase 8."""
+
+    def test_what_lap(self):
+        vm = _make_vm()
+        vm._telemetry_snapshot = _make_snapshot(lap_count=7)
+        result = vm._answer_from_timing("what lap am i on")
+        assert "7" in result
+
+    def test_which_lap(self):
+        vm = _make_vm()
+        vm._telemetry_snapshot = _make_snapshot(lap_count=3)
+        result = vm._answer_from_timing("which lap is this")
+        assert "3" in result
+
+    def test_no_laps_yet(self):
+        vm = _make_vm()
+        vm._telemetry_snapshot = _make_snapshot(lap_count=0)
+        result = vm._answer_from_timing("what lap am i on")
+        assert "no laps" in result.lower()
+
+    def test_best_lap(self):
+        vm = _make_vm()
+        vm._telemetry_snapshot = _make_snapshot()
+        mock_tm = MagicMock()
+        mock_tm.get_session_summary.return_value = {
+            "total_laps": 5,
+            "best_lap_number": 3,
+            "best_lap_time_s": 91.5,
+        }
+        vm._timing_manager = mock_tm
+        result = vm._answer_from_timing("what's my best lap")
+        assert "91.5" in result
+        assert "lap 3" in result.lower()
+
+    def test_best_lap_no_data(self):
+        vm = _make_vm()
+        vm._telemetry_snapshot = _make_snapshot()
+        mock_tm = MagicMock()
+        mock_tm.get_session_summary.return_value = {}
+        vm._timing_manager = mock_tm
+        result = vm._answer_from_timing("fastest lap")
+        assert "no laps" in result.lower()
+
+    def test_pace_with_delta(self):
+        vm = _make_vm()
+        vm._telemetry_snapshot = _make_snapshot(delta_ms=-1200, predicted_lap_ms=89500)
+        result = vm._answer_from_timing("how's my pace")
+        assert "1.2" in result
+        assert "ahead" in result
+        assert "89.5" in result
+
+    def test_pace_behind(self):
+        vm = _make_vm()
+        vm._telemetry_snapshot = _make_snapshot(delta_ms=2000, predicted_lap_ms=93000)
+        result = vm._answer_from_timing("how am i doing")
+        assert "behind" in result
+
+    def test_pace_no_data(self):
+        vm = _make_vm()
+        vm._telemetry_snapshot = _make_snapshot(delta_ms=0, predicted_lap_ms=0)
+        result = vm._answer_from_timing("my pace")
+        assert "not enough" in result.lower()
+
+    def test_pace_predicted_only(self):
+        vm = _make_vm()
+        vm._telemetry_snapshot = _make_snapshot(delta_ms=0, predicted_lap_ms=91000)
+        result = vm._answer_from_timing("pace")
+        assert "91.0" in result
+
+
+# ── Phase 8: GPS dropout recovery ────────────────────────────────────
+
+
+class TestGPSDropoutRecovery:
+    """Test GPS jump filter in TimingManager."""
+
+    def test_large_jump_rejected(self):
+        """GPS jump >500m should be skipped (satellite reacquire)."""
+        from timing.timing_manager import TimingManager
+        from unittest.mock import MagicMock, PropertyMock
+
+        bridge = MagicMock()
+        mgr = TimingManager(bridge=bridge, db_store=None)
+        mgr._active = True
+        mgr._track_detected = True  # already have a track
+
+        # Set initial GPS position
+        mgr._prev_gps_lat = 36.5841
+        mgr._prev_gps_lon = -121.7534
+
+        # Simulate a large jump (>500m away)
+        snap = MagicMock()
+        snap.gps_latitude = 37.0  # ~46km north
+        snap.gps_longitude = -121.7534
+        bridge.snapshot.return_value = snap
+
+        mgr._on_state_changed()
+
+        # Position should update (for next comparison) but timer should NOT be fed
+        assert mgr._prev_gps_lat == 37.0
+        # LapTimer.update should not have been called (no events)
+
+    def test_normal_movement_accepted(self):
+        """Small GPS movement should be passed through to LapTimer."""
+        from timing.timing_manager import TimingManager
+
+        bridge = MagicMock()
+        mgr = TimingManager(bridge=bridge, db_store=None)
+        mgr._active = True
+        mgr._track_detected = True
+
+        mgr._prev_gps_lat = 36.5841
+        mgr._prev_gps_lon = -121.7534
+
+        # Small movement (~11m)
+        snap = MagicMock()
+        snap.gps_latitude = 36.5842
+        snap.gps_longitude = -121.7534
+        bridge.snapshot.return_value = snap
+
+        # Should reach update_bridge_timing (which calls blockSignals)
+        mgr._on_state_changed()
+        assert mgr._prev_gps_lat == 36.5842
