@@ -144,3 +144,17 @@ def bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     x = math.sin(dlon) * math.cos(rlat2)
     y = math.cos(rlat1) * math.sin(rlat2) - math.sin(rlat1) * math.cos(rlat2) * math.cos(dlon)
     return (math.degrees(math.atan2(x, y)) + 360) % 360
+
+
+def offset_line(
+    lat: float, lon: float, width_m: float = 10.0,
+) -> tuple[float, float, float, float]:
+    """Create a small east-west line segment at a GPS point.
+
+    Returns (lat1, lon1, lat2, lon2) suitable for StartFinishLine.
+    Used by voice P2P commands when heading is unknown.
+    """
+    half = width_m / 2.0
+    cos_lat = math.cos(math.radians(lat))
+    dlon = half / (111_320.0 * cos_lat)
+    return (lat, lon - dlon, lat, lon + dlon)

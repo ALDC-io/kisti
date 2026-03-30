@@ -13,6 +13,7 @@ from ui.widgets.track_map_widget import TrackMapWidget
 from ui.widgets.brake_strip import BrakeStripWidget
 from ui.widgets.findings_list import FindingsListWidget
 from ui.widgets.session_widget import SessionWidget
+from ui.widgets.timing_display import TimingDisplayWidget
 
 
 class TrackModeWidget(QWidget):
@@ -26,12 +27,15 @@ class TrackModeWidget(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(6)
 
-        # Left: Track map (55%) + session timer
+        # Left: Track map (55%) + timing display + session timer
         left = QVBoxLayout()
         left.setSpacing(4)
 
         self._track_map = TrackMapWidget(self)
         left.addWidget(self._track_map, stretch=1)
+
+        self._timing_display = TimingDisplayWidget(self)
+        left.addWidget(self._timing_display)
 
         self._session_widget = SessionWidget(self)
         left.addWidget(self._session_widget)
@@ -67,3 +71,21 @@ class TrackModeWidget(QWidget):
             self._brake_strip.add_event(sev)
 
         self._findings_list.update_findings(vehicle_state.findings)
+
+    def update_timing(self, snap) -> None:
+        """Update timing display from a DiffState snapshot."""
+        self._timing_display.update_timing(
+            lap_count=snap.lap_count,
+            current_sector=snap.current_sector,
+            sector_count=snap.sector_count,
+            current_lap_time_ms=snap.current_lap_time_ms,
+            delta_ms=snap.delta_ms,
+            predicted_lap_ms=snap.predicted_lap_ms,
+            theoretical_best_ms=snap.theoretical_best_ms,
+            track_name=snap.track_name,
+            timing_mode=snap.timing_mode,
+        )
+
+    def set_timing_mode(self, mode: int) -> None:
+        """Set SI Drive mode for timing layout."""
+        self._timing_display.set_mode(mode)
