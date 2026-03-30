@@ -81,8 +81,9 @@ for i in $(seq 1 10); do
     sleep 1
 done
 # Warm up model — forces GPU memory allocation so first real query doesn't 500
+# Do NOT set num_ctx — Orin Nano CUDA OOM at 8192. Ollama default (2048) fits in memory.
 curl -sf -X POST http://localhost:11434/api/chat \
-    -d '{"model":"llama3.2:3b","messages":[{"role":"user","content":"hi"}],"stream":false,"options":{"num_ctx":8192,"num_predict":1}}' \
+    -d '{"model":"llama3.2:3b","messages":[{"role":"user","content":"hi"}],"stream":false,"options":{"num_predict":1}}' \
     >> "$LOG" 2>&1 || echo "$(date) Ollama warmup failed (non-critical)" >> "$LOG"
 echo "$(date) Ollama warmup complete" >> "$LOG"
 

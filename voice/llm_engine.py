@@ -72,7 +72,7 @@ Current telemetry:
 
 # Mode-specific token caps — hard limits enforced at generation time.
 # Higher caps allow conversational depth; mode prompt + stop tokens still enforce brevity.
-# llama3.2:3b context window = 8192 tokens (set via num_ctx in Ollama options).
+# Note: do NOT set num_ctx — Orin Nano CUDA OOM at 8192. Let Ollama use its default (2048).
 MODE_TOKEN_CAPS = {
     "Intelligent": 256,
     "Sport": 64,
@@ -497,7 +497,6 @@ class LLMEngine:
             ],
             "stream": False,
             "options": {
-                "num_ctx": 8192,
                 "num_predict": max_tokens,
                 "temperature": temperature,
                 "stop": ["\n\n", "---"],
