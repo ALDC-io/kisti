@@ -1,95 +1,72 @@
 Continue KiSTI voice pipeline UAT. Repo: /home/aldc/repos/kisti/. Jetson at
 192.168.22.131 (SSH user aldc, sudo password: aldc1234).
 
-## What was done this session (kisti-04, commits c9b5ebc → 10deecf)
+## What was done this session (kisti-05, commits aaf8272 → current)
 
-### Phase 4 — ALL CODE COMPLETE, 361/361 tests
-- **4.1 Barge-in**: mic stays active during TTS with raised OWW threshold (0.85).
-  Wake word interrupts playback. Critical alerts use full pause. Echo guard 2.0→0.3s.
-- **4.2 Response Composer**: `_compose_and_speak()` unifies all handle_voice_query paths.
-  VoiceResponse created for every response. record_turn for all user queries.
-- **4.3 Latency instrumentation**: PipelineTrace dataclass tracks STT→LLM→TTS→speaker.
-  Logged per interaction. DuckDB voice_latency table stores all traces.
-- **4.4 QA harness**: conftest.py with shared fixtures. 17 new tests.
+### parecord pipe blocker — FIXED
+The mic capture pipeline is fully working. Three-part fix:
 
-### Previous session work (kisti-03)
-- Reference resolver upgraded (idiomatic phrase detection, staleness check)
-- Wake word model path configurable (KISTI_WAKE_MODEL env var)
-- Button pad K1/K4 conflict fixed (K4 voice toggle via mode_manager, K2 PTT)
-- Deepgram hybrid STT engine
+1. **os.pipe2() instead of subprocess.PIPE** — raw fd I/O bypasses Python's
+   BufferedReader. Alone this wasn't enough.
+2. **start_new_session=True** — isolates parecord from KiSTI's Qt process group.
+   Without this, PA's epoll in the child process is blocked by inherited state.
+   This was the real fix.
+3. **3x software gain** — USB mic (KTMicro) has NO ALSA capture control. PA is
+   sole amplifier. At PA 300%, speech RMS ~1000 (Silero needs ~2000+). 3x
+   software multiply in read_fn brings it to detection range.
 
-### Mic gain tuning
-- kisti-session script: ALSA=100%, PA=200% (was ALSA=60%, PA=150%)
-- 500% drowned Silero VAD in noise. 200% gives clean separation:
-  ambient RMS=110 (conf 0.002), speech RMS=2100-4500 (conf 0.87-1.0)
+### What was tried and failed
+- **sounddevice.InputStream** — captures audio fine, but PortAudio's ARM
+  resampler (48kHz→16kHz) produces audio Silero VAD can't detect (max conf
+  0.20 even at high RMS). PA's native resampler works (conf 0.55+). NOT viable.
+- **scipy.signal.decimate** at 48kHz→16kHz — also fails Silero (max 0.18)
+- **os.pipe() alone** (without start_new_session) — parecord still writes 0 bytes
+- **stdbuf -o0** — doesn't affect PA-internal buffering
 
-## CRITICAL BLOCKER: parecord pipe buffering (NOT YET FIXED)
+### Verified on Jetson
+- Wake word detection: hey_jarvis_v0.1 at 0.67-1.00 confidence
+- STT: "How is the oil pressure?" transcribed correctly (0.24s, conf 0.9)
+- Full pipeline: mic → VAD → OWW → STT → persona → TTS → speaker
 
-**Problem**: parecord subprocess in mic_capture.py writes ZERO bytes to its stdout
-pipe. `cat /proc/<pid>/fdinfo/1` shows `pos: 0` after minutes of running. The mic
-capture thread blocks forever on `proc.stdout.read(1024)`.
+### Test baseline
+- 366/366 on dev machine (361 original + 5 new sounddevice tests)
+- 363/366 on Jetson (same 3 pre-existing env-specific failures)
 
-**Root cause**: parecord uses PulseAudio's internal buffering, NOT libc stdio.
-`stdbuf -o0` and `stdbuf -oL` don't help because they only affect libc buffers.
-parecord's PA client writes to stdout via PA's async mainloop, which buffers
-independently.
+## Prioritized TODO for next session
 
-**Confirmed**: Manual `parecord ... > file` works (62KB/2s). Manual Python
-`subprocess.Popen + stdout=PIPE` in a standalone script works. But inside KiSTI's
-Qt event loop + threading, the pipe stays empty.
+### 1. Train custom "Hey KiSTI" wake word model (HIGH)
+- openwakeword supports custom ONNX training
+- Currently using `hey_jarvis_v0.1` — user wants "Hey KiSTI"
+- Set `KISTI_WAKE_MODEL=/data/models/hey_kisti.onnx` in kisti-session
+- Memory notes misheard variants: need to include in training data
 
-**Hypothesis**: Qt's event loop or Python's GIL interferes with the pipe read.
-The mic capture thread calls `proc.stdout.read(1024)` which blocks, but the
-parecord child process may need the PA mainloop to run, which requires the GIL
-or event loop attention.
+### 2. Clean up diagnostic logging (QUICK)
+- Remove "VAD loop starting" and "First frame received" logs from mic_capture.py
+- Remove `_frame_n` counter variable
+- Update/remove sounddevice-related tests (TestSounddeviceBackend) — the
+  _find_sd_device and sounddevice path are dead code now
 
-**Possible fixes (try in order)**:
-1. **Use `parec` instead of `parecord`** — same binary, different name, may have
-   different buffering behavior
-2. **Use `--latency-msec=50`** flag on parecord — forces smaller buffer sizes
-3. **Replace parecord with PyAudio/sounddevice** — read directly from PA in Python,
-   no subprocess needed. `sounddevice.InputStream` with callback avoids pipe entirely
-4. **Use `os.pipe()` + `os.read()`** instead of `subprocess.PIPE` — lower-level,
-   avoids Python's buffered IO wrapper
-5. **Set `bufsize=0`** on `subprocess.Popen` (already default, but worth verifying)
-6. **Try `PIPE` + `fcntl.F_SETFL, O_NONBLOCK`** then poll/select loop instead of
-   blocking read
+### 3. Start Ollama for real LLM responses (MEDIUM)
+- Currently persona-first mode (Ollama stopped for GPU headroom)
+- KiSTI says "I'm listening" instead of answering questions
+- `sudo systemctl start ollama` on Jetson, or modify kisti-session
 
-**Key diagnostic commands**:
-```bash
-# Check pipe position (should increase if data flowing):
-pid=$(pgrep -of parecord); cat /proc/$pid/fdinfo/1
+### 4. Echo/barge-in tuning (MEDIUM)
+- 3x software gain makes OWW trigger on KiSTI's own speaker output
+- May need to increase OWW_THRESHOLD_BARGE_IN above 0.85
+- Or increase echo guard from 0.3s
 
-# Test parecord standalone:
-timeout 2 parecord --raw --rate 16000 --channels 1 --format s16le \
-  --device alsa_input.usb-KTMicro_USB_MIC_INPUT_Adapter_2020-02-20-0000-0000-0000-00.mono-fallback \
-  | wc -c  # Should be ~62000
-
-# Test Silero VAD (confirms speech detection works at 200%):
-# See test scripts in session logs
-
-# Check PA source state:
-pactl list sources short | grep -i usb
-```
-
-## Team session
-- Session: kisti-voice-004 (a049c437-2b8a-4d2f-9fca-c878fe472427)
-- kisti-04 is conductor
-- TUI: python3 /home/aldc/zeus-memory/scripts/cce-team-panel.py --name kisti-voice-004
-- Project board: 5 phases, 24 tasks, 19 done. Phase 5 = UAT (5 items pending)
+### 5. Remove dead sounddevice code (LOW)
+- `_find_sd_device()` method is unused now
+- sounddevice import in mic_capture only needed for fallback tests
+- `PA_NATIVE_RATE` and `DECIMATE_FACTOR` constants unused
 
 ## Key files
-- voice/mic_capture.py:216-232 — `_run_arecord()` spawns parecord, THIS IS THE BUG
-- voice/mic_capture.py:234+ — `_vad_process()` reads frames, runs Silero VAD
-- voice/voice_manager.py — PipelineTrace, _compose_and_speak, barge-in in _do_speak
-- data/duckdb_store.py — voice_latency table
-- scripts/kisti-session — mic gain (ALSA=100%, PA=200%)
-- tests/conftest.py — shared fixtures
-- tests/test_voice.py — 361 tests
-
-## Test baseline
-- 361/361 on dev machine (Manx)
-- 358/361 on Jetson (3 pre-existing env-specific failures)
+- voice/mic_capture.py:224-280 — `_run_sounddevice()` (os.pipe + parecord, despite name)
+- voice/mic_capture.py:329+ — `_vad_process()` with generic read_fn/alive_fn
+- voice/voice_manager.py — PipelineTrace, _compose_and_speak, barge-in
+- scripts/kisti-session:83-87 — PA mic gain (300%)
+- tests/test_voice.py:1005+ — TestSounddeviceBackend (needs cleanup)
 
 ## Deploy command
 ssh aldc@192.168.22.131 "cd ~/repos/kisti && git pull --ff-only && echo aldc1234 | sudo -S cp scripts/kisti-session /usr/local/bin/kisti-session 2>/dev/null && echo aldc1234 | sudo -S systemctl restart gdm 2>/dev/null && echo DEPLOYED"
