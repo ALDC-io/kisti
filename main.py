@@ -671,10 +671,10 @@ def main():
         # Drive UI waveform from voice manager's TTS envelope.
         # response_ready is NOT emitted for query responses (mic race condition),
         # so waveform_envelope carries the pre-computed envelope directly.
+        # Cleanup happens via _envelope_tick when envelope runs out — no
+        # state_changed connection (fires too often, repaint blocks X11).
         if hasattr(window, '_kisti_mode'):
-            _kmode_viz = window._kisti_mode
-            voice_mgr.waveform_envelope.connect(_kmode_viz.on_voice_envelope)
-            voice_mgr.state_changed.connect(_kmode_viz.on_voice_state_changed)
+            voice_mgr.waveform_envelope.connect(window._kisti_mode.on_voice_envelope)
 
     # --- Echo protection: pause mic during UI AudioPlayer speech ---
     # kisti_mode._start_speaking() plays audio without voice_manager involvement,
