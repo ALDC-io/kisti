@@ -653,3 +653,147 @@ class TestModeAwarePersona:
         """Unknown mode name defaults to all categories."""
         result = _match_persona("Who are you?", "UnknownMode")
         assert result is not None
+
+
+# ========================================================================
+# Reference Resolver tests
+# ========================================================================
+
+from voice.voice_manager import DialogueState, DialogueTurn, VoiceResponse
+
+
+class TestReferenceResolver:
+    """Tests for _resolve_references — pronoun resolution using dialogue context."""
+
+    def _make_state(self, topic: str = "", turns_ago: int = 0) -> DialogueState:
+        """Helper: create a DialogueState with an active topic."""
+        state = DialogueState()
+        state.topic = topic
+        state.turn_counter = 5
+        state.topic_since_turn = 5 - turns_ago
+        return state
+
+    def _resolve(self, query: str, topic: str = "oil", turns_ago: int = 0) -> str:
+        """Helper: create VoiceManager-like resolver with given state."""
+        from voice.voice_manager import VoiceManager
+        # Build a minimal proxy that has _dialogue + class-level regex attrs
+        import types
+        mgr = types.SimpleNamespace()
+        mgr._dialogue = self._make_state(topic, turns_ago)
+        mgr._NON_REFERENTIAL = VoiceManager._NON_REFERENTIAL
+        mgr._REFERENTIAL = VoiceManager._REFERENTIAL
+        return VoiceManager._resolve_references(mgr, query)
+
+    # --- Non-referential (should NOT be rewritten) ---
+
+    def test_no_pronouns_unchanged(self):
+        """Queries without pronouns pass through."""
+        assert self._resolve("How's the oil pressure?") == "How's the oil pressure?"
+
+    def test_idiomatic_hows_it_going(self):
+        """'How's it going' is idiomatic, not referential."""
+        assert self._resolve("How's it going?") == "How's it going?"
+
+    def test_idiomatic_thats_cool(self):
+        """'That's cool' is idiomatic."""
+        assert self._resolve("That's cool") == "That's cool"
+
+    def test_idiomatic_got_it(self):
+        """'Got it' is idiomatic."""
+        assert self._resolve("Got it") == "Got it"
+
+    def test_idiomatic_forget_it(self):
+        assert self._resolve("Forget it") == "Forget it"
+
+    def test_idiomatic_thats_fine(self):
+        assert self._resolve("That's fine") == "That's fine"
+
+    def test_idiomatic_is_that_ok(self):
+        assert self._resolve("Is that ok") == "Is that ok"
+
+    def test_idiomatic_do_it(self):
+        assert self._resolve("Do it") == "Do it"
+
+    # --- No topic → pass through ---
+
+    def test_no_topic_unchanged(self):
+        """No active topic means no resolution."""
+        assert self._resolve("What's that?", topic="") == "What's that?"
+
+    # --- Stale topic → pass through ---
+
+    def test_stale_topic_unchanged(self):
+        """Topic older than 10 turns is too stale."""
+        assert self._resolve("What's that?", topic="oil", turns_ago=12) == "What's that?"
+
+    # --- Referential patterns (should be rewritten) ---
+
+    def test_whats_that(self):
+        """'What's that' resolves to active topic."""
+        result = self._resolve("What's that?", topic="oil")
+        assert "oil" in result.lower()
+
+    def test_hows_it(self):
+        result = self._resolve("How's it looking?", topic="coolant")
+        assert "coolant" in result.lower()
+
+    def test_is_that_normal(self):
+        result = self._resolve("Is that normal?", topic="boost")
+        assert "boost" in result.lower()
+
+    def test_tell_me_more(self):
+        result = self._resolve("Tell me more about that", topic="brakes")
+        assert "brakes" in result.lower()
+
+    def test_those_temps(self):
+        """'those temps' → 'the {topic} temps'."""
+        result = self._resolve("What about those temps?", topic="brakes")
+        assert "brakes" in result.lower()
+        assert "temps" in result.lower()
+
+    def test_why_is_that(self):
+        result = self._resolve("Why is that high?", topic="oil")
+        assert "oil" in result.lower()
+
+    def test_what_about_it(self):
+        result = self._resolve("What about it?", topic="ethanol")
+        assert "ethanol" in result.lower()
+
+    def test_compare_those(self):
+        result = self._resolve("Compare those readings", topic="fuel")
+        assert "fuel" in result.lower()
+
+    # --- Recent topic resolves, not stale ---
+
+    def test_recent_topic_resolves(self):
+        """Topic set 3 turns ago should still resolve."""
+        result = self._resolve("What's that?", topic="oil", turns_ago=3)
+        assert "oil" in result.lower()
+
+    def test_boundary_10_turns_resolves(self):
+        """Topic set exactly 10 turns ago should still resolve."""
+        result = self._resolve("What's that?", topic="oil", turns_ago=10)
+        assert "oil" in result.lower()
+
+
+# ========================================================================
+# Wake Model Configuration tests
+# ========================================================================
+
+
+class TestWakeModelConfig:
+    """Tests for configurable wake word model path."""
+
+    def test_default_wake_model_none(self):
+        mic = MicCapture(device="nonexistent")
+        assert mic._wake_model is None
+
+    def test_custom_wake_model_stored(self):
+        mic = MicCapture(device="nonexistent", wake_model="/data/models/hey_kisti.onnx")
+        assert mic._wake_model == "/data/models/hey_kisti.onnx"
+
+    def test_env_wake_model(self, monkeypatch):
+        """KISTI_WAKE_MODEL env var is picked up by VoiceManager."""
+        monkeypatch.setenv("KISTI_WAKE_MODEL", "/data/models/custom.onnx")
+        import os
+        assert os.environ.get("KISTI_WAKE_MODEL") == "/data/models/custom.onnx"
