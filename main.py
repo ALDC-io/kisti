@@ -242,6 +242,21 @@ def main():
             bridge.state_changed.connect(_check_keypad_release)
 
             log.info("Voice pipeline enabled")
+
+            # Feed ambient sensor data to voice manager for weather queries.
+            # CAN telemetry callback (line 490) handles this when CAN is live,
+            # but without CAN hardware, voice_mgr never gets ambient updates.
+            if ambient_source:
+                _voice_ambient_tick = [0]
+
+                def _feed_voice_ambient(reading):
+                    _voice_ambient_tick[0] += 1
+                    if _voice_ambient_tick[0] % 5 == 0:  # ~every 5s
+                        voice_mgr.set_telemetry(bridge.snapshot())
+
+                ambient_source.reading_updated.connect(_feed_voice_ambient)
+                log.info("Ambient → voice telemetry feed enabled")
+
         except Exception as exc:
             log.warning("Voice pipeline failed to start: %s", exc)
 
