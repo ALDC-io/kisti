@@ -760,15 +760,6 @@ class VoiceManager(QObject):
         if trace:
             trace.tts_done_at = time.monotonic()
 
-        # Drive LEDs from amplitude envelope
-        if self._si_drive_mode == SIDriveMode.INTELLIGENT:
-            frames = self._led.waveform_from_envelope(result.amplitude_envelope)
-            for frame in frames:
-                if not self._running or self._interrupted:
-                    break
-                self.led_frame_ready.emit(frame)
-                time.sleep(1.0 / 30.0)
-
         # Barge-in: keep mic active with raised OWW threshold for interruptible
         # responses; full pause for non-interruptible (critical alerts)
         can_barge = True
@@ -784,14 +775,42 @@ class VoiceManager(QObject):
         if trace:
             trace.speaker_start_at = time.monotonic()
 
+        # Start audio playback, then drive LEDs concurrently.
+        # Previously LED animation ran BEFORE playback, adding ~2s latency.
+        play_proc = None
+        wav_path = None
         if not self._interrupted:
-            self._play_audio(result.audio_pcm, result.sample_rate)
+            play_proc, wav_path = self._start_audio(result.audio_pcm, result.sample_rate)
+
+        # Drive LEDs synchronized with audio playback
+        if self._si_drive_mode == SIDriveMode.INTELLIGENT:
+            frames = self._led.waveform_from_envelope(result.amplitude_envelope)
+            for frame in frames:
+                if not self._running or self._interrupted:
+                    break
+                self.led_frame_ready.emit(frame)
+                time.sleep(1.0 / 30.0)
+
+        # Wait for playback to finish (if LED loop ended first)
+        if play_proc:
+            try:
+                play_proc.wait(timeout=60)
+            except Exception:
+                pass
+            self._aplay_proc = None
+            if wav_path:
+                import os
+                try:
+                    os.unlink(wav_path)
+                except OSError:
+                    pass
 
         # Mark when we stopped speaking — echo suppression uses this timestamp
         self._last_spoken_at = time.monotonic()
 
-        # Post-playback echo guard (short — OWW handles echo rejection)
-        time.sleep(0.8)  # Echo guard — 0.3s too short for room reverb at 9x gain
+        # Post-playback echo guard — reduced from 0.8s. Echo suppression
+        # (40% word overlap within 3s) catches anything this misses.
+        time.sleep(0.4)
         if self._mic:
             if can_barge:
                 self._mic.set_barge_in_mode(False)
@@ -819,11 +838,11 @@ class VoiceManager(QObject):
         self._last_interaction = time.monotonic()
         self._set_state(VoiceState.IDLE)
 
-    def _play_audio(self, audio_pcm: bytes, sample_rate: int) -> None:
-        """Play PCM audio via PulseAudio to HDMI.
+    def _start_audio(self, audio_pcm: bytes, sample_rate: int) -> tuple:
+        """Start audio playback via PulseAudio (non-blocking).
 
+        Returns (Popen, wav_path) so caller can wait and clean up.
         PulseAudio must stay running to keep the HDA pin-ctl active on Jetson.
-        Stores paplay process in self._aplay_proc so barge-in can terminate it.
         """
         import subprocess as _sp
         import tempfile
@@ -840,16 +859,10 @@ class VoiceManager(QObject):
                 ["paplay", wav_path],
                 stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
             )
-            self._aplay_proc.wait(timeout=60)
+            return self._aplay_proc, wav_path
         except Exception as exc:
             log.warning("Audio playback failed: %s", exc)
-        finally:
-            self._aplay_proc = None
-            import os
-            try:
-                os.unlink(wav_path)
-            except OSError:
-                pass
+            return None, None
 
     def _answer_from_sensors(self, query_lower: str) -> Optional[str]:
         """Answer ambient/weather questions directly from live Yoctopuce data.
