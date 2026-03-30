@@ -74,16 +74,16 @@ cd "$KISTI_DIR"
 # Detect USB mic via PulseAudio source (PA holds the ALSA device)
 MIC_CARD=$(arecord -l 2>/dev/null | grep -i 'USB.*MIC\|USB.*Audio\|USB.*Adapter' | head -1 | grep -oP 'card \K\d+' || true)
 if [ -n "$MIC_CARD" ]; then
-    # ALSA 60% + PA 150% = good speech level for Whisper (30% was too quiet through PA)
-    amixer -c "$MIC_CARD" cset numid=3 60 >> "$LOG" 2>&1 || true
+    # ALSA 100% + PA 500% = compensate for low-sensitivity USB mic
+    amixer -c "$MIC_CARD" cset numid=3 100 >> "$LOG" 2>&1 || true
 fi
 # Find the PA source name for the USB mic
 PA_MIC=$(pactl list sources short 2>/dev/null | grep -i 'usb.*input\|usb.*mic\|usb.*audio' | grep -v monitor | head -1 | awk '{print $2}')
 if [ -n "$PA_MIC" ]; then
     MIC_DEVICE="$PA_MIC"
-    # PA source volume 150% — combined with ALSA 60% gives good Whisper levels
-    pactl set-source-volume "$PA_MIC" 150% 2>/dev/null || true
-    echo "$(date) USB mic via PulseAudio: $MIC_DEVICE (ALSA=30%, PA=100%)" >> "$LOG"
+    # PA source volume 500% — USB mic has very low sensitivity, needs heavy boost
+    pactl set-source-volume "$PA_MIC" 500% 2>/dev/null || true
+    echo "$(date) USB mic via PulseAudio: $MIC_DEVICE (ALSA=100%, PA=500%)" >> "$LOG"
 else
     MIC_DEVICE="default"
     echo "$(date) No USB mic found, using default PA source" >> "$LOG"
