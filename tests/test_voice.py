@@ -1246,7 +1246,7 @@ class TestTemperatureRouting:
     """Tests for temperature query routing fix — component temps don't go to ambient."""
 
     def test_engine_temp_not_ambient(self):
-        """'engine temperature' should NOT match ambient sensor handler (CAN off)."""
+        """'engine temperature' should say 'No ECU' NOT return ambient data (CAN off)."""
         from voice.voice_manager import VoiceManager
         vm = VoiceManager.__new__(VoiceManager)
         from unittest.mock import MagicMock
@@ -1256,13 +1256,11 @@ class TestTemperatureRouting:
         snap.ambient_temp_c = 22.0
         snap.dew_point_c = 10.0
         vm._telemetry_snapshot = snap
-        # Component-specific temp queries should return None (fall through to persona)
-        assert vm._answer_from_sensors("engine temperature") is None
-        assert vm._answer_from_sensors("oil temp") is None
-        assert vm._answer_from_sensors("coolant temp") is None
-        assert vm._answer_from_sensors("tire temperature") is None
-        assert vm._answer_from_sensors("brake temp") is None
-        assert vm._answer_from_sensors("exhaust temp") is None
+        # Component-specific temp queries should say No ECU, not return ambient
+        for q in ["engine temperature", "oil temp", "coolant temp",
+                   "tire temperature", "brake temp", "exhaust temp"]:
+            result = vm._answer_from_sensors(q)
+            assert result is not None and "No ECU" in result, f"Expected 'No ECU' for '{q}', got: {result}"
 
     def test_ambient_temp_still_works(self):
         """Generic temperature queries still return ambient data."""
@@ -1467,11 +1465,13 @@ class TestECUSensorVoiceHandlers:
         result = vm._answer_from_sensors("dccd bias percent")
         assert "35" in result
 
-    def test_can_disconnected_returns_none(self):
-        """ECU queries return None when CAN is not connected."""
+    def test_can_disconnected_returns_no_ecu(self):
+        """ECU queries say 'No ECU connected' when CAN is not connected."""
         vm = self._make_vm(can_connected=False)
-        assert vm._answer_from_sensors("oil temp") is None
-        assert vm._answer_from_sensors("what rpm") is None
+        result = vm._answer_from_sensors("oil temp")
+        assert result is not None and "No ECU" in result
+        result2 = vm._answer_from_sensors("what rpm")
+        assert result2 is not None and "No ECU" in result2
 
     def test_ambient_still_works_without_can(self):
         """Ambient queries work even without CAN."""
