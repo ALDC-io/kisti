@@ -4,78 +4,97 @@
 **Jetson**: `192.168.22.131` (user `aldc`, pw `aldc1234`). SSH: `ssh aldc@192.168.22.131`
 **Live URL**: N/A (embedded Qt on Jetson)
 **Test baseline**: 550 tests passing
-**Team session**: `kisti-speaks` (session_id: `71182e9b-8794-458f-b9d6-01a301c9ff58`)
 
-## What Was Done (2026-03-30)
+## Join the CCE Team Session
 
-### Race Analysis Engine — Phases 1-4 COMPLETE
+```
+cce-team join project kisti-speaks as kisti-10
+```
 
-**Phases 1-2** (earlier session): Core timing engine — `timing/geo.py`, `timing/track_db.py`, `timing/lap_timer.py`, DiffState timing fields, DuckDB timing tables.
+Session ID: `71182e9b-8794-458f-b9d6-01a301c9ff58`
+TUI panel running on pts/7.
 
-**Phase 3** (RS-02 + kisti-08 fixes):
-- `timing/timing_manager.py` — TimingManager(QObject) wired to DiffStateBridge. Signals: `lap_completed`, `sector_completed`, `track_detected`, `p2p_completed`. blockSignals prevents re-entrant emission.
-- `can/kisti_can.py` — Realistic Laguna Seca waypoint GPS trace (replaces oval). 13 waypoints crossing S/F + 3 sector lines.
-- `main.py` — TimingManager wired with voice announcements + session debrief on K1 toggle.
-- 26 tests in `tests/test_timing_manager.py` (synthetic rectangular track).
+## What Was Done (kisti-09, 2026-03-30)
 
-**Phase 4** (RS-02):
-- `timing/track_learner.py` — TrackLearner class (180 LOC, pure Python). Records GPS, detects loop closure (50m threshold, 500m min distance), auto-generates S/F line + 3 sectors + center/radius. source="learned".
-- `timing/timing_manager.py` — Enhanced `_try_detect_track()`: if `find_track()` returns None → creates TrackLearner, feeds GPS, on loop closure saves to DuckDB + configures LapTimer.
-- 22 tests in `tests/test_track_learner.py`, 6 tests added to `tests/test_timing_manager.py` (TestTrackLearning).
+### FIXED: Mic permanently paused after startup TTS
+- **Root cause**: `main.py:528` used `QTimer.singleShot(800, mic.resume)` inside a lambda connected to AudioPlayer's `playback_finished` signal. That signal fires from a daemon thread with no Qt event loop — the timer silently never fired, leaving mic paused forever.
+- **Fix**: Replaced with `threading.Timer(0.4, mic.resume).start()` — works from any thread.
+- Added INFO-level logging to `pause()`/`resume()` for diagnostics.
 
-**Also this session (kisti-07/kisti-08)**:
-- CUDA OOM fix: whisper.cpp CUDA + Ollama CPU allocation on Jetson 8GB
-- Echo protection: mic pauses during UI audio playback (main.py lines 521-541)
-- blockSignals fix for TimingManager re-entrant state_changed
+### FIXED: Voice pipeline latency (~4.8s → ~2.2s)
+1. **Concurrent LED + audio** (`voice/voice_manager.py:_do_speak`): LED animation previously ran BEFORE audio playback, adding ~2.5s delay. Now `_start_audio()` returns (proc, wav_path) non-blocking, LEDs animate during playback.
+2. **Echo guard 800ms → 400ms** (both `main.py` AudioPlayer path and `voice_manager.py:794` VoiceManager path).
+3. **SPEECH_END_FRAMES 12 → 8** (`mic_capture.py`): 256ms silence ends utterance (was 384ms).
 
-## Prioritized TODO
+### FIXED: Startup speech consolidated
+- `ui/kisti_mode.py:_detect_hardware`: Was 4+ sequential lines with 2-3s gaps (~20s total, mic paused throughout). Now ONE consolidated line: "Online. No ECU. Standing by. Conditions good." (~5s, single pause/resume).
 
-### BEFORE ANYTHING: Resolve File Conflicts + Push
-- `main.py`, `timing/timing_manager.py`, `tests/test_timing_manager.py` — edited by kisti-07, kisti-08, RS-02
-- Changes are in different sections — `git pull --rebase` should merge cleanly
-- Verify 550 tests pass after merge
+### FIXED: OWW wake word detection improvements
+1. **Sliding window preservation**: OWW no longer reset on every utterance end — only after successful detection. Prevents split "Hey Jarvis" at natural pauses.
+2. **Gain reversal for OWW**: `÷3` before `oww.predict()` to undo software gain (OWW trained on normal audio).
+3. **Passthrough mode default**: OWW bypassed — all VAD-detected speech goes to Whisper STT.
 
-### TUI Task Visibility Fix
-- RS-02 events posted but don't appear on project board — session project is `kisti-006` (voice pipeline), not race analysis
-- Fix: `/team project /home/aldc/projects/active/2026-03-30-kisti-race-analysis/` or re-post events with matching task IDs
+### ADDED: Fuzzy wake word matching
+- `voice/voice_manager.py`: Added `_fuzzy_wake_word()` with Levenshtein distance ≤ 2 for "hey X" where X ≈ "jarvis"/"kisti".
+- Added common Whisper misheards to WAKE_WORDS: "nervous", "service", "jervis", "harvest", "travis", etc.
 
-### Phase 5: Voice Integration (NEXT)
-1. **Timing announcements** — enhance `_on_lap_complete` in main.py. Mode-aware: I=full, S=lap+delta, S#=PBs only.
-2. **`_answer_from_timing()` method** in `voice/voice_manager.py` — keyword match on DiffState timing fields. Insert before `_answer_from_sensors()` at line 588. Queries: "what's my delta?", "theoretical best?", "last lap?", "what track?", "sector times?"
-3. **Voice commands** — "point to point mode", "set start point", "circuit mode", "use lap N as reference". Add `set_timing_manager()` to voice_manager.
-4. **Pit lane debrief** — on session end, speak summary from `timing_mgr.get_session_summary()`.
-5. **LLM timing context** — add timing fields to `_build_telemetry_context()`.
+## Prioritized TODO — START HERE
 
-### Phase 6: UI + Data Sync
-6. `ui/widgets/timing_display.py` — live delta/splits on 800x480
-7. Three SI Drive mode layouts: I=full, S=timing, S#=minimal
-8. Parquet export of lap_times
-9. Zeus Memory timing summary push
+### 1. CRITICAL: Whisper producing garbage transcriptions
+**The #1 blocker.** Whisper base.en transcribes "Hey KiSTI, can you hear me?" as "but when something like this or..." — completely garbled. The voice pipeline is fully working (mic captures speech, STT runs, wake word check runs) but Whisper can't decode the audio.
+
+**Observed Whisper outputs for "Hey Jarvis" attempts:**
+- "but when something like this or..." (12:02)
+- "Hey, can you stick and hear me?" (11:49)
+- "nervous how are the conditions." (11:50)
+- "DC Jarvis, you guys there." (10:55 — this one DID work, "jarvis" in text)
+- "or something is not cheap." (10:55)
+
+**One success**: At 10:20:56 on the FIRST boot (before latency changes), Whisper correctly transcribed "Hey Jarvis, can you hear me?" with 0.74s latency. All subsequent GDM-restart boots produce garbage.
+
+**Debug approach — investigate audio quality:**
+1. **Record raw audio**: SSH in and run `parecord --raw --rate 16000 --channels 1 --format s16le --device alsa_input.usb-KTMicro_USB_MIC_INPUT_Adapter_2020-02-20-0000-0000-0000-00.mono-fallback > /tmp/test.raw` for 5s, then play it back on the workstation to hear what Whisper is getting.
+2. **Check gain levels**: The 3x software gain in `mic_capture.py:_run_parecord_pipe` (line 282) + PA 300% = ~9x total. RMS values of 14000-18000 during speech suggest severe clipping. **Try reducing software gain from 3 to 1** (just PA 300%) and test Whisper accuracy.
+3. **PA source config**: Verify `pactl get-source-volume` returns 300%. First boot (which worked) ran full kisti-session PA setup; subsequent GDM restarts may not fully reset PA. Try `sudo reboot` instead of GDM restart.
+4. **Whisper model**: Currently `base.en` (`voice/stt_engine.py:27`). Try `small.en` for better accuracy (slower but may handle noisy audio better), or test if the whisper.cpp HTTP server at `/tmp/whisper-server.log` is running.
+
+### 2. Jetson restart approach
+- `sudo -n /sbin/reboot` (passwordless) for full reboot
+- `sudo -n /usr/bin/systemctl restart gdm3` for GDM restart (faster but may not reset PA correctly — this is a suspect in the audio quality issue)
+- AccountsService config: `kisti-accountsservice.service` (enabled) restores session on boot, but doesn't run on GDM restart. Use `sudo reboot` to be safe.
+
+### 3. File conflicts from team session
+CCE team hooks report conflicts between kisti-07, rs-02, rs-03 in:
+- `main.py`, `voice/voice_manager.py`, `voice/mic_capture.py`, `timing/timing_manager.py`, `tests/test_timing_manager.py`, `tests/test_voice.py`
+These are all push-to-main edits (no branches). Check `git log --oneline -20` and verify no actual content conflicts.
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `timing/timing_manager.py` | Qt bridge — auto-detect, track learning, DuckDB |
-| `timing/track_learner.py` | GPS trace → auto-generate track definition |
-| `timing/lap_timer.py` | Core timing engine |
-| `timing/geo.py` | GPS geometry primitives |
-| `timing/track_db.py` | Track database |
-| `voice/voice_manager.py:540-600` | handle_voice_query dispatch chain |
-| `voice/voice_manager.py:854-883` | _answer_from_sensors (template for timing queries) |
-| `main.py:332-360` | TimingManager creation + voice wiring |
-| `main.py:390-420` | Session toggle with timing debrief |
+| `voice/mic_capture.py` | Mic capture + VAD + OWW gate. Passthrough=True default. SPEECH_END_FRAMES=8. |
+| `voice/voice_manager.py` | Voice pipeline orchestrator. _do_speak uses _start_audio (non-blocking). Fuzzy wake word matching. |
+| `voice/audio_player.py` | UI AudioPlayer (Piper TTS → paplay). Startup speech path. |
+| `voice/stt_engine.py:27` | Whisper model config: `WHISPER_MODEL_NAME = "base.en"` |
+| `main.py:528-540` | Echo protection: threading.Timer(0.4, mic.resume) |
+| `ui/kisti_mode.py:826` | Startup speech — consolidated to single line |
 
 ## Architecture Notes
 
-### Voice Query Dispatch (for Phase 5)
+### Voice Pipeline (current state)
 ```
-handle_voice_query(transcription):
-  1. Commands: "say", "remember", "quiet" → immediate
-  2. _answer_from_timing(lower)  ← ADD THIS
-  3. _answer_from_sensors(lower) → ambient/weather
-  4. LLM → persona response
+parecord (USB mic) → os.pipe2() → 3x gain → Silero VAD → passthrough (OWW bypassed)
+    → speech_captured signal → VoiceManager._on_speech_captured
+    → whisper.cpp STT → echo suppression → text wake word check + fuzzy match
+    → handle_voice_query → persona/LLM → _speak_queue → _do_speak
+    → TTS synthesis → _start_audio (non-blocking) → LEDs concurrent → wait
+    → echo guard 0.4s → mic resumes
 ```
 
-### Project File
-- `/home/aldc/projects/active/2026-03-30-kisti-race-analysis/README.md`
+### Key Insight: First Boot vs GDM Restart
+The ONLY successful Whisper transcription happened on the first boot (full reboot). All subsequent GDM restarts (`sudo systemctl restart gdm3`) produced garbage transcriptions. This strongly suggests PulseAudio state is not fully reset on GDM restart. The kisti-session script kills/restarts PA, but something is different. **Try a full reboot first before any other debugging.**
+
+### CCE Team Session
+- Session: `kisti-speaks` (ID: `71182e9b-8794-458f-b9d6-01a301c9ff58`)
+- TUI panel running on pts/7
+- Post events via: `curl -X POST -H "X-API-Key: $ZEUS_ALDC_API_KEY" -H "Content-Type: application/json" -d '{"type":"task_claimed","actor":"kisti-10","content":"..."}' "$ZEUS_API_BASE_URL/api/team-session/71182e9b-8794-458f-b9d6-01a301c9ff58/event"`
