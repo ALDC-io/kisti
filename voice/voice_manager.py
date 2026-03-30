@@ -173,11 +173,52 @@ WAKE_WORDS = [
     "keys to", "keeps to", "key stee", "keisti",
     "christy", "cristy", "kisty", "heykisti",
     "ki sti", "kist", "key sti", "kissty",
+    # Common Whisper misheards of "Jarvis" (USB mic + gain distortion)
+    "nervous", "service", "jervis", "gervis", "jarvus",
+    "harvest", "jarves", "javas", "travis",
     # NOTE: sensor/telemetry words (temperature, boost, oil pressure) were here
     # but caused echo loops — KiSTI says a response containing these words,
     # echo leaks through guard, Whisper transcribes it, WAKE_WORD matches, repeat.
     # These queries now work via conversation window: say wake word first, then ask.
 ]
+
+
+def _fuzzy_wake_word(text: str) -> bool:
+    """Check if text starts with 'hey' + something close to 'jarvis'/'kisti'.
+
+    Whisper often mangles wake words with USB mic gain. This catches
+    phonetic near-misses that exact string matching would miss.
+    """
+    words = text.lower().split()
+    if len(words) < 2:
+        return False
+    if words[0] != "hey":
+        return False
+    target = words[1]
+    # Check edit distance against known wake word targets
+    for ref in ("jarvis", "kisti"):
+        if len(target) < 3:
+            continue
+        # Simple edit distance — good enough for 5-6 char words
+        dist = _edit_distance(target, ref)
+        if dist <= 2:
+            return True
+    return False
+
+
+def _edit_distance(a: str, b: str) -> int:
+    """Levenshtein distance between two strings."""
+    if len(a) < len(b):
+        return _edit_distance(b, a)
+    if len(b) == 0:
+        return len(a)
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a):
+        curr = [i + 1]
+        for j, cb in enumerate(b):
+            curr.append(min(prev[j + 1] + 1, curr[j] + 1, prev[j] + (ca != cb)))
+        prev = curr
+    return prev[len(b)]
 QUIET_COMMANDS = ["quiet please kisti", "quiet please", "quiet kisti", "be quiet"]
 RESUME_COMMANDS = ["hey kisti"]
 
@@ -261,6 +302,10 @@ class VoiceManager(QObject):
         # Edge memory for "remember" commands and LLM context
         self._edge_memory = None
 
+        # Timing manager for voice queries and commands
+        self._timing_manager = None  # TimingManager (set via set_timing_manager)
+        self._p2p_start = None       # StartFinishLine for P2P start point
+
         # Pipeline trace for latency instrumentation
         self._active_trace: Optional[PipelineTrace] = None
 
@@ -318,6 +363,10 @@ class VoiceManager(QObject):
         """Update SI Drive mode — controls voice behavior."""
         self._si_drive_mode = mode
         log.info("Voice mode: %s", mode.label)
+
+    def set_timing_manager(self, timing_mgr) -> None:
+        """Wire timing manager for voice queries and commands."""
+        self._timing_manager = timing_mgr
 
     def set_telemetry(self, state: DiffState) -> None:
         """Update telemetry snapshot for LLM context. Logs notable changes."""
@@ -583,7 +632,24 @@ class VoiceManager(QObject):
             self._compose_and_speak(resp, user_text=transcription)
             return
 
+        # Timing control commands
+        timing_cmd = self._handle_timing_command(lower)
+        if timing_cmd:
+            resp = VoiceResponse(text=timing_cmd, source="command", tier="system")
+            self._compose_and_speak(resp, user_text=transcription, trace=trace)
+            return
+
         self._set_state(VoiceState.THINKING)
+
+        # Timing query — intercept lap/delta/sector questions with live data
+        timing_answer = self._answer_from_timing(lower)
+        if timing_answer:
+            resp = VoiceResponse(
+                text=timing_answer, source="timing", tier="deterministic", latency_ms=0,
+            )
+            log.info("Live timing response: %s", timing_answer[:80])
+            self._compose_and_speak(resp, user_text=transcription, trace=trace)
+            return
 
         # Live sensor query — intercept ambient/weather questions with real data
         live = self._answer_from_sensors(lower)
@@ -704,7 +770,7 @@ class VoiceManager(QObject):
                         log.info("Echo suppressed (%.0f%% overlap with last speech): '%s'", overlap * 100, text[:60])
                         return
 
-            has_wake_word = any(w in lower for w in WAKE_WORDS)
+            has_wake_word = any(w in lower for w in WAKE_WORDS) or _fuzzy_wake_word(lower)
             in_conversation = (time.monotonic() - self._last_interaction) < self._listen_window_s
 
             # During TTS playback, only respond to wake word (barge-in)
@@ -864,6 +930,140 @@ class VoiceManager(QObject):
             log.warning("Audio playback failed: %s", exc)
             return None, None
 
+    def _handle_timing_command(self, query_lower: str) -> Optional[str]:
+        """Handle voice commands that control timing mode.
+
+        Returns spoken confirmation, or None if not a timing command.
+        """
+        if self._timing_manager is None:
+            return None
+
+        import re as _re
+
+        timer = self._timing_manager.lap_timer
+
+        # "point to point mode" / "P2P mode"
+        if any(w in query_lower for w in ["point to point", "p2p mode", "p 2 p"]):
+            log.info("Voice command: P2P mode requested")
+            return "Point to point mode. Say set start point when ready."
+
+        # "set start point" / "mark start"
+        if any(w in query_lower for w in ["set start", "mark start"]):
+            snap = self._telemetry_snapshot
+            if snap and snap.gps_latitude != 0:
+                from timing.track_db import StartFinishLine
+                from timing.geo import offset_line
+                lat, lon = snap.gps_latitude, snap.gps_longitude
+                lat1, lon1, lat2, lon2 = offset_line(lat, lon, width_m=10.0)
+                self._p2p_start = StartFinishLine(lat1=lat1, lon1=lon1, lat2=lat2, lon2=lon2)
+                log.info("P2P start point set at (%.5f, %.5f)", lat, lon)
+                return "Start point set. Say set end point at your destination."
+            return "No GPS fix. Can't set start point."
+
+        # "set end point" / "mark end"
+        if any(w in query_lower for w in ["set end", "mark end"]):
+            snap = self._telemetry_snapshot
+            if snap and snap.gps_latitude != 0:
+                from timing.track_db import StartFinishLine
+                from timing.geo import offset_line
+                lat, lon = snap.gps_latitude, snap.gps_longitude
+                lat1, lon1, lat2, lon2 = offset_line(lat, lon, width_m=10.0)
+                end_line = StartFinishLine(lat1=lat1, lon1=lon1, lat2=lat2, lon2=lon2)
+                if hasattr(self, '_p2p_start') and self._p2p_start:
+                    timer.set_p2p_mode(self._p2p_start, end_line)
+                    log.info("P2P end point set — timing active")
+                    return "End point set. Point to point timing is live."
+                return "Set a start point first."
+            return "No GPS fix. Can't set end point."
+
+        # "circuit mode" / "lap mode"
+        if any(w in query_lower for w in ["circuit mode", "lap mode", "back to laps"]):
+            timer.set_circuit_mode()
+            log.info("Voice command: circuit mode")
+            return "Circuit mode. Lap timing active."
+
+        # "use lap N as reference" / "reference lap N"
+        match = _re.search(r'(?:use\s+)?lap\s+(\d+)\s+as\s+reference|reference\s+lap\s+(\d+)', query_lower)
+        if match:
+            lap_num = int(match.group(1) or match.group(2))
+            idx = lap_num - 1  # 0-indexed
+            if 0 <= idx < len(timer._completed_laps):
+                timer.set_reference_lap(idx)
+                t = timer._completed_laps[idx].total_time
+                return f"Reference set to lap {lap_num}: {t:.1f} seconds."
+            return f"Lap {lap_num} not found. {len(timer._completed_laps)} laps completed."
+
+        return None
+
+    def _answer_from_timing(self, query_lower: str) -> Optional[str]:
+        """Answer lap/delta/sector/track questions from live timing data.
+
+        Returns a short spoken response if timing data is available for the
+        question, or None to fall through to sensors/LLM.
+        """
+        s = self._telemetry_snapshot
+        if s is None or not s.track_name:
+            return None
+
+        def _fmt_time(ms: int) -> str:
+            """Format milliseconds as M:SS.s or SS.s."""
+            if ms <= 0:
+                return "no data"
+            secs = ms / 1000.0
+            if secs >= 60:
+                m, sec = divmod(secs, 60)
+                return f"{int(m)}:{sec:04.1f}"
+            return f"{secs:.1f} seconds"
+
+        # Delta to reference
+        if any(w in query_lower for w in ["delta", "gap", "ahead", "behind", "compared to"]):
+            if s.delta_ms == 0 and s.lap_count < 2:
+                return "No delta yet. I need a reference lap first."
+            direction = "behind" if s.delta_ms > 0 else "ahead"
+            return f"{abs(s.delta_ms) / 1000:.1f} seconds {direction} of reference."
+
+        # Theoretical best
+        if any(w in query_lower for w in ["theoretical", "best possible", "perfect lap"]):
+            if s.theoretical_best_ms <= 0:
+                return "Not enough sector data for a theoretical best yet."
+            return f"Theoretical best is {_fmt_time(s.theoretical_best_ms)}."
+
+        # Last lap / lap time
+        if any(w in query_lower for w in ["last lap", "lap time", "my time", "how fast"]):
+            if s.current_lap_time_ms <= 0:
+                return "No lap time recorded yet."
+            return f"Current lap: {_fmt_time(s.current_lap_time_ms)}. Lap {s.lap_count}."
+
+        # Predicted lap
+        if any(w in query_lower for w in ["predicted", "projected", "on pace", "looking like"]):
+            if s.predicted_lap_ms <= 0:
+                return "Not enough data for a prediction yet."
+            return f"Predicted lap: {_fmt_time(s.predicted_lap_ms)}."
+
+        # Sector times (from TimingManager)
+        if any(w in query_lower for w in ["sector", "split", "splits"]):
+            if self._timing_manager is None:
+                return None
+            best = self._timing_manager.lap_timer.get_best_sector_times()
+            if not best or all(t is None for t in best):
+                return "No sector times recorded yet."
+            parts = []
+            for i, t in enumerate(best):
+                if t is not None:
+                    parts.append(f"S{i + 1}: {t:.1f}")
+            return "Best sectors: " + ", ".join(parts) + "."
+
+        # Track name
+        if any(w in query_lower for w in ["what track", "which track", "where am i", "track name", "circuit"]):
+            mode = "point to point" if s.timing_mode == "point_to_point" else "circuit"
+            return f"{s.track_name}. {mode.capitalize()} mode. Lap {s.lap_count}."
+
+        # Lap count
+        if any(w in query_lower for w in ["how many laps", "lap count", "laps done", "laps completed"]):
+            return f"{s.lap_count} laps completed."
+
+        return None
+
     def _answer_from_sensors(self, query_lower: str) -> Optional[str]:
         """Answer ambient/weather questions directly from live Yoctopuce data.
 
@@ -931,6 +1131,22 @@ class VoiceManager(QObject):
             lines.append(f"Barometric: {s.ambient_pressure_hpa:.0f} hPa")
             lines.append(f"Dew Point: {s.dew_point_c:.1f}°C")
             lines.append(f"Density Altitude: {s.density_altitude_ft:.0f} ft")
+
+        # Timing context
+        if s.track_name:
+            lines.append("")
+            lines.append(f"Track: {s.track_name} ({s.timing_mode or 'unknown'} mode)")
+            lines.append(f"Lap: {s.lap_count}")
+            if s.current_lap_time_ms > 0:
+                lines.append(f"Current Lap: {s.current_lap_time_ms / 1000:.1f}s")
+            if s.delta_ms != 0:
+                lines.append(f"Delta: {'+' if s.delta_ms > 0 else ''}{s.delta_ms / 1000:.1f}s")
+            if s.predicted_lap_ms > 0:
+                lines.append(f"Predicted Lap: {s.predicted_lap_ms / 1000:.1f}s")
+            if s.theoretical_best_ms > 0:
+                lines.append(f"Theoretical Best: {s.theoretical_best_ms / 1000:.1f}s")
+            if s.current_sector > 0:
+                lines.append(f"Sector: {s.current_sector}/{s.sector_count}")
 
         # Inject recent events (last 60s) for contextual queries
         now = time.monotonic()
