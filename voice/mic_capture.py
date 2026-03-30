@@ -68,10 +68,12 @@ class MicCapture(QObject):
     def __init__(
         self,
         device: str = "default",
+        wake_model: Optional[str] = None,
         parent: Optional[QObject] = None,
     ) -> None:
         super().__init__(parent)
         self._device = device
+        self._wake_model = wake_model  # Custom ONNX path or openwakeword model name
         self._running = False
         self._paused = False  # Pause during TTS playback to avoid echo
         self._thread: Optional[threading.Thread] = None
@@ -103,10 +105,22 @@ class MicCapture(QObject):
                 return
 
         # Initialize openwakeword (CPU pre-filter — optional)
+        # Priority: constructor arg → KISTI_WAKE_MODEL env → default hey_jarvis
         try:
+            import os as _os
             from openwakeword.model import Model as OWWModel
-            self._oww = OWWModel(wakeword_models=["hey_jarvis_v0.1"])
-            log.info("openwakeword loaded (hey_jarvis, CPU)")
+
+            model_spec = self._wake_model or _os.environ.get("KISTI_WAKE_MODEL", "")
+            if model_spec and _os.path.isfile(model_spec):
+                # Custom ONNX file (e.g. /data/models/hey_kisti.onnx)
+                self._oww = OWWModel(wakeword_models=[model_spec])
+                model_label = _os.path.basename(model_spec)
+            else:
+                # Built-in openwakeword model name
+                model_name = model_spec or "hey_jarvis_v0.1"
+                self._oww = OWWModel(wakeword_models=[model_name])
+                model_label = model_name
+            log.info("openwakeword loaded (%s, CPU)", model_label)
         except ImportError:
             log.info("openwakeword not available — all speech goes to STT")
         except Exception as exc:

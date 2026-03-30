@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import collections
 import logging
+import os
 import queue
 import re
 import struct
@@ -30,7 +31,7 @@ from PySide6.QtCore import QObject, QThread, Signal
 from model.vehicle_state import DiffState, SIDriveMode
 from voice.llm_engine import LLMEngine, _match_persona
 from voice.mic_capture import MicCapture
-from voice.stt_engine import STTEngine
+from voice.stt_engine import STTEngine, HybridSTTEngine
 from voice.tts_engine import TTSEngine
 from voice.led_waveform import LEDFrame, LEDWaveformGenerator
 
@@ -175,11 +176,17 @@ class VoiceManager(QObject):
     def __init__(self, mic_device: str = "default", enable_mic: bool = True,
                  parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
-        self._stt = STTEngine()
+        # Use Deepgram hybrid if API key available, else standard whisper.cpp
+        if os.environ.get("DEEPGRAM_API_KEY"):
+            self._stt = HybridSTTEngine()
+            log.info("Initialized Deepgram hybrid STT engine")
+        else:
+            self._stt = STTEngine()
+            log.info("Initialized standard whisper.cpp STT engine")
         self._tts = TTSEngine()
         self._llm = LLMEngine()
         self._led = LEDWaveformGenerator()
-        self._mic = MicCapture(device=mic_device) if enable_mic else None
+        self._mic = MicCapture(device=mic_device, wake_model=os.environ.get("KISTI_WAKE_MODEL")) if enable_mic else None
 
         self._state = VoiceState.IDLE
         self._toggle_state = VoiceToggleState.NORMAL
@@ -357,53 +364,84 @@ class VoiceManager(QObject):
         except queue.Full:
             pass
 
+    # Idiomatic phrases where "it"/"that"/"this" are NOT referential.
+    # Checked before attempting pronoun resolution.
+    _NON_REFERENTIAL = re.compile(
+        r"(?:"
+        r"how'?s it going|is it (?:hot|cold|raining)|what is it like|"
+        r"that'?s (?:cool|great|awesome|fine|ok|good|nice|interesting|funny|weird|crazy|right)|"
+        r"this is (?:fine|great|fun)|"
+        r"got it|do it|let'?s do it|forget it|leave it|skip it|"
+        r"is that (?:ok|all|right|so|true)|that said|other than that|"
+        r"hold it|keep it|take it easy"
+        r")",
+        re.IGNORECASE,
+    )
+
+    # Patterns that indicate a genuinely referential pronoun (asking about topic).
+    _REFERENTIAL = [
+        (re.compile(r"\b(?:what(?:'s| is| was| are))\s+(?:that|it|this)\b", re.I), "query"),
+        (re.compile(r"\b(?:how(?:'s| is| was))\s+(?:that|it|this)\b", re.I), "query"),
+        (re.compile(r"\b(?:tell me (?:about|more about))\s+(?:that|it|this|those)\b", re.I), "query"),
+        (re.compile(r"\b(?:is|was|are)\s+(?:that|it|this)\s+(?:normal|ok|good|bad|high|low|safe|dangerous)\b", re.I), "eval"),
+        (re.compile(r"\bthose\s+\w+", re.I), "those_noun"),
+        (re.compile(r"\b(?:that|the)\s+(?:same|last|previous)\b", re.I), "back_ref"),
+        (re.compile(r"\bwhat about (?:that|it|this|those)\b", re.I), "query"),
+        (re.compile(r"\b(?:why is|why was|why did)\s+(?:that|it|this)\b", re.I), "query"),
+        (re.compile(r"\bcompare (?:that|it|this|those)\b", re.I), "query"),
+    ]
+
     def _resolve_references(self, query: str) -> str:
         """Resolve vague references (that, it, those) using dialogue context.
 
-        Uses recently mentioned topics from dialogue state to rewrite queries
-        like "that's interesting" → "the oil pressure is interesting".
-        Returns the original query if no references detected or context unavailable.
+        Only rewrites when the pronoun is genuinely referential (asking about
+        a prior topic), NOT when it appears in idiomatic expressions like
+        "how's it going" or "that's cool".
+
+        Returns the original query unchanged if:
+          - No vague pronouns detected
+          - Pronoun is in an idiomatic (non-referential) phrase
+          - No active topic in dialogue state
+          - Topic is stale (>10 turns ago)
         """
         lower = query.lower().strip()
 
-        # No resolution needed if no vague references detected
-        vague_patterns = [r'\bthat\b', r'\bit\b', r'\bthose\b', r'\bthis\b']
-        if not any(re.search(p, lower) for p in vague_patterns):
+        # Quick check: any vague pronouns at all?
+        if not re.search(r'\b(?:that|it|this|those|them)\b', lower):
             return query
 
-        # Get dialogue context for resolution
-        ctx = self._dialogue.context_summary()
-        if not ctx:
-            return query  # No context available
+        # Skip idiomatic / non-referential uses
+        if self._NON_REFERENTIAL.search(lower):
+            return query
 
-        # Extract topic from context (format: "Active topic: <topic>")
-        topic = None
-        for line in ctx.split('\n'):
-            if line.startswith('Active topic:'):
-                topic = line.split(':', 1)[1].strip()
+        # Need an active, recent topic
+        topic = self._dialogue.topic
+        if not topic:
+            return query
+        turns_since = self._dialogue.turn_counter - self._dialogue.topic_since_turn
+        if turns_since > 10:
+            return query  # Topic too stale
+
+        # Check if any referential pattern matches
+        matched = False
+        for pattern, _ in self._REFERENTIAL:
+            if pattern.search(lower):
+                matched = True
                 break
+        if not matched:
+            return query
 
-        # Basic resolution rules using detected topic
+        # Perform targeted replacement
         resolved = query
-        if topic:
-            # Replace "that" with topic context
-            resolved = re.sub(
-                r'\bthat\b', f"the {topic}",
-                resolved, flags=re.IGNORECASE
-            )
-            resolved = re.sub(
-                r'\bit\b', f"the {topic}",
-                resolved, flags=re.IGNORECASE
-            )
-            resolved = re.sub(
-                r'\bthis\b', f"the {topic}",
-                resolved, flags=re.IGNORECASE
-            )
-            # "those temps" / "those readings" → concrete reference
-            resolved = re.sub(
-                r'\bthose\s+(\w+)\b', f"the {topic} \\1",
-                resolved, flags=re.IGNORECASE
-            )
+
+        # "those temps" / "those readings" → "the {topic} temps"
+        resolved = re.sub(
+            r'\bthose\s+(\w+)\b', f"the {topic} \\1",
+            resolved, flags=re.IGNORECASE,
+        )
+        # "that" / "it" / "this" as standalone references → "the {topic}"
+        for pronoun in (r'\bthat\b', r'\bit\b', r'\bthis\b', r'\bthem\b'):
+            resolved = re.sub(pronoun, f"the {topic}", resolved, count=1, flags=re.IGNORECASE)
 
         return resolved
 
