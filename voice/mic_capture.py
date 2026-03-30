@@ -263,6 +263,7 @@ class MicCapture(QObject):
         _os.close(write_fd)  # Parent doesn't write — close our copy
 
         def read_fn(n_bytes: int) -> bytes:
+            import numpy as _np
             chunks = []
             remaining = n_bytes
             while remaining > 0:
@@ -271,7 +272,11 @@ class MicCapture(QObject):
                     return b"".join(chunks)
                 chunks.append(chunk)
                 remaining -= len(chunk)
-            return b"".join(chunks)
+            raw = b"".join(chunks)
+            # Software gain: PA 300% + 3x software = effective ~900%.
+            # Needed because USB mic has no ALSA capture gain control.
+            arr = _np.frombuffer(raw, dtype=_np.int16).astype(_np.int32) * 3
+            return _np.clip(arr, -32768, 32767).astype(_np.int16).tobytes()
 
         try:
             self._vad_process(read_fn, alive_fn=lambda: proc.poll() is None)
