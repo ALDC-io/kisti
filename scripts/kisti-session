@@ -25,7 +25,12 @@ fi
 export DISPLAY="${DISPLAY:-:0}"
 export QT_QPA_PLATFORM=xcb
 export OLLAMA_MODELS=/data/ollama
-export KISTI_WAKE_MODEL=/data/models/hey_kisti.onnx
+# Custom wake word: use trained model if it exists, else fall back to built-in
+if [ -f /data/models/hey_kisti.onnx ]; then
+    export KISTI_WAKE_MODEL=/data/models/hey_kisti.onnx
+else
+    export KISTI_WAKE_MODEL=hey_jarvis_v0.1
+fi
 # PULSE_SERVER not set — let PA use its default socket path
 export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$HOME/.local/lib:${LD_LIBRARY_PATH:-}"
 
