@@ -225,6 +225,18 @@ class MicCapture(QObject):
         """Capture audio via sounddevice (PortAudio) — no subprocess, no pipe."""
         import sounddevice as sd
 
+        # Ensure PA default source points to our USB mic (sounddevice
+        # routes through PA's default, which may not be the USB mic)
+        if self._device:
+            try:
+                subprocess.run(
+                    ["pactl", "set-default-source", self._device],
+                    capture_output=True, timeout=3,
+                )
+                log.info("Set PA default source → %s", self._device)
+            except Exception as exc:
+                log.warning("Could not set PA default source: %s", exc)
+
         device_idx = self._find_sd_device()
         log.info("sounddevice capture: device=%s, rate=%d", device_idx, SAMPLE_RATE)
 
