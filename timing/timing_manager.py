@@ -143,6 +143,23 @@ class TimingManager(QObject):
         if lat == self._prev_gps_lat and lon == self._prev_gps_lon:
             return
 
+        # GPS jump filter — reject fixes >500m from last known position
+        # (satellite reacquire after dropout can cause false S/F crossings)
+        if self._prev_gps_lat != 0.0 and self._prev_gps_lon != 0.0:
+            from timing.geo import haversine_distance
+            jump_m = haversine_distance(
+                self._prev_gps_lat, self._prev_gps_lon, lat, lon,
+            )
+            if jump_m > 500.0:
+                log.warning(
+                    "GPS jump %.0fm — skipping (dropout recovery)",
+                    jump_m,
+                )
+                # Update position but don't feed LapTimer
+                self._prev_gps_lat = lat
+                self._prev_gps_lon = lon
+                return
+
         self._prev_gps_lat = lat
         self._prev_gps_lon = lon
 

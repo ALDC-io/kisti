@@ -379,6 +379,24 @@ def main():
 
                 timing_mgr.track_detected.connect(_on_track_detected)
 
+                def _on_sector_complete(e):
+                    mode = mode_mgr.si_drive_mode
+                    if mode == SIDriveMode.SPORT_SHARP:
+                        return  # S# — silent on sectors
+                    t = e["time_s"]
+                    idx = e["sector_index"] + 1  # 1-based for speech
+                    if mode == SIDriveMode.SPORT:
+                        voice_mgr.speak(f"S{idx}: {t:.1f}.")
+                    else:
+                        # Intelligent — sector time + cumulative split
+                        splits = e.get("split_times", [])
+                        cumulative = sum(splits) if splits else t
+                        voice_mgr.speak(
+                            f"Sector {idx}: {t:.1f}. Split {cumulative:.1f}."
+                        )
+
+                timing_mgr.sector_completed.connect(_on_sector_complete)
+
             log.info("Timing manager enabled")
         except Exception as exc:
             log.warning("Timing manager failed to start: %s", exc)

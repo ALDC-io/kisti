@@ -172,7 +172,7 @@ WAKE_WORDS = [
     # Common Whisper misheards of "KiSTI"
     "keys to", "keeps to", "key stee", "keisti",
     "christy", "cristy", "kisty", "heykisti",
-    "ki sti", "kist", "key sti", "kissty",
+    "ki sti", "kist", "key sti", "kissty", "dc",
     # Common Whisper misheards of "Jarvis" (USB mic + gain distortion)
     "nervous", "service", "jervis", "gervis", "jarvus",
     "harvest", "jarves", "javas", "travis",
@@ -735,10 +735,10 @@ class VoiceManager(QObject):
         def _process():
             trace = PipelineTrace(mic_captured_at=time.monotonic())
 
-            # Expire conversation window passthrough
-            in_conversation = (time.monotonic() - self._last_interaction) < self._listen_window_s
-            if not in_conversation and self._mic and self._mic._passthrough:
-                self._mic.set_passthrough(False)
+            # Conversation window passthrough: in text-wake-word mode,
+            # passthrough stays True permanently — OWW scores ~0 and cannot
+            # gate speech. Wake word detection happens via Whisper text match.
+            # Only disable passthrough when K2 push-to-talk explicitly toggles it.
 
             if not self._stt_lock.acquire(blocking=False):
                 log.debug("STT busy — dropping capture")
@@ -771,6 +771,10 @@ class VoiceManager(QObject):
                         return
 
             has_wake_word = any(w in lower for w in WAKE_WORDS) or _fuzzy_wake_word(lower)
+            # Fallback: OWW detected wake word but Whisper dropped it from transcription
+            if not has_wake_word and self._mic and self._mic._last_wake_detected:
+                log.info("OWW wake detected but not in STT text — treating as wake word")
+                has_wake_word = True
             in_conversation = (time.monotonic() - self._last_interaction) < self._listen_window_s
 
             # During TTS playback, only respond to wake word (barge-in)
@@ -1058,9 +1062,36 @@ class VoiceManager(QObject):
             mode = "point to point" if s.timing_mode == "point_to_point" else "circuit"
             return f"{s.track_name}. {mode.capitalize()} mode. Lap {s.lap_count}."
 
-        # Lap count
-        if any(w in query_lower for w in ["how many laps", "lap count", "laps done", "laps completed"]):
-            return f"{s.lap_count} laps completed."
+        # Lap count / "what lap am I on?"
+        if any(w in query_lower for w in [
+            "how many laps", "lap count", "laps done", "laps completed",
+            "what lap", "which lap",
+        ]):
+            return f"Lap {s.lap_count}." if s.lap_count > 0 else "No laps completed yet."
+
+        # Best lap
+        if any(w in query_lower for w in ["best lap", "fastest lap", "personal best", "my best"]):
+            if self._timing_manager is None:
+                return None
+            summary = self._timing_manager.get_session_summary()
+            if not summary or summary.get("total_laps", 0) == 0:
+                return "No laps completed yet."
+            return (
+                f"Best lap: {summary['best_lap_time_s']:.1f} seconds, "
+                f"lap {summary['best_lap_number']}."
+            )
+
+        # Pace / how am I doing?
+        if any(w in query_lower for w in ["my pace", "how am i doing", "how's my pace", "pace"]):
+            if s.predicted_lap_ms > 0 and s.delta_ms != 0:
+                direction = "ahead" if s.delta_ms < 0 else "behind"
+                return (
+                    f"{abs(s.delta_ms) / 1000:.1f} seconds {direction}. "
+                    f"Predicted: {s.predicted_lap_ms / 1000:.1f} seconds."
+                )
+            if s.predicted_lap_ms > 0:
+                return f"On pace for {s.predicted_lap_ms / 1000:.1f} seconds."
+            return "Not enough data to judge pace yet."
 
         return None
 
