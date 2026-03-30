@@ -443,10 +443,13 @@ class VoiceManager(QObject):
                 trace.query_text = user_text[:120]
             self._active_trace = trace
 
-        # Emit for UI
-        self.response_ready.emit(response.text)
+        # NOTE: Do NOT emit response_ready here — it triggers AudioPlayer (UI path)
+        # which plays audio independently of _do_speak (voice loop path).
+        # Both paths toggle mic pause/resume, causing race conditions that leave
+        # mic stuck paused. _do_speak is the sole audio path for query responses.
+        # response_ready is still used for standalone messages like "Let me think about that."
 
-        # Queue for TTS
+        # Queue for TTS (sole audio path — _do_speak handles echo suppression + barge-in)
         if response.text:
             try:
                 self._speak_queue.put_nowait(response.text)
