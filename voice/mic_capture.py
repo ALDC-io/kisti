@@ -368,12 +368,15 @@ class MicCapture(QObject):
                 continue
 
             # Feed openwakeword (accumulate to 1280-sample chunks)
+            # OWW gets audio at original levels — undo the 3x software gain
+            # applied in read_fn. OWW was trained on normal audio; amplified
+            # audio clips and distorts the spectral patterns it relies on.
             if self._oww is not None:
                 oww_buffer += frame
                 while len(oww_buffer) >= OWW_CHUNK_SAMPLES * 2:
                     chunk = oww_buffer[:OWW_CHUNK_SAMPLES * 2]
                     oww_buffer = oww_buffer[OWW_CHUNK_SAMPLES * 2:]
-                    oww_audio = np.frombuffer(chunk, dtype=np.int16)
+                    oww_audio = (np.frombuffer(chunk, dtype=np.int16).astype(np.int32) // 3).astype(np.int16)
                     preds = self._oww.predict(oww_audio)
                     for model_name, score in preds.items():
                         if score > self._active_oww_threshold:
