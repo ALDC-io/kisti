@@ -25,6 +25,8 @@ from PySide6.QtCore import QObject, Signal
 log = logging.getLogger("kisti.voice.mic")
 
 SAMPLE_RATE = 16000       # Whisper expects 16kHz
+PA_NATIVE_RATE = 48000    # PA source native rate — capture here to avoid PortAudio resampler
+DECIMATE_FACTOR = PA_NATIVE_RATE // SAMPLE_RATE  # 3
 # Silero VAD processes 512-sample chunks at 16kHz (32ms)
 SILERO_CHUNK_SAMPLES = 512
 SILERO_CHUNK_BYTES = SILERO_CHUNK_SAMPLES * 2  # 16-bit = 2 bytes/sample
@@ -222,45 +224,60 @@ class MicCapture(QObject):
             self._run_parecord()
 
     def _run_sounddevice(self) -> None:
-        """Capture audio via sounddevice (PortAudio) — no subprocess, no pipe."""
-        import sounddevice as sd
+        """Capture audio via parecord with os.pipe() to bypass buffering.
 
-        # Ensure PA default source points to our USB mic (sounddevice
-        # routes through PA's default, which may not be the USB mic)
+        PortAudio's resampler produces audio Silero VAD can't detect.
+        PA's native 16kHz resampling works, so we use parecord but with
+        raw os.pipe() + os.read() instead of subprocess.PIPE to avoid
+        the PA-internal buffering that blocks inside Qt's event loop.
+        """
+        import os as _os
+
+        # Ensure PA default source points to our USB mic
         if self._device:
             try:
                 subprocess.run(
                     ["pactl", "set-default-source", self._device],
                     capture_output=True, timeout=3,
                 )
-                log.info("Set PA default source → %s", self._device)
-            except Exception as exc:
-                log.warning("Could not set PA default source: %s", exc)
+            except Exception:
+                pass
 
-        device_idx = self._find_sd_device()
-        log.info("sounddevice capture: device=%s, rate=%d", device_idx, SAMPLE_RATE)
+        record_cmd = ["parecord", "--raw", "--rate", str(SAMPLE_RATE),
+                      "--channels", "1", "--format", "s16le",
+                      "--latency-msec=50"]
+        if self._device:
+            record_cmd.extend(["--device", self._device])
 
-        stream = sd.InputStream(
-            samplerate=SAMPLE_RATE,
-            channels=1,
-            dtype="int16",
-            blocksize=SILERO_CHUNK_SAMPLES,
-            device=device_idx,
+        # Use raw os.pipe() instead of subprocess.PIPE — bypasses Python's
+        # BufferedReader and avoids the PA-internal buffering deadlock.
+        read_fd, write_fd = _os.pipe2(_os.O_CLOEXEC)
+        log.info("parecord via os.pipe(): rate=%d, device=%s", SAMPLE_RATE, self._device or "default")
+
+        proc = subprocess.Popen(
+            record_cmd,
+            stdout=write_fd,
+            stderr=subprocess.DEVNULL,
         )
-        stream.start()
+        _os.close(write_fd)  # Parent doesn't write — close our copy
 
         def read_fn(n_bytes: int) -> bytes:
-            n_frames = n_bytes // 2  # 16-bit = 2 bytes per sample
-            data, overflowed = stream.read(n_frames)
-            if overflowed:
-                log.debug("sounddevice overflow (frames dropped)")
-            return data.tobytes()
+            chunks = []
+            remaining = n_bytes
+            while remaining > 0:
+                chunk = _os.read(read_fd, remaining)
+                if not chunk:
+                    return b"".join(chunks)
+                chunks.append(chunk)
+                remaining -= len(chunk)
+            return b"".join(chunks)
 
         try:
-            self._vad_process(read_fn, alive_fn=lambda: stream.active)
+            self._vad_process(read_fn, alive_fn=lambda: proc.poll() is None)
         finally:
-            stream.stop()
-            stream.close()
+            proc.terminate()
+            proc.wait(timeout=2)
+            _os.close(read_fd)
 
     def _find_sd_device(self) -> int | None:
         """Find the best input device in sounddevice's device list.
