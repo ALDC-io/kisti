@@ -330,6 +330,33 @@ def main():
         except Exception as exc:
             log.warning("Cloud sync failed to start: %s", exc)
 
+    # Race analysis timing (optional — requires DuckDB for track database)
+    timing_mgr = None
+    if db_store is not None:
+        try:
+            from timing.timing_manager import TimingManager
+            timing_mgr = TimingManager(bridge=bridge, db_store=db_store)
+            timing_mgr.start()
+
+            # Voice announcements for timing events
+            if voice_mgr:
+                def _on_lap_complete(e):
+                    delta = e["delta_s"]
+                    msg = f"Lap {e['lap_number']}: {e['time_s']:.1f} seconds."
+                    if delta != 0:
+                        direction = "plus" if delta > 0 else "minus"
+                        msg += f" {direction} {abs(delta):.1f}."
+                    voice_mgr.speak(msg)
+
+                timing_mgr.lap_completed.connect(_on_lap_complete)
+                timing_mgr.track_detected.connect(
+                    lambda name: voice_mgr.speak(f"Track detected: {name}.")
+                )
+
+            log.info("Timing manager enabled")
+        except Exception as exc:
+            log.warning("Timing manager failed to start: %s", exc)
+
     # Start CAN source — real hardware only, no mock
     can_output = None
     if listener:
@@ -374,10 +401,23 @@ def main():
                 session_id = db_store.start_session(
                     si_drive_mode=mode_mgr.si_drive_mode.label,
                 )
+                if timing_mgr:
+                    timing_mgr.set_session_id(session_id)
                 if voice_mgr:
                     voice_mgr.speak("Session recording started.")
                 log.info("Session started: %s", session_id[:8])
             else:
+                # Timing debrief before ending session
+                if timing_mgr and voice_mgr:
+                    summary = timing_mgr.get_session_summary()
+                    if summary.get("total_laps", 0) > 0:
+                        voice_mgr.speak(
+                            f"Session complete. {summary['total_laps']} laps. "
+                            f"Best: lap {summary['best_lap_number']}, "
+                            f"{summary['best_lap_time_s']:.1f} seconds."
+                        )
+                if timing_mgr:
+                    timing_mgr.set_session_id(None)
                 db_store.end_session(session_id)
                 if voice_mgr:
                     voice_mgr.speak("Session recording stopped.")
