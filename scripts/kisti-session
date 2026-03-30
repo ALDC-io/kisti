@@ -26,7 +26,7 @@ export DISPLAY="${DISPLAY:-:0}"
 export QT_QPA_PLATFORM=xcb
 export OLLAMA_MODELS=/data/ollama
 # PULSE_SERVER not set — let PA use its default socket path
-export LD_LIBRARY_PATH="$HOME/.local/lib:${LD_LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$HOME/.local/lib:${LD_LIBRARY_PATH:-}"
 
 KISTI_DIR="$HOME/repos/kisti"
 LOG="/tmp/kisti-session.log"

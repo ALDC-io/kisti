@@ -841,34 +841,26 @@ class KistiModeWidget(QWidget):
             dp = ambient["dew_point_c"]
             da = ambient["density_altitude_ft"]
 
-            # Grip expectation (lead with what the driver cares about)
+            # Compact conditions status
             if dp > (t - 2):
-                grip = "Reduced grip expected"
-                reason = "damp conditions near the dew point"
+                status = "damp, reduced grip"
             elif t < 5:
-                grip = "Low grip expected"
-                reason = "cold surface temperatures"
+                status = "cold, low grip"
             elif t < 8:
-                grip = "Grip will build slowly"
-                reason = "cool surface temperatures"
+                status = "cool, grip building"
             elif h > 80:
-                grip = "Watch for slippery patches"
-                reason = "high humidity"
+                status = "humid, watch for slick"
             elif t > 35:
-                grip = "Good grip, but watch tire temps"
-                reason = "hot conditions"
+                status = "hot, watch tire temps"
             else:
-                grip = "Good grip expected"
-                reason = "dry and mild conditions" if t < 25 else "dry and warm conditions"
+                status = "good" if t < 25 else "warm, good grip"
 
-            # Power note (only if significant)
-            power_note = ""
             if da > 4000:
-                power_note = " Thin air today, expect reduced power."
+                status += ", thin air"
             elif da > 3000:
-                power_note = " High altitude, engine will make less power."
+                status += ", high altitude"
 
-            grip_line = f"{grip}, {reason}.{power_note}"
+            grip_line = f"Conditions {status}."
             time.sleep(2)
             self._queue_lines([grip_line])
 
