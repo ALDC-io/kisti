@@ -112,7 +112,11 @@ CREATE TABLE IF NOT EXISTS telemetry (
     imu_accel_y DOUBLE,
     imu_accel_z DOUBLE,
     imu_gyro_x DOUBLE,
-    imu_gyro_y DOUBLE
+    imu_gyro_y DOUBLE,
+    imu_gyro_z DOUBLE,
+    lap_number INTEGER,
+    sector_index INTEGER,
+    lap_distance_m DOUBLE
 );
 
 CREATE TABLE IF NOT EXISTS ambient_conditions (
@@ -171,6 +175,50 @@ CREATE TABLE IF NOT EXISTS voice_latency (
     total_ms INTEGER,
     source TEXT,
     query_text TEXT
+);
+
+-- Race analysis: track definitions
+CREATE TABLE IF NOT EXISTS tracks (
+    track_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    center_lat DOUBLE,
+    center_lon DOUBLE,
+    radius_m DOUBLE DEFAULT 2000.0,
+    track_type TEXT DEFAULT 'circuit',
+    start_lat1 DOUBLE,
+    start_lon1 DOUBLE,
+    start_lat2 DOUBLE,
+    start_lon2 DOUBLE,
+    country TEXT,
+    region TEXT,
+    length_m DOUBLE,
+    source TEXT DEFAULT 'manual',
+    created_at TIMESTAMP
+);
+
+-- Race analysis: sector boundaries per track
+CREATE TABLE IF NOT EXISTS track_sectors (
+    sector_id TEXT PRIMARY KEY,
+    track_id TEXT,
+    sector_index INTEGER,
+    line_lat1 DOUBLE,
+    line_lon1 DOUBLE,
+    line_lat2 DOUBLE,
+    line_lon2 DOUBLE,
+    name TEXT
+);
+
+-- Race analysis: lap timing records
+CREATE TABLE IF NOT EXISTS lap_times (
+    lap_id TEXT PRIMARY KEY,
+    session_id TEXT,
+    track_id TEXT,
+    lap_number INTEGER,
+    lap_time_s DOUBLE,
+    sector_times JSON,
+    delta_vs_best DOUBLE,
+    theoretical_best_s DOUBLE,
+    timestamp TIMESTAMP
 );
 """
 
@@ -276,7 +324,7 @@ class DuckDBStore:
 
         self._conn.execute(
             "INSERT INTO telemetry VALUES ("
-            + ", ".join(["?"] * 38) + ")",
+            + ", ".join(["?"] * 42) + ")",
             [
                 _now(), session_id,
                 state.rpm, state.speed_kph, state.gear, state.throttle_pct,
@@ -292,7 +340,10 @@ class DuckDBStore:
                 state.gps_altitude_m, state.gps_speed_mps,
                 state.gps_heading, state.gps_satellites,
                 state.imu_accel_x, state.imu_accel_y, state.imu_accel_z,
-                state.imu_gyro_x, state.imu_gyro_y,
+                state.imu_gyro_x, state.imu_gyro_y, state.imu_gyro_z,
+                getattr(state, 'lap_number', None),
+                getattr(state, 'current_sector', None),
+                getattr(state, 'lap_distance_m', None),
             ],
         )
 
@@ -433,7 +484,7 @@ class DuckDBStore:
         output_dir.mkdir(parents=True, exist_ok=True)
         files = []
 
-        for table in ["telemetry", "thermal_state", "events", "alerts"]:
+        for table in ["telemetry", "thermal_state", "events", "alerts", "lap_times"]:
             # Check if there's data to export
             count = self._conn.execute(
                 f"SELECT COUNT(*) FROM {table} WHERE session_id = ?", [session_id]
@@ -555,7 +606,7 @@ class DuckDBStore:
         stats = {}
         for table in ["sessions", "telemetry", "thermal_state", "events", "alerts",
                        "segments", "summaries", "ambient_conditions", "service_events",
-                       "voice_latency"]:
+                       "voice_latency", "tracks", "lap_times"]:
             count = self._conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
             stats[table] = count
 
@@ -635,6 +686,70 @@ class DuckDBStore:
             }
             for r in rows
         ]
+
+    # -------------------------------------------------------------------
+    # Lap timing
+    # -------------------------------------------------------------------
+
+    def record_lap_time(
+        self,
+        session_id: str,
+        track_id: str,
+        lap_number: int,
+        lap_time_s: float,
+        sector_times: Optional[list[float]] = None,
+        delta_vs_best: Optional[float] = None,
+        theoretical_best_s: Optional[float] = None,
+    ) -> str:
+        """Record a completed lap time with optional sector splits."""
+        import json
+        lap_id = _new_id()
+        self._conn.execute(
+            "INSERT INTO lap_times VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                lap_id, session_id, track_id, lap_number, lap_time_s,
+                json.dumps(sector_times) if sector_times else None,
+                delta_vs_best, theoretical_best_s, _now(),
+            ],
+        )
+        log.info(
+            "Lap %d recorded: %.3fs (delta: %s)",
+            lap_number, lap_time_s,
+            f"{delta_vs_best:+.3f}s" if delta_vs_best is not None else "N/A",
+        )
+        return lap_id
+
+    def get_session_laps(self, session_id: str) -> list[dict]:
+        """Get all lap times for a session, ordered by lap number."""
+        import json
+        rows = self._conn.execute(
+            "SELECT * FROM lap_times WHERE session_id = ? ORDER BY lap_number",
+            [session_id],
+        ).fetchall()
+        cols = [d[0] for d in self._conn.description]
+        laps = []
+        for row in rows:
+            lap = dict(zip(cols, row))
+            if lap.get("sector_times") and isinstance(lap["sector_times"], str):
+                lap["sector_times"] = json.loads(lap["sector_times"])
+            laps.append(lap)
+        return laps
+
+    def get_track_best_laps(self, track_id: str, limit: int = 10) -> list[dict]:
+        """Get best lap times for a track across all sessions."""
+        import json
+        rows = self._conn.execute(
+            "SELECT * FROM lap_times WHERE track_id = ? ORDER BY lap_time_s ASC LIMIT ?",
+            [track_id, limit],
+        ).fetchall()
+        cols = [d[0] for d in self._conn.description]
+        laps = []
+        for row in rows:
+            lap = dict(zip(cols, row))
+            if lap.get("sector_times") and isinstance(lap["sector_times"], str):
+                lap["sector_times"] = json.loads(lap["sector_times"])
+            laps.append(lap)
+        return laps
 
     def get_service_history_context(self, max_events: int = 5) -> str:
         """Build service history string for LLM context."""

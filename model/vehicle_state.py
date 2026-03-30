@@ -208,6 +208,18 @@ class DiffState:
     lap_count: int = 0
     lap_time_ms: int = 0
 
+    # Race analysis timing (from TimingManager)
+    current_sector: int = 0
+    sector_count: int = 0
+    current_lap_time_ms: int = 0
+    last_sector_time_ms: int = 0
+    delta_ms: int = 0                     # +ve = slower than reference
+    predicted_lap_ms: int = 0
+    theoretical_best_ms: int = 0
+    track_name: str = ""
+    timing_mode: str = ""                 # 'circuit' | 'point_to_point' | ''
+    lap_distance_m: float = 0.0
+
     # Ambient weather (Yoctopuce Yocto-Meteo-V2, exterior)
     ambient_temp_c: float = 0.0           # °C
     ambient_humidity_pct: float = 0.0     # %RH
@@ -565,6 +577,35 @@ class DiffStateBridge(QObject):
             self._state.density_altitude_ft = density_altitude_ft
             self._state.dew_point_c = dew_point_c
             self._state.ambient_available = True
+
+    def update_timing(
+        self,
+        lap_count: int = 0,
+        current_sector: int = 0,
+        sector_count: int = 0,
+        current_lap_time_ms: int = 0,
+        last_sector_time_ms: int = 0,
+        delta_ms: int = 0,
+        predicted_lap_ms: int = 0,
+        theoretical_best_ms: int = 0,
+        track_name: str = "",
+        timing_mode: str = "",
+        lap_distance_m: float = 0.0,
+    ) -> None:
+        """Called from TimingManager with race analysis timing data."""
+        with self._lock:
+            self._state.lap_count = lap_count
+            self._state.current_sector = current_sector
+            self._state.sector_count = sector_count
+            self._state.current_lap_time_ms = current_lap_time_ms
+            self._state.last_sector_time_ms = last_sector_time_ms
+            self._state.delta_ms = delta_ms
+            self._state.predicted_lap_ms = predicted_lap_ms
+            self._state.theoretical_best_ms = theoretical_best_ms
+            self._state.track_name = track_name
+            self._state.timing_mode = timing_mode
+            self._state.lap_distance_m = lap_distance_m
+        self.state_changed.emit()
 
     def set_disconnected(self) -> None:
         """Mark CAN bus as disconnected."""
