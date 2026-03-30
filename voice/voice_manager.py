@@ -365,6 +365,11 @@ class VoiceManager(QObject):
         # Transcribe on a worker thread to avoid blocking Qt
         # Only one STT call at a time — drop captures that arrive while busy
         def _process():
+            # Expire conversation window passthrough
+            in_conversation = (time.monotonic() - self._last_interaction) < self._listen_window_s
+            if not in_conversation and self._mic and self._mic._passthrough:
+                self._mic.set_passthrough(False)
+
             if not self._stt_lock.acquire(blocking=False):
                 log.debug("STT busy — dropping capture")
                 return
@@ -396,6 +401,9 @@ class VoiceManager(QObject):
 
             if has_wake_word or in_conversation or self._state == VoiceState.LISTENING:
                 self._last_interaction = time.monotonic()
+                # Enable mic passthrough during conversation window
+                if self._mic:
+                    self._mic.set_passthrough(True)
                 # Strip wake word prefix from the query
                 query = text
                 if has_wake_word:

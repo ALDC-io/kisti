@@ -4,6 +4,9 @@ Continuous audio capture from USB microphone via PulseAudio (parecord).
 Uses Silero VAD for high-accuracy speech boundary detection — dramatically
 reduces Whisper hallucinations by tightly clipping speech segments.
 
+Optional openwakeword CPU pre-filter: when enabled, only utterances
+containing the wake word trigger STT — cutting ~90% of unnecessary GPU calls.
+
 When speech is detected, the complete utterance is emitted as raw PCM for
 Whisper transcription.
 """
@@ -38,6 +41,10 @@ MIN_UTTERANCE_S = 0.3     # Ignore very short bursts (clicks, bumps)
 # Pre-roll: keep N frames before speech detection fires
 PRE_ROLL_FRAMES = 5       # ~160ms lookback
 
+# openwakeword settings
+OWW_CHUNK_SAMPLES = 1280  # 80ms at 16kHz (openwakeword requirement)
+OWW_THRESHOLD = 0.5       # Wake word confidence threshold (0-1)
+
 # Legacy constants for test compatibility
 VAD_MODE = 3
 
@@ -69,7 +76,10 @@ class MicCapture(QObject):
         self._paused = False  # Pause during TTS playback to avoid echo
         self._thread: Optional[threading.Thread] = None
         self._vad = None
+        self._oww = None      # openwakeword model (CPU pre-filter)
         self._available = False
+        self._last_wake_detected = False  # Set True when wake word detected in last utterance
+        self._passthrough = False  # When True, skip wake word gate (conversation window)
 
     def start(self) -> None:
         """Start capture thread. Safe to call even without a mic."""
@@ -91,6 +101,16 @@ class MicCapture(QObject):
             except ImportError:
                 log.warning("No VAD available — mic capture disabled")
                 return
+
+        # Initialize openwakeword (CPU pre-filter — optional)
+        try:
+            from openwakeword.model import Model as OWWModel
+            self._oww = OWWModel(wakeword_models=["hey_jarvis_v0.1"])
+            log.info("openwakeword loaded (hey_jarvis, CPU)")
+        except ImportError:
+            log.info("openwakeword not available — all speech goes to STT")
+        except Exception as exc:
+            log.warning("openwakeword failed to load: %s", exc)
 
         # Resolve ALSA device names to PulseAudio source names
         # (PA holds all ALSA devices, so arecord can't access them directly)
@@ -205,6 +225,8 @@ class MicCapture(QObject):
         in_speech = False
         speech_start_time = 0.0
         use_silero = self._vad_type == "silero"
+        oww_buffer = b""       # Accumulate frames for openwakeword (needs 1280 samples)
+        wake_detected = False  # Wake word detected in current utterance
 
         while self._running and proc.poll() is None:
             frame = proc.stdout.read(FRAME_BYTES)
@@ -215,11 +237,27 @@ class MicCapture(QObject):
                 voiced_count = 0
                 silent_count = 0
                 in_speech = False
+                wake_detected = False
                 speech_buffer.clear()
                 pre_roll.clear()
+                oww_buffer = b""
                 if use_silero:
                     self._vad.reset_states()
                 continue
+
+            # Feed openwakeword (accumulate to 1280-sample chunks)
+            if self._oww is not None:
+                oww_buffer += frame
+                while len(oww_buffer) >= OWW_CHUNK_SAMPLES * 2:
+                    chunk = oww_buffer[:OWW_CHUNK_SAMPLES * 2]
+                    oww_buffer = oww_buffer[OWW_CHUNK_SAMPLES * 2:]
+                    oww_audio = np.frombuffer(chunk, dtype=np.int16)
+                    preds = self._oww.predict(oww_audio)
+                    for model_name, score in preds.items():
+                        if score > OWW_THRESHOLD:
+                            if not wake_detected:
+                                log.info("Wake word detected: %s (%.2f)", model_name, score)
+                            wake_detected = True
 
             # Detect speech
             if use_silero:
@@ -268,15 +306,33 @@ class MicCapture(QObject):
                     duration = len(speech_buffer) * FRAME_DURATION_MS / 1000.0
                     if duration >= MIN_UTTERANCE_S:
                         pcm = b"".join(speech_buffer)
-                        log.info("Speech captured: %.1fs (%d bytes)", duration, len(pcm))
-                        self.speech_captured.emit(pcm)
+                        self._last_wake_detected = wake_detected
+                        if self._oww is not None and not wake_detected and not self._passthrough:
+                            log.debug("No wake word — skipping STT (%.1fs)", duration)
+                        else:
+                            log.info("Speech captured: %.1fs (%d bytes, wake=%s)",
+                                     duration, len(pcm), wake_detected)
+                            self.speech_captured.emit(pcm)
                     else:
                         log.debug("Discarding short utterance: %.1fs", duration)
 
                     speech_buffer.clear()
+                    wake_detected = False
+                    oww_buffer = b""
+                    if self._oww is not None:
+                        self._oww.reset()
                     if use_silero:
                         self._vad.reset_states()
                     self.listening_stopped.emit()
+
+    def set_passthrough(self, enabled: bool) -> None:
+        """Enable/disable wake word bypass (for conversation window)."""
+        self._passthrough = enabled
+
+    @property
+    def wake_detected(self) -> bool:
+        """True if wake word was detected in the last captured utterance."""
+        return self._last_wake_detected
 
     @property
     def is_available(self) -> bool:
