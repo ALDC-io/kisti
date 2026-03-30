@@ -874,10 +874,10 @@ class VoiceManager(QObject):
         play_proc = None
         wav_path = None
         if not self._interrupted:
-            play_proc, wav_path = self._start_audio(result.audio_pcm, result.sample_rate)
-            # Send envelope to UI waveform (the sole visual path for query responses —
-            # response_ready is intentionally NOT emitted here to avoid mic race conditions)
+            # Send envelope to UI waveform BEFORE starting audio so Qt signal
+            # queuing overlaps with paplay startup (reduces perceived viz delay)
             self.waveform_envelope.emit(result.amplitude_envelope)
+            play_proc, wav_path = self._start_audio(result.audio_pcm, result.sample_rate)
 
         # Drive LEDs synchronized with audio playback
         if self._si_drive_mode == SIDriveMode.INTELLIGENT:
