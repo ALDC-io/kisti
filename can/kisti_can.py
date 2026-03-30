@@ -807,6 +807,51 @@ class CanOutputThread(threading.Thread):
 # Mock Data Generator (runs on Qt main thread via QTimer)
 # ---------------------------------------------------------------------------
 
+# Simplified Laguna Seca circuit waypoints (clockwise direction).
+# Designed to cross the seed S/F line and all 3 sector lines in order.
+# S/F:  (36.58432, -121.75560) → (36.58406, -121.75525)
+# Sec1: (36.58680, -121.75710) → (36.58650, -121.75680)
+# Sec2: (36.58220, -121.74960) → (36.58195, -121.74925)
+# Sec3: (36.58510, -121.75370) → (36.58480, -121.75345)
+_LAGUNA_SECA_WAYPOINTS: list[tuple[float, float]] = [
+    (36.58450, -121.75490),  # 0: Past S/F, heading NE
+    (36.58550, -121.75580),  # 1: T1-T2, heading NW
+    (36.58620, -121.75680),  # 2: Before Sector 1 (S of line)
+    (36.58720, -121.75720),  # 3: Past Sector 1 (N of line)
+    (36.58700, -121.75500),  # 4: T5-T6, heading E
+    (36.58550, -121.75100),  # 5: Back straight, heading SE
+    (36.58270, -121.74910),  # 6: Before Sector 2 (NE of line)
+    (36.58170, -121.74970),  # 7: Past Sector 2 (SW of line)
+    (36.58200, -121.75100),  # 8: Rainey Curve, heading W
+    (36.58350, -121.75200),  # 9: Heading NW
+    (36.58540, -121.75340),  # 10: Before Sector 3 (NE of line)
+    (36.58450, -121.75380),  # 11: Past Sector 3 (SW of line)
+    (36.58390, -121.75590),  # 12: Final approach to S/F
+]
+
+# Precompute segment distances and cumulative distance for interpolation
+def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    R = 6_371_000.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = (math.sin(dlat / 2) ** 2
+         + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2))
+         * math.sin(dlon / 2) ** 2)
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+_CIRCUIT_SEG_DIST: list[float] = []
+_CIRCUIT_CUM_DIST: list[float] = [0.0]
+for _i in range(len(_LAGUNA_SECA_WAYPOINTS)):
+    _j = (_i + 1) % len(_LAGUNA_SECA_WAYPOINTS)
+    _d = _haversine_m(
+        _LAGUNA_SECA_WAYPOINTS[_i][0], _LAGUNA_SECA_WAYPOINTS[_i][1],
+        _LAGUNA_SECA_WAYPOINTS[_j][0], _LAGUNA_SECA_WAYPOINTS[_j][1],
+    )
+    _CIRCUIT_SEG_DIST.append(_d)
+    _CIRCUIT_CUM_DIST.append(_CIRCUIT_CUM_DIST[-1] + _d)
+_CIRCUIT_TOTAL_M: float = _CIRCUIT_CUM_DIST[-1]
+
+
 class MockCanGenerator(QObject):
     """Generates plausible telemetry when no CAN bus.
 
@@ -847,13 +892,13 @@ class MockCanGenerator(QObject):
         self._inj_duty = 30.0
         self._oil_psi = 55.0
 
-        # GPS09 Pro — simulated Laguna Seca circuit
-        self._gps_lat = 36.5842     # Laguna Seca start/finish
-        self._gps_lon = -121.7528
+        # GPS09 Pro — simulated Laguna Seca circuit (waypoint interpolation)
+        self._gps_lat = _LAGUNA_SECA_WAYPOINTS[0][0]
+        self._gps_lon = _LAGUNA_SECA_WAYPOINTS[0][1]
         self._gps_alt = 321.0       # meters
         self._gps_heading = 135.0   # SE
         self._gps_speed_mps = 0.0
-        self._gps_angle = 0.0       # circuit progress (radians)
+        self._gps_progress = 0.0    # meters along circuit loop
 
         # IMU state
         self._imu_ax = 0.0
@@ -1175,33 +1220,47 @@ class MockCanGenerator(QObject):
         )
 
     def _gps_tick(self) -> None:
-        """Mock GPS — simulate laps around Laguna Seca oval approximation."""
+        """Mock GPS — simulate laps around Laguna Seca waypoint circuit.
+
+        Advances along :data:`_LAGUNA_SECA_WAYPOINTS` by vehicle speed,
+        crossing the seed start/finish line and all 3 sector lines each lap.
+        """
         dt = 1.0 / MOCK_GPS_HZ
 
         # Speed follows vehicle speed (convert km/h to m/s)
         self._gps_speed_mps = self._speed / 3.6
 
-        # Advance around a ~3.6 km circuit at current speed
-        # Circuit modeled as an oval, radius ~573m (circumference ~3600m)
-        circuit_radius = 573.0
+        # Advance distance along circuit loop
         if self._gps_speed_mps > 0.1:
-            angular_speed = self._gps_speed_mps / circuit_radius
-            self._gps_angle += angular_speed * dt
-            if self._gps_angle > 2 * math.pi:
-                self._gps_angle -= 2 * math.pi
+            self._gps_progress += self._gps_speed_mps * dt
+            if self._gps_progress >= _CIRCUIT_TOTAL_M:
+                self._gps_progress -= _CIRCUIT_TOTAL_M
 
-        # Oval track position relative to Laguna Seca center
-        lat_radius = 0.0028   # ~310m in latitude degrees
-        lon_radius = 0.0035   # ~310m in longitude degrees (cos(36.5°) adjusted)
-        self._gps_lat = 36.5842 + lat_radius * math.sin(self._gps_angle)
-        self._gps_lon = -121.7528 + lon_radius * math.cos(self._gps_angle)
+        # Interpolate position along waypoint chain
+        n = len(_LAGUNA_SECA_WAYPOINTS)
+        for seg_idx in range(n):
+            if self._gps_progress < _CIRCUIT_CUM_DIST[seg_idx + 1]:
+                seg_len = _CIRCUIT_SEG_DIST[seg_idx]
+                frac = (
+                    (self._gps_progress - _CIRCUIT_CUM_DIST[seg_idx]) / seg_len
+                    if seg_len > 0 else 0.0
+                )
+                j = (seg_idx + 1) % n
+                lat1, lon1 = _LAGUNA_SECA_WAYPOINTS[seg_idx]
+                lat2, lon2 = _LAGUNA_SECA_WAYPOINTS[j]
+                self._gps_lat = lat1 + frac * (lat2 - lat1)
+                self._gps_lon = lon1 + frac * (lon2 - lon1)
 
-        # Heading follows tangent of oval
-        self._prev_heading = self._gps_heading
-        self._gps_heading = (math.degrees(self._gps_angle) + 90.0) % 360.0
+                # Heading from segment direction (true north bearing)
+                dlat = lat2 - lat1
+                dlon = (lon2 - lon1) * math.cos(math.radians(lat1))
+                self._prev_heading = self._gps_heading
+                self._gps_heading = math.degrees(math.atan2(dlon, dlat)) % 360.0
+                break
 
-        # Altitude varies slightly around track
-        self._gps_alt = 321.0 + 15.0 * math.sin(self._gps_angle * 2)
+        # Altitude varies with position (Laguna Seca has ~30m elevation change)
+        progress_frac = self._gps_progress / _CIRCUIT_TOTAL_M
+        self._gps_alt = 321.0 + 30.0 * math.sin(progress_frac * 2 * math.pi)
 
         self._bridge.update_gps(
             latitude=self._gps_lat,

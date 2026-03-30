@@ -341,7 +341,7 @@ class DuckDBStore:
                 state.gps_heading, state.gps_satellites,
                 state.imu_accel_x, state.imu_accel_y, state.imu_accel_z,
                 state.imu_gyro_x, state.imu_gyro_y, state.imu_gyro_z,
-                getattr(state, 'lap_number', None),
+                getattr(state, 'lap_count', None),
                 getattr(state, 'current_sector', None),
                 getattr(state, 'lap_distance_m', None),
             ],
