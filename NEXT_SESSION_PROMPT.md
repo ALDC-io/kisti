@@ -1,9 +1,9 @@
 Continue KiSTI voice pipeline UAT. Repo: /home/aldc/repos/kisti/. Jetson at
 192.168.22.131 (SSH user aldc, sudo password: aldc1234).
 
-## What was done this session (kisti-05, commits aaf8272 → current)
+## What was done (kisti-05 + kisti-06, commits aaf8272 → af09adf)
 
-### parecord pipe blocker — FIXED
+### parecord pipe blocker — FIXED + CLEANED UP
 The mic capture pipeline is fully working. Three-part fix:
 
 1. **os.pipe2() instead of subprocess.PIPE** — raw fd I/O bypasses Python's
@@ -14,6 +14,12 @@ The mic capture pipeline is fully working. Three-part fix:
 3. **3x software gain** — USB mic (KTMicro) has NO ALSA capture control. PA is
    sole amplifier. At PA 300%, speech RMS ~1000 (Silero needs ~2000+). 3x
    software multiply in read_fn brings it to detection range.
+
+### Cleanup completed (kisti-06, commit af09adf)
+- Removed unused `struct` import
+- Removed diagnostic logs: "VAD loop starting", "First frame received", `_frame_n` counter
+- Removed dead `_find_sd_device()` method (never called in production)
+- Removed `TestSounddeviceBackend` class (5 dead tests for removed code)
 
 ### What was tried and failed
 - **sounddevice.InputStream** — captures audio fine, but PortAudio's ARM
@@ -29,8 +35,8 @@ The mic capture pipeline is fully working. Three-part fix:
 - Full pipeline: mic → VAD → OWW → STT → persona → TTS → speaker
 
 ### Test baseline
-- 366/366 on dev machine (361 original + 5 new sounddevice tests)
-- 363/366 on Jetson (same 3 pre-existing env-specific failures)
+- 361/361 on dev machine (366 original, 5 dead sounddevice tests removed)
+- Expect 358/361 on Jetson (same 3 pre-existing env-specific failures)
 
 ## Prioritized TODO for next session
 
@@ -39,34 +45,32 @@ The mic capture pipeline is fully working. Three-part fix:
 - Currently using `hey_jarvis_v0.1` — user wants "Hey KiSTI"
 - Set `KISTI_WAKE_MODEL=/data/models/hey_kisti.onnx` in kisti-session
 - Memory notes misheard variants: need to include in training data
+- Training guide: https://github.com/dscripka/openwakeword (custom model docs)
 
-### 2. Clean up diagnostic logging (QUICK)
-- Remove "VAD loop starting" and "First frame received" logs from mic_capture.py
-- Remove `_frame_n` counter variable
-- Update/remove sounddevice-related tests (TestSounddeviceBackend) — the
-  _find_sd_device and sounddevice path are dead code now
-
-### 3. Start Ollama for real LLM responses (MEDIUM)
+### 2. Start Ollama for real LLM responses (MEDIUM)
 - Currently persona-first mode (Ollama stopped for GPU headroom)
 - KiSTI says "I'm listening" instead of answering questions
-- `sudo systemctl start ollama` on Jetson, or modify kisti-session
+- `sudo systemctl start ollama` on Jetson, or modify kisti-session line 63
+- Test: ask "How is the oil pressure?" — should get actual LLM response
 
-### 4. Echo/barge-in tuning (MEDIUM)
+### 3. Echo/barge-in tuning (MEDIUM)
 - 3x software gain makes OWW trigger on KiSTI's own speaker output
-- May need to increase OWW_THRESHOLD_BARGE_IN above 0.85
-- Or increase echo guard from 0.3s
+- User reported "i'm listening i'm listening" loop — self-triggering
+- May need to increase OWW_THRESHOLD_BARGE_IN above 0.85 (voice/mic_capture.py:50)
+- Or increase echo guard duration beyond 0.3s
+- Or mute mic during TTS entirely (current: mic paused during TTS)
 
-### 5. Remove dead sounddevice code (LOW)
-- `_find_sd_device()` method is unused now
-- sounddevice import in mic_capture only needed for fallback tests
-- `PA_NATIVE_RATE` and `DECIMATE_FACTOR` constants unused
+### 4. Rename misleading method names (LOW)
+- `_run_sounddevice()` → `_run_parecord_pipe()` (it uses parecord, not sounddevice)
+- `_run_arecord()` → `_dispatch_capture()` (dispatcher, not arecord)
+- Update docstrings to match
 
 ## Key files
-- voice/mic_capture.py:224-280 — `_run_sounddevice()` (os.pipe + parecord, despite name)
-- voice/mic_capture.py:329+ — `_vad_process()` with generic read_fn/alive_fn
+- voice/mic_capture.py:226-286 — `_run_sounddevice()` (os.pipe + parecord, despite name)
+- voice/mic_capture.py:312+ — `_vad_process()` with generic read_fn/alive_fn
 - voice/voice_manager.py — PipelineTrace, _compose_and_speak, barge-in
 - scripts/kisti-session:83-87 — PA mic gain (300%)
-- tests/test_voice.py:1005+ — TestSounddeviceBackend (needs cleanup)
+- tests/test_voice.py — 361 tests, all passing
 
 ## Deploy command
 ssh aldc@192.168.22.131 "cd ~/repos/kisti && git pull --ff-only && echo aldc1234 | sudo -S cp scripts/kisti-session /usr/local/bin/kisti-session 2>/dev/null && echo aldc1234 | sudo -S systemctl restart gdm 2>/dev/null && echo DEPLOYED"
