@@ -258,6 +258,7 @@ class MicCapture(QObject):
             record_cmd,
             stdout=write_fd,
             stderr=subprocess.DEVNULL,
+            start_new_session=True,  # Isolate from KiSTI's Qt/PA session
         )
         _os.close(write_fd)  # Parent doesn't write — close our copy
 
@@ -344,8 +345,13 @@ class MicCapture(QObject):
         oww_buffer = b""       # Accumulate frames for openwakeword (needs 1280 samples)
         wake_detected = False  # Wake word detected in current utterance
 
+        log.info("VAD loop starting — waiting for first audio frame...")
+        _frame_n = 0
         while self._running and alive_fn():
             frame = read_fn(FRAME_BYTES)
+            _frame_n += 1
+            if _frame_n == 1:
+                log.info("First frame received (%d bytes)", len(frame))
             if len(frame) < FRAME_BYTES:
                 break
 
