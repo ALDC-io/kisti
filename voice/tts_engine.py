@@ -42,6 +42,7 @@ TTS_SUBSTITUTIONS: dict[str, str] = {
     " STI": " S T I",
     "ECU": "E C U",
     "IAG": "I A G",
+    "AWD": "all wheel drive",
     "FMIC": "front mount intercooler",
     "TGV": "T G V",
     "ID1300": "I D thirteen hundred",
