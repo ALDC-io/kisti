@@ -1,156 +1,104 @@
-# KiSTI — Next Session Prompt (kisti-11)
+# KiSTI — Next Session Prompt (kisti-12)
 
 **Working dir**: `/home/aldc/repos/kisti/`
-**Jetson**: `192.168.22.131` (user `aldc`, pw `aldc1234`). SSH: `ssh aldc@192.168.22.131`
+**Jetson**: `192.168.22.131` (user `aldc`). SSH: `ssh aldc@192.168.22.131`
 **Live URL**: N/A (embedded Qt on Jetson)
-**Test baseline**: 625 tests passing
-**Team session**: `kisti-speaks` (session_id: `71182e9b-8794-458f-b9d6-01a301c9ff58`)
+**Test baseline**: 687 tests passing
+**Team session**: `kisti-speaks` (session_id: `28ee8c4a-5260-4a09-8224-b57c7dd882fb`)
+**Deploy path**: `/home/aldc/repos/kisti/` on Jetson (NOT `/home/aldc/kisti/`)
 
 ## Join the CCE Team Session
 
 ```
-cce-team join project kisti-speaks as kisti-11
+cce-team join project kisti-speaks as kisti-12
 ```
 
-TUI panel running on pts/7.
+You are the **conductor** for this session.
 
-## Section 1: What RS-03 Did (Phases 5-8, Race Analysis)
+## Section 1: What kisti-11 Did
 
-### Phase 5: Voice Timing Integration (49 tests)
-- `_answer_from_timing()` at `voice/voice_manager.py:998` — keyword dispatch: delta, theoretical best, lap time, predicted, sectors, track name, lap count, best lap, pace
-- `_handle_timing_command()` at `voice/voice_manager.py:933` — voice commands: P2P mode, set start/end, circuit mode, reference lap N
-- Mode-aware lap announcements in `main.py:343-375` — I=full, S=lap+delta, S#=PBs only
-- Mode-aware pit debrief at `main.py:436-463` — session end summary by SI Drive mode
-- LLM timing context at `voice/voice_manager.py:1098-1109`
+### Persona Narrative Expansion (29 new responses)
+- TIER 1 tech: DCCD education (2), turbo operation (4), oil/coolant service (3), fuel economy (3)
+- TIER 1 safety: knock detection, fuel quality warning, oil temperature
+- TIER 2: braking technique, cornering, g-force, weight transfer, overheat emergency, blowout emergency
+- TIER 3 (fun): clutch, flywheel, AiM Strada, brake fluid, Grimmspeed, suspension, swaybars, PDM
+- Oil pressure keywords tightened (`["oil pressure", "oil psi"]` not bare `"oil"`)
+- Total persona responses: ~86 (up from 57)
 
-### Phase 6: UI + Data Sync (15 tests)
-- `ui/widgets/timing_display.py` — TimingDisplayWidget (QPainter, 3 SI Drive layouts)
-- Wired into `ui/track_mode.py`, bridge at 4Hz in `main.py:499-513`
-- Zeus Memory push in `main.py:407-448` (background thread on session end)
-- `offset_line()` in `timing/geo.py:149-161` for P2P voice commands
+### ECU Sensor Voice Handlers (20+ queries)
+- `_answer_from_sensors()` expanded: oil temp/pressure, coolant, IAT, boost, battery, fuel pressure, injector duty, lambda/AFR, ethanol, RPM, speed, wheel speeds, brake pressure, steering angle, lateral G, yaw rate, DCCD percent, gear
+- ECU block gated on `s.can_connected` — returns live CAN data when Link G5 is online
+- Ambient block gated independently on `s.ambient_available`
+- Component temp guard at TOP of method prevents "oil temperature" from hitting ambient handler
 
-### Phase 7: Jetson Validation — ALL PASS
-- 611/614 on ARM64 (3 pre-existing STT failures: GPU device discovery + SciPy)
-- Timing display renders all 3 modes on ARM64 offscreen
-- 8/8 voice timing queries pass E2E on Jetson
+### Temperature Routing Fix
+- Guard at `voice_manager.py:1132-1139`: checks for component qualifiers ("engine", "oil", "coolant", "tire", etc.) BEFORE ambient block
+- Without CAN: falls to persona. With CAN: falls to ECU handler
+- Tested: "oil temperature" → persona match, "temperature" → ambient
 
-### Phase 8: Polish & Edge Cases (11 tests)
-- GPS jump filter (>500m) in `timing/timing_manager.py`
-- Mode-aware sector announcements
-- New voice queries: "what lap?", "best lap?", "how's my pace?"
+### Echo Loop Mitigation
+- Echo guard: 0.4s → 0.8s (`voice_manager.py:897`)
+- Word overlap threshold: 40% → 30% (`voice_manager.py:783`)
+- Self-trigger suppression: known KiSTI phrases ("I'm listening", "loud and clear", etc.) within 5s of last speech auto-suppressed (`voice_manager.py:787-793`)
+- Software gain stays at 3x (2x caused Whisper to drop quieter words like "oil")
 
-## Section 2: What kisti-10 Did (Phase 9, Voice Pipeline Fixes)
+### Other
+- Sensor onboarding doc: `docs/sensor_onboarding.md`
+- TUI progress bar per-session colors in `zeus-memory/scripts/cce-team-panel.py`
 
-### CRITICAL FIX: Passthrough Bug (`voice_manager.py:738-741`)
-- Conversation window timeout was killing text-wake-word mode after first utterance
-- `_last_interaction = 0.0` → `in_conversation = False` → `set_passthrough(False)` on first speech
-- **Fix**: Removed conversation window passthrough expiry. Text-wake-word mode stays permanent.
+## Section 2: Prioritized TODO for kisti-12
 
-### OWW Fallback Wake Detection (`voice_manager.py:775-777`)
-- OWW detects "Hey Jarvis" but Whisper drops it from transcription (e.g., "Can you hear me?" instead of "Hey Jarvis, can you hear me?")
-- **Fix**: `self._mic._last_wake_detected` used as fallback when text has no wake word
+### 1. Soak Test Echo Loop (HIGH — validate on Jetson)
+- [ ] Leave KiSTI running with mic active for 10+ minutes of conversation
+- [ ] Confirm no self-triggering "I'm listening" loops with 0.8s guard + 3x gain
+- [ ] If loops recur: extend guard to 1.0s or add RMS-based suppression post-guard
+- [ ] Check unanswered query log in edge memory for new patterns
 
-### Ambient Sensor → Voice Pipeline Gap (`main.py:247-258`)
-- `voice_mgr.set_telemetry()` was only called from CAN frame callback (line 490). No CAN = no ambient data in voice manager
-- Temperature/weather queries fell to 30s Ollama fallback
-- **Fix**: `ambient_source.reading_updated` now feeds voice_mgr every ~5s
+### 2. Check Edge Memory for Real-World Gaps (HIGH)
+- [ ] Query edge DuckDB: `SELECT * FROM memories WHERE tags LIKE '%unanswered%' ORDER BY created_at DESC`
+- [ ] Identify top unanswered queries that should be persona responses
+- [ ] Add missing responses to `PERSONA_RESPONSES` in `voice/llm_engine.py`
 
-### Additional Fixes
-- **Mic pre-roll** 5→10 frames (160ms→320ms) — captures wake word onset (`mic_capture.py:43`)
-- **Persona tuning** — speed/emergency/launch responses rewritten for 2-sentence TTS cap (`llm_engine.py:143-150`)
-- **AWD TTS** — "AWD" → "all wheel drive" in `tts_engine.py:45`
-- **Millibars** — barometric pressure spoken as "millibars" not "hectopascals"
-- **Driving conditions** — "good day for driving?" answers from live ambient (`voice_manager.py:1138-1145`)
-- **Unanswered query logging** — fallback queries stored to edge memory with tags [unanswered, voice, improvement] (`voice_manager.py:700-710`)
-- **"dc" added to WAKE_WORDS** — Whisper transcribes "KiSTI" as "DC"
+### 3. Whisper Transcription Quality (MEDIUM)
+- Whisper mangles wake word: "Jarvis House of Oil Temperature", "Jarvis has the tire temperature"
+- OWW fallback catches it but noise could affect keyword matching
+- Consider: strip known wake-word-adjacent garbage before keyword matching
 
-## Section 3: Merge Review Status
+### 4. Coolant Temperature Persona (MEDIUM)
+- [ ] Currently no dedicated coolant temp persona response
+- [ ] Add: `["coolant temp", "coolant temperature", "water temp"]` → "Normal range 85 to 95 degrees. Above 100 is warm, above 105 back off immediately."
 
-**All file conflicts are RESOLVED.** The CCE team hook warnings are stale — all changes are committed linearly on main with no actual git conflicts.
-
-```
-$ git status
-On branch main, up to date with origin/main, working tree clean
-```
-
-Recent commit trail (newest first):
-```
-6aa51a6 Session handoff: Phases 5-8 complete, 625 tests
-8e144f8 fix: speak barometric pressure in millibars
-c6b572e feat: log unanswered queries + driving conditions
-4a66287 fix: ambient sensor data now reaches voice manager without CAN
-3732024 fix: persona responses fit 2-sentence TTS cap + AWD
-1a5dd8c fix: AWD TTS substitution
-a847390 Race analysis Phase 8: GPS dropout, sector announcements
-84e4e60 merge: rs-02/rs-03 changes
-b02255b Race analysis Phases 5+6: voice timing + UI + Zeus push
-```
-
-## Section 4: Prioritized TODO for kisti-11
-
-### 1. Persona Narrative Expansion (HIGH PRIORITY)
-Full gap audit at `docs/persona_gap_audit.md` — 42 keyword entries needed (~25-30 responses).
-- **57 persona responses** exist (7 safety, 17 tech, 33 fun)
-- **TIER 1 (12 responses)**: DCCD education (2), turbo operation (4), oil/coolant service (3), fuel economy (3), knock/detonation (2)
-- **TIER 2 (6 responses)**: braking/cornering technique (4), overheat/blowout emergency (2)
-- **TIER 3 (8 responses)**: component specs (clutch, flywheel, AiM, brakes, exhaust, suspension, swaybars, PDM)
-- **Pattern**: Apply Zeus Chat prepopulated-narrative approach — expand persona responses so fewer queries fall to slow Ollama fallback
-- Keep all responses to 2 sentences max (TTS latency constraint at `llm_engine.py:323-326`)
-- The unanswered query log in edge memory will show real gaps over time
-
-### 2. Validate Phase 9 Fixes on Jetson (MEDIUM)
-- [ ] Confirm ambient-to-voice fix works on Jetson with real Yoctopuce sensor (tested briefly — "22.8 degrees" confirmed)
-- [ ] Confirm OWW passthrough fix doesn't cause false wakes in extended use
-- [ ] Test driving conditions handler: "Hey Jarvis, good day for driving?"
-- [ ] Run full test suite on Jetson: expect 611+ (3 pre-existing STT failures)
-
-### 3. Self-Triggering Loop (KNOWN BUG)
-- Mic gain (PA 300% + 3x software) amplifies speaker output → Whisper transcribes KiSTI's own speech → "I'm listening" loop
-- Echo guard (0.4s) helps but isn't bulletproof with 3x gain
-- Potential fix: longer echo guard, or reduce software gain now that PA 300% alone gives adequate RMS (raw RMS=529, with 3x=1586, 0% clipping)
-
-### 4. Phase 10: Hardware Integration (BLOCKED)
-- [ ] GPS09 Pro CAN wiring to Jetson (hardware — JK)
+### 5. Phase 10: Hardware Integration (BLOCKED)
+- [ ] GPS09 Pro CAN wiring (hardware — JK)
 - [ ] Real GPS data validation vs AiM Race Studio 3
 - [ ] IMU-assisted track learning
 
-### 5. Future Enhancements
+### 6. Future Enhancements
 - [ ] Custom "Hey KiSTI" wake word (Colab training)
 - [ ] Track map dynamic outline from GPS trace
-- [ ] Status bar track name + timing mode
 - [ ] Session-end eager Nextcloud sync on K1 toggle
+- [ ] Run tests on Jetson ARM64 (expect 684+ with 3 pre-existing STT failures)
 
-## Section 5: Key Files with Line Numbers
+## Section 3: Key Files with Line Numbers
 
 | File | Purpose | Key Lines |
 |------|---------|-----------|
-| `voice/voice_manager.py` | Voice pipeline orchestrator | 738-742 (passthrough fix), 775-777 (OWW fallback), 933-1090 (timing commands/queries), 1098-1109 (telemetry context), 1122-1149 (sensor handler), 700-710 (fallback logging) |
-| `voice/mic_capture.py` | Mic capture + VAD | 43 (PRE_ROLL_FRAMES=10), 87 (passthrough flag), 163 (passthrough=True at start), 285 (3x software gain) |
-| `voice/llm_engine.py` | Persona responses + Ollama LLM | 168-276 (PERSONA_RESPONSES), 278 (FALLBACK_RESPONSE), 323-343 (2-sentence truncation) |
-| `voice/stt_engine.py` | Whisper STT | 27 (base.en model), 28 (whisper.cpp at :8081) |
-| `voice/tts_engine.py` | Piper TTS + substitutions | 31-53 (TTS_SUBSTITUTIONS including AWD) |
-| `voice/audio_player.py` | UI AudioPlayer path | 247-272 (_expand_abbreviations) |
-| `main.py` | Main app wiring | 247-258 (ambient→voice feed), 343-375 (mode-aware announcements), 490 (CAN telemetry feed), 528-540 (echo protection) |
-| `ui/widgets/timing_display.py` | Live timing widget | Full file — 3 SI Drive layouts |
-| `data/build_record.py` | Vehicle specs | BASELINES (alert thresholds), EngineSpec, build_summary() |
-| `data/event_quotes.py` | 47 event categories | Wired in main.py + alerts |
+| `voice/llm_engine.py` | Persona responses | 96-98 (oil pressure), 114-117 (knock/fuel safety), 150-195 (TIER 1 DCCD/turbo/oil/fuel), 196-222 (TIER 2 driving/emergency), 223-260 (TIER 3 components) |
+| `voice/voice_manager.py` | Voice pipeline | 783 (30% overlap), 787-793 (self-trigger guard), 897 (0.8s echo guard), 1132-1139 (component temp guard), 1142-1230 (ECU handlers), 1253-1280 (ambient) |
+| `voice/mic_capture.py` | Mic capture | 284-287 (3x software gain) |
+| `docs/sensor_onboarding.md` | Sensor checklist | Full file |
+| `tests/test_voice.py` | Voice tests | ~1075-1300 (TIER 1-3 + temp routing + ECU sensor tests) |
 
-## Section 6: Test Baseline
+## Section 4: Test Baseline
 
 ```
-625 passed in 38.67s (workstation, 2026-03-30 12:47 PDT)
-611 passed on Jetson ARM64 (3 pre-existing STT failures: GPU device discovery + SciPy version)
+687 passed in 38.7s (workstation, 2026-03-30 13:45 PDT)
+Jetson: not yet tested with kisti-11 changes (expect 684+ with 3 pre-existing STT failures)
 ```
 
-Test breakdown by area (approximate):
-- Original baseline: ~380 (model, CAN, sensors, UI, voice, alerts, memory)
-- Phase 1-4 timing: ~130 (geo, track_db, lap_timer, timing_manager, track_learner)
-- Phase 5-6 voice timing: ~64 (voice_timing, timing_display)
-- Phase 7-8 polish: ~11 (additional queries, GPS dropout)
-- Phase 9 (kisti-10): 0 new tests added (all fixes were runtime behavior)
+## Section 5: Sensor Coverage Summary
 
-## Project Board
-
-Full project with 10 phases, 52 tasks at:
-`/home/aldc/projects/active/2026-03-30-kisti-race-analysis/README.md`
-P1-9: COMPLETE (52/52). P10: blocked on hardware.
+- **93 total data elements** across all sensors
+- **~50 voice-queryable** (ambient 6, ECU 25+, timing 15, persona ~86)
+- **Key gaps**: GPS altitude/heading, IMU accel/gyro (pending GPS09 Pro install)
+- **Onboarding pattern**: `docs/sensor_onboarding.md`
