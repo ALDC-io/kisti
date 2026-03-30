@@ -769,7 +769,7 @@ class VoiceManager(QObject):
             self._play_audio(result.audio_pcm, result.sample_rate)
 
         # Post-playback echo guard (short — OWW handles echo rejection)
-        time.sleep(0.3)
+        time.sleep(0.8)  # Echo guard — 0.3s too short for room reverb at 9x gain
         if self._mic:
             if can_barge:
                 self._mic.set_barge_in_mode(False)

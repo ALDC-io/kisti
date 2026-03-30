@@ -46,7 +46,7 @@ PRE_ROLL_FRAMES = 5       # ~160ms lookback
 OWW_CHUNK_SAMPLES = 1280  # 80ms at 16kHz (openwakeword requirement)
 OWW_THRESHOLD = 0.5       # Wake word confidence threshold (0-1)
 OWW_THRESHOLD_NORMAL = 0.5    # Default wake word threshold
-OWW_THRESHOLD_BARGE_IN = 0.85 # Raised during TTS playback (echo rejection)
+OWW_THRESHOLD_BARGE_IN = 0.92 # Raised from 0.85 — 9x gain needs stricter echo rejection
 
 # Legacy constants for test compatibility
 VAD_MODE = 3
@@ -215,14 +215,14 @@ class MicCapture(QObject):
                     time.sleep(2.0)  # Back off before retry
 
     def _run_arecord(self) -> None:
-        """Stream audio and run VAD. Tries sounddevice first, falls back to parecord."""
+        """Stream audio and run VAD. Tries parecord via os.pipe() first, falls back to parecord via subprocess.PIPE."""
         try:
-            self._run_sounddevice()
+            self._run_parecord_pipe()
         except Exception as exc:
-            log.warning("sounddevice unavailable (%s), falling back to parecord", exc)
+            log.warning("parecord pipe unavailable (%s), falling back to parecord subprocess", exc)
             self._run_parecord()
 
-    def _run_sounddevice(self) -> None:
+    def _run_parecord_pipe(self) -> None:
         """Capture audio via parecord with os.pipe() to bypass buffering.
 
         PortAudio's resampler produces audio Silero VAD can't detect.
@@ -350,6 +350,10 @@ class MicCapture(QObject):
                         chunk = oww_buffer[:OWW_CHUNK_SAMPLES * 2]
                         oww_buffer = oww_buffer[OWW_CHUNK_SAMPLES * 2:]
                         oww_audio = np.frombuffer(chunk, dtype=np.int16)
+                        # RMS echo gate: high RMS during barge-in = speaker echo, not human
+                        frame_rms = int((oww_audio.astype(np.float32) ** 2).mean() ** 0.5)
+                        if frame_rms > 5000:
+                            continue  # Skip OWW — this is speaker echo, not a wake word
                         preds = self._oww.predict(oww_audio)
                         for model_name, score in preds.items():
                             if score > self._active_oww_threshold:

@@ -25,6 +25,7 @@ fi
 export DISPLAY="${DISPLAY:-:0}"
 export QT_QPA_PLATFORM=xcb
 export OLLAMA_MODELS=/data/ollama
+export KISTI_WAKE_MODEL=/data/models/hey_kisti.onnx
 # PULSE_SERVER not set — let PA use its default socket path
 export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$HOME/.local/lib:${LD_LIBRARY_PATH:-}"
 
@@ -59,14 +60,16 @@ else
     echo "$(date) No USB speaker — HDMI sink default" >> "$LOG"
 fi
 
-# Stop Ollama — persona-first handles 90% of queries, free GPU for Whisper STT
-sudo -n systemctl stop ollama 2>/dev/null || true
-echo "$(date) Ollama stopped (persona-first mode)" >> "$LOG"
+# Start Ollama — persona-first handles 90% of queries, Ollama is LLM fallback
+sudo -n systemctl start ollama 2>/dev/null || true
+echo "$(date) Ollama started (persona-first + LLM fallback)" >> "$LOG"
 
 # Bring up CAN if adapter connected
 sudo -n ip link set can0 up type can bitrate 1000000 2>/dev/null || true
 
-# LLM pre-load skipped — persona-first mode, Ollama stopped for GPU headroom
+# Wait for Ollama to load model into GPU memory before KiSTI starts
+sleep 3
+echo "$(date) Ollama warmup complete" >> "$LOG"
 
 # Launch KiSTI fullscreen — when it exits, session ends → back to GDM
 echo "$(date) Launching KiSTI" >> "$LOG"
