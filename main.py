@@ -307,6 +307,11 @@ def main():
         voice_mgr.set_edge_memory(edge_memory)
         log.info("Voice 'remember' commands + memory context enabled")
 
+    # Inject DuckDB into voice pipeline for latency recording
+    if voice_mgr and db_store:
+        voice_mgr.set_duckdb_store(db_store)
+        log.info("Voice latency recording enabled")
+
     # Cloud sync (optional)
     sync_mgr = None
     if not args.no_sync and db_store is not None:

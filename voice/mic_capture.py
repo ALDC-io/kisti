@@ -44,6 +44,8 @@ PRE_ROLL_FRAMES = 5       # ~160ms lookback
 # openwakeword settings
 OWW_CHUNK_SAMPLES = 1280  # 80ms at 16kHz (openwakeword requirement)
 OWW_THRESHOLD = 0.5       # Wake word confidence threshold (0-1)
+OWW_THRESHOLD_NORMAL = 0.5    # Default wake word threshold
+OWW_THRESHOLD_BARGE_IN = 0.85 # Raised during TTS playback (echo rejection)
 
 # Legacy constants for test compatibility
 VAD_MODE = 3
@@ -82,6 +84,8 @@ class MicCapture(QObject):
         self._available = False
         self._last_wake_detected = False  # Set True when wake word detected in last utterance
         self._passthrough = False  # When True, skip wake word gate (conversation window)
+        self._barge_in_mode = False    # True during TTS — mic active but OWW threshold raised
+        self._active_oww_threshold = OWW_THRESHOLD_NORMAL
 
     def start(self) -> None:
         """Start capture thread. Safe to call even without a mic."""
@@ -259,6 +263,25 @@ class MicCapture(QObject):
                     self._vad.reset_states()
                 continue
 
+            # Barge-in mode: only process wake word detection, skip VAD
+            if self._barge_in_mode:
+                if self._oww is not None:
+                    oww_buffer += frame
+                    while len(oww_buffer) >= OWW_CHUNK_SAMPLES * 2:
+                        chunk = oww_buffer[:OWW_CHUNK_SAMPLES * 2]
+                        oww_buffer = oww_buffer[OWW_CHUNK_SAMPLES * 2:]
+                        oww_audio = np.frombuffer(chunk, dtype=np.int16)
+                        preds = self._oww.predict(oww_audio)
+                        for model_name, score in preds.items():
+                            if score > self._active_oww_threshold:
+                                log.info("Barge-in wake word: %s (%.2f)", model_name, score)
+                                self._last_wake_detected = True
+                                self.speech_captured.emit(frame)
+                                oww_buffer = b""
+                                if self._oww is not None:
+                                    self._oww.reset()
+                continue
+
             # Feed openwakeword (accumulate to 1280-sample chunks)
             if self._oww is not None:
                 oww_buffer += frame
@@ -268,7 +291,7 @@ class MicCapture(QObject):
                     oww_audio = np.frombuffer(chunk, dtype=np.int16)
                     preds = self._oww.predict(oww_audio)
                     for model_name, score in preds.items():
-                        if score > OWW_THRESHOLD:
+                        if score > self._active_oww_threshold:
                             if not wake_detected:
                                 log.info("Wake word detected: %s (%.2f)", model_name, score)
                             wake_detected = True
@@ -342,6 +365,17 @@ class MicCapture(QObject):
     def set_passthrough(self, enabled: bool) -> None:
         """Enable/disable wake word bypass (for conversation window)."""
         self._passthrough = enabled
+
+    def set_barge_in_mode(self, enabled: bool) -> None:
+        """Enable/disable barge-in mode (raised OWW threshold during TTS).
+
+        When enabled: mic stays active but OWW threshold is raised to 0.85,
+        rejecting TTS echo while allowing deliberate wake word utterances.
+        When disabled: threshold returns to normal 0.5.
+        """
+        self._barge_in_mode = enabled
+        self._active_oww_threshold = OWW_THRESHOLD_BARGE_IN if enabled else OWW_THRESHOLD_NORMAL
+        log.debug("Barge-in mode: %s (OWW threshold=%.2f)", enabled, self._active_oww_threshold)
 
     @property
     def wake_detected(self) -> bool:

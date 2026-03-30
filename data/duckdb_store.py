@@ -161,6 +161,17 @@ CREATE TABLE IF NOT EXISTS service_events (
     notes TEXT,
     synced BOOLEAN DEFAULT FALSE
 );
+
+CREATE TABLE IF NOT EXISTS voice_latency (
+    timestamp TIMESTAMP,
+    session_id TEXT,
+    stt_ms INTEGER,
+    llm_ms INTEGER,
+    tts_ms INTEGER,
+    total_ms INTEGER,
+    source TEXT,
+    query_text TEXT
+);
 """
 
 
@@ -543,7 +554,8 @@ class DuckDBStore:
         """Get database statistics."""
         stats = {}
         for table in ["sessions", "telemetry", "thermal_state", "events", "alerts",
-                       "segments", "summaries", "ambient_conditions", "service_events"]:
+                       "segments", "summaries", "ambient_conditions", "service_events",
+                       "voice_latency"]:
             count = self._conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
             stats[table] = count
 
@@ -553,6 +565,26 @@ class DuckDBStore:
         stats["unsynced_sessions"] = unsynced
 
         return stats
+
+    # -------------------------------------------------------------------
+    # Voice pipeline latency recording
+    # -------------------------------------------------------------------
+
+    def record_voice_latency(
+        self,
+        session_id: str,
+        stt_ms: int,
+        llm_ms: int,
+        tts_ms: int,
+        total_ms: int,
+        source: str = "",
+        query_text: str = "",
+    ) -> None:
+        """Record voice pipeline latency trace."""
+        self._conn.execute(
+            "INSERT INTO voice_latency VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [_now(), session_id, stt_ms, llm_ms, tts_ms, total_ms, source, query_text],
+        )
 
     # -------------------------------------------------------------------
     # Service event logging (maintenance history)

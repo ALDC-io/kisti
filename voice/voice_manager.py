@@ -123,6 +123,46 @@ class VoiceResponse:
     can_interrupt: bool = True         # Safe to barge-in during this response
 
 
+@dataclass
+class PipelineTrace:
+    """End-to-end latency trace for a single voice interaction.
+
+    All timestamps are time.monotonic() values. Computed properties
+    return milliseconds for logging and DuckDB storage.
+    """
+    mic_captured_at: float = 0.0
+    stt_done_at: float = 0.0
+    llm_done_at: float = 0.0
+    tts_done_at: float = 0.0
+    speaker_start_at: float = 0.0
+    source: str = ""          # "persona" | "sensor" | "llm" | "command" | "system"
+    query_text: str = ""      # First 120 chars of user query
+
+    @property
+    def stt_ms(self) -> int:
+        if self.stt_done_at and self.mic_captured_at:
+            return round((self.stt_done_at - self.mic_captured_at) * 1000)
+        return 0
+
+    @property
+    def llm_ms(self) -> int:
+        if self.llm_done_at and self.stt_done_at:
+            return round((self.llm_done_at - self.stt_done_at) * 1000)
+        return 0
+
+    @property
+    def tts_ms(self) -> int:
+        if self.tts_done_at and self.llm_done_at:
+            return round((self.tts_done_at - self.llm_done_at) * 1000)
+        return 0
+
+    @property
+    def total_ms(self) -> int:
+        if self.speaker_start_at and self.mic_captured_at:
+            return round((self.speaker_start_at - self.mic_captured_at) * 1000)
+        return 0
+
+
 SAMPLE_RATE = 16000
 CHUNK_SIZE = 1024  # samples per audio read
 WAKE_WORDS = [
@@ -216,6 +256,13 @@ class VoiceManager(QObject):
 
         # Edge memory for "remember" commands and LLM context
         self._edge_memory = None
+
+        # Pipeline trace for latency instrumentation
+        self._active_trace: Optional[PipelineTrace] = None
+
+        # DuckDB store for latency recording
+        self._duckdb_store = None
+        self._session_id: str = ""
 
         # Wire mic → STT → LLM pipeline
         if self._mic:
@@ -314,6 +361,11 @@ class VoiceManager(QObject):
         """Inject edge memory for 'remember' commands and LLM context."""
         self._edge_memory = edge_memory
 
+    def set_duckdb_store(self, store: object, session_id: str = "") -> None:
+        """Inject DuckDB store for latency recording."""
+        self._duckdb_store = store
+        self._session_id = session_id
+
     def toggle_voice(self) -> VoiceToggleState:
         """Cycle voice state: Normal → Quiet → Off → Normal (K4 button)."""
         self._toggle_state = VoiceToggleState((self._toggle_state + 1) % 3)
@@ -363,6 +415,39 @@ class VoiceManager(QObject):
             self._speak_queue.put_nowait(text)
         except queue.Full:
             pass
+
+    def _compose_and_speak(
+        self, response: VoiceResponse, user_text: str = "",
+        trace: Optional[PipelineTrace] = None,
+    ) -> None:
+        """Unified response handler: record turn, emit signal, queue speech.
+
+        All voice query response paths create a VoiceResponse then call this.
+        System messages via speak()/speak_alert() bypass this (own filtering).
+        """
+        # Record dialogue turn if this was a user-initiated query
+        if user_text:
+            self._dialogue.record_turn(user_text, response)
+
+        # Store last response (used by barge-in can_interrupt check)
+        self._last_response = response
+
+        # Attach trace for completion in _do_speak
+        if trace:
+            trace.source = response.source
+            if user_text:
+                trace.query_text = user_text[:120]
+            self._active_trace = trace
+
+        # Emit for UI
+        self.response_ready.emit(response.text)
+
+        # Queue for TTS
+        if response.text:
+            try:
+                self._speak_queue.put_nowait(response.text)
+            except queue.Full:
+                log.debug("Speak queue full, dropping: %s", response.text[:30])
 
     # Idiomatic phrases where "it"/"that"/"this" are NOT referential.
     # Checked before attempting pronoun resolution.
@@ -445,7 +530,8 @@ class VoiceManager(QObject):
 
         return resolved
 
-    def handle_voice_query(self, transcription: str) -> None:
+    def handle_voice_query(self, transcription: str,
+                           trace: Optional[PipelineTrace] = None) -> None:
         """Process a transcribed voice query through the LLM."""
         if not transcription.strip():
             return
@@ -457,7 +543,8 @@ class VoiceManager(QObject):
             phrase = transcription[len("say "):].strip()
             if phrase:
                 log.info("Say command: '%s'", phrase)
-                self.speak(phrase)
+                resp = VoiceResponse(text=phrase, source="command", tier="system")
+                self._compose_and_speak(resp, user_text=transcription, trace=trace)
                 return
 
         # Check for "remember" commands → store in edge memory
@@ -469,19 +556,24 @@ class VoiceManager(QObject):
                     memory_type="manual",
                     source="voice",
                 )
-                self.response_ready.emit("Got it. I'll remember that.")
+                resp = VoiceResponse(
+                    text="Got it. I'll remember that.", source="command", tier="system",
+                )
+                self._compose_and_speak(resp, user_text=transcription, trace=trace)
                 return
 
         # Check for quiet/resume commands
         if any(cmd in lower for cmd in QUIET_COMMANDS):
             self._toggle_state = VoiceToggleState.QUIET
             self._set_state(VoiceState.QUIET)
-            self.speak("Going quiet.")
+            resp = VoiceResponse(text="Going quiet.", source="system", tier="system")
+            self._compose_and_speak(resp, user_text=transcription)
             return
         if any(cmd in lower for cmd in RESUME_COMMANDS) and self._state == VoiceState.QUIET:
             self._toggle_state = VoiceToggleState.NORMAL
             self._set_state(VoiceState.IDLE)
-            self.speak("I'm back. What do you need?")
+            resp = VoiceResponse(text="I'm back. What do you need?", source="system", tier="system")
+            self._compose_and_speak(resp, user_text=transcription)
             return
 
         self._set_state(VoiceState.THINKING)
@@ -489,12 +581,11 @@ class VoiceManager(QObject):
         # Live sensor query — intercept ambient/weather questions with real data
         live = self._answer_from_sensors(lower)
         if live:
-            self._last_response = VoiceResponse(
+            resp = VoiceResponse(
                 text=live, source="sensor", tier="deterministic", latency_ms=0,
             )
-            self._dialogue.record_turn(transcription, self._last_response)
             log.info("Live sensor response: %s", live[:80])
-            self.response_ready.emit(live)
+            self._compose_and_speak(resp, user_text=transcription, trace=trace)
             return
 
         # Resolve vague references using dialogue context
@@ -522,14 +613,16 @@ class VoiceManager(QObject):
             si_drive_mode=self._si_drive_mode.label,
         )
 
+        if trace:
+            trace.llm_done_at = time.monotonic()
+
         tier = "deterministic" if response.tier == "persona_match" else "interpretive"
-        self._last_response = VoiceResponse(
+        resp = VoiceResponse(
             text=response.text, source=response.tier, tier=tier,
             latency_ms=int(response.latency_s * 1000),
         )
-        self._dialogue.record_turn(transcription, self._last_response)
         log.info("LLM response (tier=%s, %.1fs): %s", response.tier, response.latency_s, response.text[:80])
-        self.response_ready.emit(response.text)
+        self._compose_and_speak(resp, user_text=transcription, trace=trace)
 
     def _voice_loop(self) -> None:
         """Main voice processing loop (runs in worker thread)."""
@@ -567,6 +660,8 @@ class VoiceManager(QObject):
         # Transcribe on a worker thread to avoid blocking Qt
         # Only one STT call at a time — drop captures that arrive while busy
         def _process():
+            trace = PipelineTrace(mic_captured_at=time.monotonic())
+
             # Expire conversation window passthrough
             in_conversation = (time.monotonic() - self._last_interaction) < self._listen_window_s
             if not in_conversation and self._mic and self._mic._passthrough:
@@ -577,6 +672,7 @@ class VoiceManager(QObject):
                 return
             try:
                 result = self._stt.transcribe(pcm)
+                trace.stt_done_at = time.monotonic()
             except Exception as exc:
                 log.error("STT transcription crashed: %s", exc, exc_info=True)
                 return
@@ -615,11 +711,12 @@ class VoiceManager(QObject):
                             query = text[idx + len(w):].strip(" ,.")
                             break
                 if query and len(query.split()) >= 2:
-                    self.handle_voice_query(query)
+                    self.handle_voice_query(query, trace=trace)
                 else:
                     # Just the wake word (or wake word + 1-2 hallucinated words)
                     self._set_state(VoiceState.LISTENING)
-                    self.speak("I'm listening.")
+                    resp = VoiceResponse(text="I'm listening.", source="system", tier="system")
+                    self._compose_and_speak(resp)
 
         threading.Thread(target=_process, daemon=True, name="kisti-stt-worker").start()
 
@@ -637,8 +734,12 @@ class VoiceManager(QObject):
         self._interrupted = False
         self.speaking_text.emit(text)
 
+        trace = self._active_trace
+
         # Synthesize
         result = self._tts.speak(text)
+        if trace:
+            trace.tts_done_at = time.monotonic()
 
         # Drive LEDs from amplitude envelope
         if self._si_drive_mode == SIDriveMode.INTELLIGENT:
@@ -649,17 +750,49 @@ class VoiceManager(QObject):
                 self.led_frame_ready.emit(frame)
                 time.sleep(1.0 / 30.0)
 
-        # Pause mic during playback — prevents KiSTI hearing its own TTS
+        # Barge-in: keep mic active with raised OWW threshold for interruptible
+        # responses; full pause for non-interruptible (critical alerts)
+        can_barge = True
+        if self._last_response and not self._last_response.can_interrupt:
+            can_barge = False
+
         if self._mic:
-            self._mic.pause()
+            if can_barge:
+                self._mic.set_barge_in_mode(True)
+            else:
+                self._mic.pause()
+
+        if trace:
+            trace.speaker_start_at = time.monotonic()
 
         if not self._interrupted:
             self._play_audio(result.audio_pcm, result.sample_rate)
 
-        # Post-playback echo guard then resume mic
-        time.sleep(2.0)
+        # Post-playback echo guard (short — OWW handles echo rejection)
+        time.sleep(0.3)
         if self._mic:
-            self._mic.resume()
+            if can_barge:
+                self._mic.set_barge_in_mode(False)
+            else:
+                self._mic.resume()
+
+        # Log and store pipeline trace
+        if trace:
+            log.info("Pipeline: STT=%dms LLM=%dms TTS=%dms total=%dms [%s]",
+                     trace.stt_ms, trace.llm_ms, trace.tts_ms, trace.total_ms,
+                     trace.source)
+            if self._duckdb_store:
+                try:
+                    self._duckdb_store.record_voice_latency(
+                        session_id=self._session_id or "no-session",
+                        stt_ms=trace.stt_ms, llm_ms=trace.llm_ms,
+                        tts_ms=trace.tts_ms, total_ms=trace.total_ms,
+                        source=trace.source, query_text=trace.query_text,
+                    )
+                except Exception:
+                    pass  # Never crash voice loop on DB error
+            self._active_trace = None
+
         # Reset conversation window AFTER speaking — user hears response, then has 8s to follow up
         self._last_interaction = time.monotonic()
         self._set_state(VoiceState.IDLE)
