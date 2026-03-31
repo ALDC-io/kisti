@@ -237,6 +237,9 @@ class FrontierLLMEngine:
         if response_text is None:
             return None
 
+        # Truncate to 2 sentences before caching and speaking
+        response_text = _truncate_sentences(response_text, max_sentences=2)
+
         # Cache the response for offline replay
         self._cache_response(query_hash, user_message, response_text, self._model)
 
@@ -369,10 +372,10 @@ class FrontierLLMEngine:
         si_drive_mode: str,
     ) -> Optional[str]:
         """POST to Claude Messages API. Returns response text or None."""
-        # Frontier responses must be short — co-driver, not lecturer.
-        # Cap lower than persona to keep TTS snappy.
-        _FRONTIER_TOKEN_CAPS = {"Intelligent": 80, "Sport": 40, "Sport Sharp": 20}
-        max_tokens = _FRONTIER_TOKEN_CAPS.get(si_drive_mode, 40)
+        # Give Claude enough room to finish 2 sentences cleanly.
+        # System prompt enforces 1-2 sentences; _truncate_sentences is the backstop.
+        _FRONTIER_TOKEN_CAPS = {"Intelligent": 120, "Sport": 60, "Sport Sharp": 20}
+        max_tokens = _FRONTIER_TOKEN_CAPS.get(si_drive_mode, 60)
         temperature = MODE_TEMPERATURE.get(si_drive_mode, 0.6)
 
         # Build system prompt (same as Ollama path)
