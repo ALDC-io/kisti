@@ -1,104 +1,110 @@
-# KiSTI — Next Session Prompt (kisti-12)
+# KiSTI — Next Session Prompt (kisti-13)
 
 **Working dir**: `/home/aldc/repos/kisti/`
 **Jetson**: `192.168.22.131` (user `aldc`). SSH: `ssh aldc@192.168.22.131`
-**Live URL**: N/A (embedded Qt on Jetson)
+**Live URL**: N/A (headless voice mode — no display)
 **Test baseline**: 687 tests passing
 **Team session**: `kisti-speaks` (session_id: `28ee8c4a-5260-4a09-8224-b57c7dd882fb`)
-**Deploy path**: `/home/aldc/repos/kisti/` on Jetson (NOT `/home/aldc/kisti/`)
+**Deploy path**: `/home/aldc/repos/kisti/` on Jetson
+**Launcher**: `~/k` (headless, auto-detects mic)
 
-## Join the CCE Team Session
+## Section 1: What kisti-12 Did
 
-```
-cce-team join project kisti-speaks as kisti-12
-```
+### Headless Voice Mode (THE BIG WIN)
+- Added `--headless` flag — QCoreApplication, no MainWindow, no X11, no display
+- **Eliminated all UI freezes** that plagued the entire session
+- RAM: 4.2 GB → 1.9 GB used (Ollama killed + no Qt GUI)
+- Boot greeting speaks via voice_mgr.speak() directly
+- `~/k` script updated for headless, auto-detects USB mic
+- GNOME autostart still exists at `~/.config/autostart/kisti.desktop` (fullscreen mode)
+- Full UI preserved on `main` branch — `--headless` is opt-in
 
-You are the **conductor** for this session.
+### Freeze Investigation Trail (for context)
+1. Waveform viz wasn't animating during voice responses (response_ready disabled for mic race)
+2. Added cross-thread Qt signal (waveform_envelope) → froze compositorless X11
+3. Replaced with shared-var polling (40Hz) → still froze
+4. Disabled polling → still froze
+5. Killed Ollama (2.5 GB GPU memory freed) → still froze
+6. **Went headless → freezes stopped.** Root cause: Qt/X11 compositorless rendering on Jetson
 
-## Section 1: What kisti-11 Did
+### Waveform Viz Code (preserved but disabled)
+- `voice_manager._waveform_data` shared variable (set by voice thread, polled by UI)
+- `kisti_mode._voice_poll_tick` (40Hz polling) — disabled in current code
+- `kisti_mode.on_voice_envelope` removed, `on_voice_state_changed` removed
+- The LED waveform via CAN (`led_frame_ready` → Strada shift lights) still works in `_do_speak()`
+- **Future**: waveform goes on Link ECU Strada display, not Kenwood
 
-### Persona Narrative Expansion (29 new responses)
-- TIER 1 tech: DCCD education (2), turbo operation (4), oil/coolant service (3), fuel economy (3)
-- TIER 1 safety: knock detection, fuel quality warning, oil temperature
-- TIER 2: braking technique, cornering, g-force, weight transfer, overheat emergency, blowout emergency
-- TIER 3 (fun): clutch, flywheel, AiM Strada, brake fluid, Grimmspeed, suspension, swaybars, PDM
-- Oil pressure keywords tightened (`["oil pressure", "oil psi"]` not bare `"oil"`)
-- Total persona responses: ~86 (up from 57)
+### Mock Data Disabled
+- `can_config.py`: `MOCK_ENABLED = False`
+- `config.py`: `RADAR_MOCK_ENABLED = False`
+- No fake sensor data until real hardware connected
 
-### ECU Sensor Voice Handlers (20+ queries)
-- `_answer_from_sensors()` expanded: oil temp/pressure, coolant, IAT, boost, battery, fuel pressure, injector duty, lambda/AFR, ethanol, RPM, speed, wheel speeds, brake pressure, steering angle, lateral G, yaw rate, DCCD percent, gear
-- ECU block gated on `s.can_connected` — returns live CAN data when Link G5 is online
-- Ambient block gated independently on `s.ambient_available`
-- Component temp guard at TOP of method prevents "oil temperature" from hitting ambient handler
+### No-ECU Guard
+- ECU keyword queries ("boost", "rpm", "tire", "brake", "speed", etc.) return "No ECU connected. Link G five not installed yet."
+- Component temp queries (cpu, gpu, turbo, intercooler) no longer return ambient weather
+- Expanded `_COMPONENT_QUALIFIERS` and `_ECU_KEYWORDS` in `voice_manager.py:1143-1170`
 
-### Temperature Routing Fix
-- Guard at `voice_manager.py:1132-1139`: checks for component qualifiers ("engine", "oil", "coolant", "tire", etc.) BEFORE ambient block
-- Without CAN: falls to persona. With CAN: falls to ECU handler
-- Tested: "oil temperature" → persona match, "temperature" → ambient
+### Ollama Disabled
+- `llm_engine.py:547-555`: Ollama call commented out — goes straight to fallback
+- Ollama systemd service file moved to `.disabled`: `/etc/systemd/system/ollama.service.disabled`
+- Frees 2.5 GB RAM on Jetson
 
-### Echo Loop Mitigation
-- Echo guard: 0.4s → 0.8s (`voice_manager.py:897`)
-- Word overlap threshold: 40% → 30% (`voice_manager.py:783`)
-- Self-trigger suppression: known KiSTI phrases ("I'm listening", "loud and clear", etc.) within 5s of last speech auto-suppressed (`voice_manager.py:787-793`)
-- Software gain stays at 3x (2x caused Whisper to drop quieter words like "oil")
+### Branches
+- `main` — current working state (headless + all fixes)
+- `kisti-12-waveform-fix` — waveform signal/polling experiments
+- `kisti-headless` — headless development branch (merged to main)
 
-### Other
-- Sensor onboarding doc: `docs/sensor_onboarding.md`
-- TUI progress bar per-session colors in `zeus-memory/scripts/cce-team-panel.py`
+## Section 2: Prioritized TODO for kisti-13
 
-## Section 2: Prioritized TODO for kisti-12
+### 1. Train Custom "Hey KiSTI" Wake Word (HIGH — the reason for this session)
+- [ ] Use OpenWakeWord training pipeline (Colab notebook)
+- [ ] Generate synthetic training data with Piper TTS (multiple voices/speeds)
+- [ ] Record ~50 real "Hey KiSTI" samples for validation
+- [ ] Train .onnx model on Colab GPU
+- [ ] Deploy to Jetson: replace `hey_jarvis_v0.1` in mic_capture.py
+- [ ] Env var `KISTI_WAKE_MODEL` already supports custom model path
+- [ ] Validate false positive rate with car noise / background conversation
+- OWW docs: https://github.com/dscripka/openWakeWord
+- OWW training: https://github.com/dscripka/openWakeWord#training-new-models
 
-### 1. Soak Test Echo Loop (HIGH — validate on Jetson)
-- [ ] Leave KiSTI running with mic active for 10+ minutes of conversation
-- [ ] Confirm no self-triggering "I'm listening" loops with 0.8s guard + 3x gain
-- [ ] If loops recur: extend guard to 1.0s or add RMS-based suppression post-guard
-- [ ] Check unanswered query log in edge memory for new patterns
+### 2. Soak Test Headless Mode (MEDIUM)
+- [ ] Leave KiSTI headless running for extended period
+- [ ] Verify no memory leaks, no freezes, no mic drift
+- [ ] Check edge memory for unanswered query patterns
 
-### 2. Check Edge Memory for Real-World Gaps (HIGH)
-- [ ] Query edge DuckDB: `SELECT * FROM memories WHERE tags LIKE '%unanswered%' ORDER BY created_at DESC`
-- [ ] Identify top unanswered queries that should be persona responses
-- [ ] Add missing responses to `PERSONA_RESPONSES` in `voice/llm_engine.py`
+### 3. Coolant Temperature Persona (LOW)
+- [ ] Add: `["coolant temp", "coolant temperature", "water temp"]` → persona response
+- [ ] Currently hits ECU guard → "No ECU connected"
 
-### 3. Whisper Transcription Quality (MEDIUM)
-- Whisper mangles wake word: "Jarvis House of Oil Temperature", "Jarvis has the tire temperature"
-- OWW fallback catches it but noise could affect keyword matching
-- Consider: strip known wake-word-adjacent garbage before keyword matching
-
-### 4. Coolant Temperature Persona (MEDIUM)
-- [ ] Currently no dedicated coolant temp persona response
-- [ ] Add: `["coolant temp", "coolant temperature", "water temp"]` → "Normal range 85 to 95 degrees. Above 100 is warm, above 105 back off immediately."
-
-### 5. Phase 10: Hardware Integration (BLOCKED)
-- [ ] GPS09 Pro CAN wiring (hardware — JK)
-- [ ] Real GPS data validation vs AiM Race Studio 3
+### 4. Phase 10: Hardware Integration (BLOCKED on hardware)
+- [ ] GPS09 Pro CAN wiring (JK)
+- [ ] Real GPS data validation
 - [ ] IMU-assisted track learning
-
-### 6. Future Enhancements
-- [ ] Custom "Hey KiSTI" wake word (Colab training)
-- [ ] Track map dynamic outline from GPS trace
-- [ ] Session-end eager Nextcloud sync on K1 toggle
-- [ ] Run tests on Jetson ARM64 (expect 684+ with 3 pre-existing STT failures)
 
 ## Section 3: Key Files with Line Numbers
 
 | File | Purpose | Key Lines |
 |------|---------|-----------|
-| `voice/llm_engine.py` | Persona responses | 96-98 (oil pressure), 114-117 (knock/fuel safety), 150-195 (TIER 1 DCCD/turbo/oil/fuel), 196-222 (TIER 2 driving/emergency), 223-260 (TIER 3 components) |
-| `voice/voice_manager.py` | Voice pipeline | 783 (30% overlap), 787-793 (self-trigger guard), 897 (0.8s echo guard), 1132-1139 (component temp guard), 1142-1230 (ECU handlers), 1253-1280 (ambient) |
-| `voice/mic_capture.py` | Mic capture | 284-287 (3x software gain) |
-| `docs/sensor_onboarding.md` | Sensor checklist | Full file |
-| `tests/test_voice.py` | Voice tests | ~1075-1300 (TIER 1-3 + temp routing + ECU sensor tests) |
+| `main.py` | Bootstrap + headless mode | 65 (--headless flag), 110-118 (display skip), 127-136 (QCoreApp), 569-575 (window conditional), 580 (_speak helper), 710-715 (headless boot greeting) |
+| `voice/voice_manager.py` | Voice pipeline | 256 (waveform_data signal removed), 276 (_waveform_data shared var), 879-880 (set waveform_data), 907 (clear waveform_data), 1143-1170 (ECU keyword guard) |
+| `voice/llm_engine.py` | LLM engine | 547-555 (Ollama DISABLED) |
+| `voice/mic_capture.py` | Mic + wake word | KISTI_WAKE_MODEL env var for custom model |
+| `can/can_config.py` | CAN config | 428 (MOCK_ENABLED = False) |
+| `config.py` | General config | 33 (RADAR_MOCK_ENABLED = False) |
+| `ui/kisti_mode.py` | KITT waveform (unused in headless) | 595-601 (poll timer disabled) |
 
 ## Section 4: Test Baseline
 
 ```
-687 passed in 38.7s (workstation, 2026-03-30 13:45 PDT)
-Jetson: not yet tested with kisti-11 changes (expect 684+ with 3 pre-existing STT failures)
+687 passed in 36.28s (workstation, 2026-03-30 19:20 PDT)
+Jetson: headless mode, no display tests needed
 ```
 
-## Section 5: Sensor Coverage Summary
+## Section 5: Jetson System State
 
-- **93 total data elements** across all sensors
-- **~50 voice-queryable** (ambient 6, ECU 25+, timing 15, persona ~86)
-- **Key gaps**: GPS altitude/heading, IMU accel/gyro (pending GPS09 Pro install)
-- **Onboarding pattern**: `docs/sensor_onboarding.md`
+- **Ollama**: DISABLED (service file renamed, not running)
+- **whisper-server**: Running at port 8081 (base.en model, 4 threads, ~523 MB)
+- **RAM**: 1.9 GB used / 5.3 GB available (headless + no Ollama)
+- **KiSTI launcher**: `~/k` (headless, auto-detects USB mic)
+- **GNOME autostart**: still at `~/.config/autostart/kisti.desktop` (fullscreen mode, not used)
+- **WiFi**: Connected (JK iPhone hotspot or Heckler)
