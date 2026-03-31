@@ -19,6 +19,8 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Optional
 
+from data.car_jokes import CAR_JOKES, get_random_joke
+
 log = logging.getLogger("kisti.voice.llm")
 
 OLLAMA_URL = "http://localhost:11434"
@@ -360,8 +362,9 @@ PERSONA_RESPONSES: list[tuple[list[str], str, str]] = [
     (["music", "song", "play", "playlist", "radio", "spotify"],
      "Audio goes through the Kenwood Excelon head unit. I handle data and conversation — the Kenwood handles the tunes. Division of labour.",
      "fun"),
-    (["tell me a joke", "make me laugh", "be funny", "entertain me"],
-     "A Mustang, a Camaro, and an STI walk into a corner. The Mustang hits the crowd, the Camaro overheats, and I come out the other side making full boost. That is not a joke — that is data.",
+    (["tell me a joke", "make me laugh", "be funny", "entertain me",
+      "another joke", "different joke", "tell me another", "more jokes", "got any more"],
+     "__JOKE__",
      "fun"),
 
     # === SUBARU JOKES — fun category ===
@@ -438,6 +441,9 @@ PERSONA_RESPONSES: list[tuple[list[str], str, str]] = [
 
 FALLBACK_RESPONSE = "Not sure about that. Ask me about boost, oil, or brakes."
 
+# Joke sentinel — when _match_persona finds this, it returns get_random_joke()
+_JOKE_SENTINEL = "__JOKE__"
+
 
 @dataclass
 class LLMResponse:
@@ -481,6 +487,10 @@ def _match_persona(query: str, si_drive_mode: str = "Intelligent") -> Optional[s
     if best_response is None or best_score == 0:
         return None
 
+    # Joke sentinel → random selection from 500-joke pool
+    if best_response == _JOKE_SENTINEL:
+        return get_random_joke()
+
     # Cap all responses to 2 sentences max — long TTS kills latency
     sentences = re.split(r'(?<=[.!?])\s+', best_response)
     if len(sentences) > 2:
@@ -521,12 +531,14 @@ class LLMEngine:
         ollama_url: str = OLLAMA_URL,
         model: str = DEFAULT_MODEL,
         fallback_model: str = FALLBACK_MODEL,
+        frontier: object = None,
     ) -> None:
         self._url = ollama_url
         self._model = model
         self._fallback_model = fallback_model
         self._running = False
         self._available_model: Optional[str] = None
+        self._frontier = frontier  # Optional FrontierLLMEngine
 
     def start(self) -> None:
         """Check Ollama connectivity and find available model."""
@@ -614,6 +626,17 @@ class LLMEngine:
         #         )
         #     except Exception as exc:
         #         log.warning("Ollama query failed: %s — using fallback", exc)
+
+        # Frontier AI — cloud-connected Claude API with edge cache
+        if self._frontier:
+            try:
+                frontier_resp = self._frontier.query(
+                    user_message, telemetry_context, memory_context, si_drive_mode,
+                )
+                if frontier_resp is not None:
+                    return frontier_resp
+            except Exception as exc:
+                log.warning("Frontier query failed: %s — using fallback", exc)
 
         # Final fallback
         latency = time.monotonic() - start_time

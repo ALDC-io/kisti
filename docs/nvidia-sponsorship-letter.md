@@ -63,13 +63,26 @@ At 100 TOPS and 16GB shared memory, we're managing — but making real trade-off
 
 We've proven the concept works at 100 TOPS. More compute would let us prove what it's capable of.
 
-## What We're Looking For
+## What We're Looking For — Three-Tier NVIDIA Stack
 
-Access to higher-tier Jetson hardware to continue scaling this work:
+We've designed KiSTI around a clear three-tier architecture. Each tier solves a distinct problem:
 
-- **Jetson AGX Orin 64GB** (275 TOPS) — immediate upgrade path, 4x memory headroom
-- **Jetson AGX Thor** (1,000+ TOPS, 128GB) — unlocks simultaneous LLM + STT + vision
-- **DRIVE AGX Orin/Thor** — production automotive platform, ISO 26262 certified
+### Tier 1 — In-Car: Jetson AGX Thor
+**1,000+ TOPS | 128GB LPDDR5X | 40-130W configurable**
+
+The AGX Thor's configurable power envelope is critical for motorsports. At **40W**, it runs the full voice pipeline (STT + TTS + wake word) silently — no fan noise competing with the driver conversation. At **130W** when the engine is running and cabin noise masks everything, it unlocks simultaneous LLM inference + vision + telemetry analysis. This isn't just more compute — it's compute that adapts to the acoustic environment of a 750 BHP race car.
+
+### Tier 2 — Pit-Side: DGX Spark
+**1 PFLOP FP4 | 128GB unified memory | 1.2 kg**
+
+A portable AI workstation that sits trackside with the pit crew. The DGX Spark replaces our current cloud dependency for deep analysis — session replay, failure pattern synthesis, multi-session trend analysis — all running locally at the track without requiring connectivity. At 1.2 kg, it travels in the toolbox.
+
+### Tier 3 — Cloud: Zeus Memory
+**3.5M+ memories | 292,000+ API connections | Deep analysis**
+
+Already operational. Zeus Memory provides the long-term knowledge layer — cross-session learning, historical pattern matching, and enterprise-grade analysis that feeds insights back to the edge devices when connectivity is available.
+
+**Tiers 1 and 2 are the sponsorship ask. Tier 3 is built and running.**
 
 In exchange, we offer:
 

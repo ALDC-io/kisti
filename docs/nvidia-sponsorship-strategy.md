@@ -45,10 +45,11 @@
 - Multiple CAN FD interfaces for Link ECU + AiM Strada + expansion
 - AGX Thor ($3,499) is the fallback if DRIVE program access isn't granted
 
-### Pit-Side: Research pending
-- H100 HGX is wrong — too large, data center hardware
-- Need portable, trackside-appropriate Nvidia product
-- Options: RTX-powered laptop, IGX edge platform, or second Jetson
+### Pit-Side: DGX Spark
+- **1 PFLOP FP4, 128GB unified memory, 1.2 kg** — portable AI workstation
+- Sits trackside with pit crew for deep analysis (session replay, failure synthesis)
+- Replaces cloud dependency — runs locally at the track without connectivity
+- ~$3,000 — Mac Mini form factor, travels in the toolbox
 
 ## Sponsorship Pitch Summary
 
