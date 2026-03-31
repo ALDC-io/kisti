@@ -61,6 +61,8 @@ def main():
                         help="Disable microphone capture (no voice input)")
     parser.add_argument("--mic-device", type=str, default="default",
                         help="ALSA capture device for mic (default: 'default')")
+    parser.add_argument("--headless", action="store_true",
+                        help="Headless voice mode — no display, pure voice chat")
     args = parser.parse_args()
 
     setup_logging()
@@ -101,19 +103,20 @@ def main():
     else:
         log.warning("HDMI audio: PulseAudio not running — audio will not work")
 
-    if args.display:
-        os.environ["DISPLAY"] = args.display
-
-    if args.platform:
-        os.environ["QT_QPA_PLATFORM"] = args.platform
-
-    # Verify DISPLAY is set (unless using a non-X11 platform)
-    non_x11 = os.environ.get("QT_QPA_PLATFORM", "") in ("eglfs", "linuxfb", "offscreen")
-    if "DISPLAY" not in os.environ and not non_x11:
-        print("ERROR: DISPLAY environment variable not set.")
-        print("Try: export DISPLAY=:0 && python3 main.py")
-        print("Or:  python3 main.py --platform eglfs")
-        sys.exit(1)
+    if args.headless:
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+    else:
+        if args.display:
+            os.environ["DISPLAY"] = args.display
+        if args.platform:
+            os.environ["QT_QPA_PLATFORM"] = args.platform
+        # Verify DISPLAY is set (unless using a non-X11 platform)
+        non_x11 = os.environ.get("QT_QPA_PLATFORM", "") in ("eglfs", "linuxfb", "offscreen")
+        if "DISPLAY" not in os.environ and not non_x11:
+            print("ERROR: DISPLAY environment variable not set.")
+            print("Try: export DISPLAY=:0 && python3 main.py")
+            print("Or:  python3 main.py --headless")
+            sys.exit(1)
 
     # Graceful shutdown on SIGTERM/SIGINT (systemd sends SIGTERM on stop)
     import signal
@@ -121,15 +124,19 @@ def main():
     _original_sigint = signal.getsignal(signal.SIGINT)
 
     # Import Qt after environment is configured
-    from PySide6.QtWidgets import QApplication
-
     from can.kisti_can import create_can_source, CanOutputThread
     from model.vehicle_state import DiffStateBridge
     from modes.mode_manager import ModeManager
     from alerts.alert_engine import AlertEngine
-    from ui.main_window import MainWindow
 
-    app = QApplication(sys.argv)
+    if args.headless:
+        from PySide6.QtCore import QCoreApplication
+        app = QCoreApplication(sys.argv)
+        log.info("Headless voice mode — no display")
+    else:
+        from PySide6.QtWidgets import QApplication
+        from ui.main_window import MainWindow
+        app = QApplication(sys.argv)
 
     # Wire signal handlers now that QApplication exists
     signal.signal(signal.SIGTERM, lambda *_: app.quit())
@@ -566,34 +573,40 @@ def main():
         )
         log.info("DuckDB session lifecycle wired (K1 start/stop)")
 
-    # UI — pass the shared bridge so CAN data flows to display
-    window = MainWindow(fullscreen=args.fullscreen, bridge=bridge)
+    # --- UI vs Headless ---
+    window = None
+    if not args.headless:
+        window = MainWindow(fullscreen=args.fullscreen, bridge=bridge)
 
-    # Wire timing display to bridge for live updates (4 Hz is enough for UI)
-    if timing_mgr:
-        _timing_tick = [0]
+        # Wire timing display to bridge for live updates (4 Hz is enough for UI)
+        if timing_mgr:
+            _timing_tick = [0]
 
-        def _update_timing_display():
-            _timing_tick[0] += 1
-            if _timing_tick[0] % 5 == 0:  # ~4 Hz from 20 Hz bridge
-                snap = bridge.snapshot()
-                if hasattr(window, '_track_mode'):
-                    window._track_mode.update_timing(snap)
+            def _update_timing_display():
+                _timing_tick[0] += 1
+                if _timing_tick[0] % 5 == 0:
+                    snap = bridge.snapshot()
+                    if hasattr(window, '_track_mode'):
+                        window._track_mode.update_timing(snap)
 
-        bridge.state_changed.connect(_update_timing_display)
+            bridge.state_changed.connect(_update_timing_display)
 
-        # Mode change → timing widget layout
-        if mode_mgr:
-            mode_mgr.si_drive_changed.connect(
-                lambda m: window._track_mode.set_timing_mode(m)
-                if hasattr(window, '_track_mode') else None
-            )
+            if mode_mgr:
+                mode_mgr.si_drive_changed.connect(
+                    lambda m: window._track_mode.set_timing_mode(m)
+                    if hasattr(window, '_track_mode') else None
+                )
 
-    # --- Ambient condition tracking (independent of ECU session) ---
-    # Wired AFTER window so queue_speech() is available via AudioPlayer
+    # Helper: speak through voice_mgr directly (headless) or window AudioPlayer (UI)
+    def _speak(text, urgency="normal"):
+        if window:
+            window.queue_speech(text, urgency=urgency)
+        elif voice_mgr:
+            voice_mgr.speak(text)
+
+    # --- Ambient condition tracking ---
     if db_store and ambient_source:
         def _on_ambient_reading(reading):
-            """Record ambient data at ~1/60 Hz (once per minute)."""
             ambient_tick[0] += 1
             if ambient_tick[0] % 60 == 0:
                 try:
@@ -606,7 +619,6 @@ def main():
                     pass
 
         def _on_condition_changed(change):
-            """Record condition change event + announce via voice."""
             try:
                 state = bridge.snapshot()
                 db_store.record_ambient(
@@ -617,7 +629,7 @@ def main():
                 )
             except Exception:
                 pass
-            window.queue_speech(change.message, urgency="alert")
+            _speak(change.message, urgency="alert")
 
         ambient_source.reading_updated.connect(_on_ambient_reading)
         ambient_source.condition_changed.connect(_on_condition_changed)
@@ -625,7 +637,7 @@ def main():
 
     elif ambient_source:
         ambient_source.condition_changed.connect(
-            lambda c: window.queue_speech(c.message, urgency="alert")
+            lambda c: _speak(c.message, urgency="alert")
         )
 
     # --- Ambient simulation lifecycle ---
@@ -633,14 +645,10 @@ def main():
         from sensors.ambient_simulator import AmbientSimulator
         if isinstance(ambient_source, AmbientSimulator):
             ambient_source.simulation_started.connect(
-                lambda: window.queue_speech(
-                    "Starting ambient weather simulation. Monitoring conditions."
-                )
+                lambda: _speak("Starting ambient weather simulation. Monitoring conditions.")
             )
             ambient_source.simulation_ended.connect(
-                lambda: window.queue_speech(
-                    "Ambient weather simulation complete."
-                )
+                lambda: _speak("Ambient weather simulation complete.")
             )
             ambient_source.simulation_started.connect(
                 lambda: log.info("SIM: Ambient weather simulation started")
@@ -649,7 +657,6 @@ def main():
                 lambda: log.info("SIM: Ambient weather simulation ended")
             )
 
-            # Auto-quit only if ambient sim is the only sim running
             if not args.sim_voice:
                 def _sim_done():
                     from PySide6.QtCore import QTimer as _QT2
@@ -659,102 +666,36 @@ def main():
                     ))
                 ambient_source.simulation_ended.connect(_sim_done)
 
-            # Start sim after startup sequence finishes (~20s for voice lines)
             from PySide6.QtCore import QTimer as _QT
             _QT.singleShot(20000, ambient_source.start)
-    # --- Route LLM responses through AudioPlayer (aplay) ---
-    if voice_mgr:
-        voice_mgr.response_ready.connect(
-            lambda text: window.queue_speech(text)
-        )
 
-        # UI waveform polls voice manager's shared _waveform_data at 40Hz.
-        # No cross-thread Qt signals — avoids event queue flooding that
-        # was freezing the compositorless X11 UI.
+    # --- Route LLM responses ---
+    if voice_mgr:
+        voice_mgr.response_ready.connect(lambda text: _speak(text))
+
+    # --- UI-only wiring (waveform + echo protection) ---
+    if window and voice_mgr:
         if hasattr(window, '_kisti_mode'):
             window._kisti_mode.set_voice_manager(voice_mgr)
 
-    # --- Echo protection: pause mic during UI AudioPlayer speech ---
-    # kisti_mode._start_speaking() plays audio without voice_manager involvement,
-    # so the mic stays at normal threshold and picks up its own echo at 0.99 confidence.
-    # Fix: wire AudioPlayer signals to mic pause/resume with echo guard delay.
-    if voice_mgr and voice_mgr._mic and hasattr(window, '_kisti_mode'):
-        _kmode = window._kisti_mode
-        if hasattr(_kmode, '_audio_player') and _kmode._audio_player:
-            import threading as _echo_threading
-            _kmode._audio_player.playback_started.connect(
-                lambda: voice_mgr._mic.pause()
-            )
-            def _echo_guard_resume():
-                """Resume mic 800ms after playback ends (echo guard).
+        if voice_mgr._mic and hasattr(window, '_kisti_mode'):
+            _kmode = window._kisti_mode
+            if hasattr(_kmode, '_audio_player') and _kmode._audio_player:
+                import threading as _echo_threading
+                _kmode._audio_player.playback_started.connect(
+                    lambda: voice_mgr._mic.pause()
+                )
+                def _echo_guard_resume():
+                    _echo_threading.Timer(0.4, voice_mgr._mic.resume).start()
+                _kmode._audio_player.playback_finished.connect(_echo_guard_resume)
+                log.info("Echo protection: mic pauses during UI audio playback")
 
-                Uses threading.Timer instead of QTimer.singleShot because
-                playback_finished fires from AudioPlayer's daemon thread
-                which has no Qt event loop — QTimer silently never fires.
-                """
-                _echo_threading.Timer(0.4, voice_mgr._mic.resume).start()
-            _kmode._audio_player.playback_finished.connect(_echo_guard_resume)
-            log.info("Echo protection: mic pauses during UI audio playback")
+    if window:
+        window.show()
 
-    # --- Simulated voice queries ---
-    if args.sim_voice and voice_mgr:
-        _SIM_QUERIES = [
-            "How are conditions looking?",
-            "What is the oil pressure like?",
-            "Tell me about the turbo setup.",
-            "Who are you?",
-            "What should I watch out for today?",
-            "How is the DCCD performing?",
-            "Give me a systems check.",
-            "What is my coolant temperature?",
-            "How are the tires holding up?",
-            "What is the boost pressure right now?",
-            "Tell me about the drivetrain.",
-            "What is the fuel pressure?",
-            "How is battery voltage?",
-            "What is the intake air temperature?",
-            "Am I running on E85 or pump gas?",
-            "What is the lambda reading?",
-            "Tell me about the brakes.",
-            "What RPM should I shift at?",
-            "How is the oil temperature?",
-            "What is my current speed?",
-            "Analyze that last run.",
-        ]
-        _sim_idx = [0]
-
-        def _sim_next_query():
-            if _sim_idx[0] < len(_SIM_QUERIES):
-                q = _SIM_QUERIES[_sim_idx[0]]
-                _sim_idx[0] += 1
-                log.info("SIM VOICE [%d/%d]: %s", _sim_idx[0], len(_SIM_QUERIES), q)
-                window.queue_speech(f"Driver says: {q}", urgency="normal")
-                # Run LLM off main thread to avoid UI freeze
-                import threading
-                from PySide6.QtCore import QTimer as _QTV
-                def _run_query():
-                    import time as _t; _t.sleep(4)  # wait for "Driver says" to play
-                    voice_mgr.handle_voice_query(q)
-                threading.Thread(target=_run_query, daemon=True).start()
-                # Schedule next query — tight pacing to stress test
-                _QTV.singleShot(15000, _sim_next_query)
-            else:
-                log.info("SIM VOICE: All %d queries complete", len(_SIM_QUERIES))
-                window.queue_speech("Voice simulation complete. All 20 queries answered.")
-                from PySide6.QtCore import QTimer as _QTX
-                _QTX.singleShot(15000, lambda: (
-                    log.info("SIM VOICE: exiting after final speech"),
-                    app.quit(),
-                ))
-
-        # Start after startup sequence
-        from PySide6.QtCore import QTimer as _QT3
-        _QT3.singleShot(25000, _sim_next_query)
-
-    window.show()
-
-    log.info("KiSTI running — SI Drive: %s, Voice: %s, DuckDB: %s, Memory: %s, Zeus: %s, Sync: %s, CAN Out: %s, Ambient: %s",
-             mode_mgr.si_drive_mode.label,
+    mode_label = "HEADLESS" if args.headless else mode_mgr.si_drive_mode.label
+    log.info("KiSTI running — Mode: %s, Voice: %s, DuckDB: %s, Memory: %s, Zeus: %s, Sync: %s, CAN Out: %s, Ambient: %s",
+             mode_label,
              "ON" if voice_mgr else "OFF",
              "ON" if db_store else "OFF",
              "ON" if edge_memory else "OFF",
@@ -762,6 +703,15 @@ def main():
              "ON" if sync_mgr else "OFF",
              "ON" if can_output else "OFF",
              "SIM" if args.sim_ambient else ("YOCTO" if ambient_source else "OFF"))
+
+    # Headless boot greeting (UI has its own via kisti_mode._on_boot_ready)
+    if args.headless and voice_mgr:
+        def _headless_boot():
+            ecu = "ECU online" if listener else "No ECU"
+            ambient = "Conditions good" if ambient_source else "No sensors"
+            voice_mgr.speak(f"Online. Headless mode. {ecu}. {ambient}.")
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(3000, _headless_boot)
 
     # Run Qt event loop
     exit_code = app.exec()
