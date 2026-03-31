@@ -461,28 +461,28 @@ export default function Home() {
                 <PitEngineerView state={state} />
               </div>
               <a
-                href="https://www.nvidia.com/en-us/data-center/h100/"
+                href="https://www.nvidia.com/en-us/products/workstations/dgx-spark/"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="group mt-3 flex items-center gap-4 overflow-hidden rounded-xl border border-white/10 bg-white/5 transition-colors hover:border-edge-compute/30 hover:bg-white/[0.08]"
               >
-                <div className="h-20 w-32 shrink-0 overflow-hidden bg-[#1a3a6b]">
+                <div className="h-20 w-32 shrink-0 overflow-hidden bg-white">
                   <img
-                    src="/assets/nvidia_h100.jpg"
-                    alt="NVIDIA HGX H100"
-                    className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                    src="/assets/nvidia_dgx_spark.png"
+                    alt="NVIDIA DGX Spark"
+                    className="h-full w-full object-contain transition-transform group-hover:scale-105"
                     draggable={false}
                   />
                 </div>
                 <div className="py-2 pr-4">
                   <div className="text-[10px] font-semibold uppercase tracking-wider text-edge-compute/80">
-                    Cloud Inference
+                    Pit-Side AI
                   </div>
                   <p className="mt-0.5 text-sm font-semibold text-foreground">
-                    NVIDIA HGX H100
+                    NVIDIA DGX Spark
                   </p>
                   <p className="mt-0.5 text-[11px] text-foreground/40">
-                    3,958 TFLOPS FP8, 80GB HBM3
+                    1 PFLOP, 128GB, 1.2 kg
                   </p>
                 </div>
               </a>
