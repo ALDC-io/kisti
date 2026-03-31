@@ -27,7 +27,7 @@ The entire inference stack runs on a single **Jetson Orin NX Super Developer Kit
 - **Edge memory**: DuckDB + ONNX embeddings for on-device knowledge persistence across sessions
 - **Voice modes**: Three operational tiers — Informal (personality-driven, sarcastic), Standard (clinical telemetry), Safety-Critical (emergency alerts only)
 - **Wake word**: Custom voice activation with barge-in echo cancellation
-- **Cloud sync**: Store-and-forward to Zeus Memory (204K+ active memories) via WiFi when connectivity is available
+- **Cloud sync**: Store-and-forward to Zeus Memory (3.5M+ memories processed) via WiFi when connectivity is available
 
 The system detects anomalies, predicts failure patterns, and tells the driver what's happening — in plain English, while they're driving. It remembers previous sessions, learns the driver's patterns, and adapts its alerts based on operational context.
 
