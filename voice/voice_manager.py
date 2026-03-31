@@ -834,6 +834,12 @@ class VoiceManager(QObject):
             if not has_wake_word and self._mic and self._mic._last_wake_detected:
                 log.info("OWW wake detected but not in STT text — treating as wake word")
                 has_wake_word = True
+
+            # KISTI_NO_WAKE: bypass wake word requirement (all speech → query)
+            no_wake = os.environ.get("KISTI_NO_WAKE", "")
+            if no_wake and not has_wake_word:
+                has_wake_word = True
+
             in_conversation = (time.monotonic() - self._last_interaction) < self._listen_window_s
 
             # During TTS playback, only respond to wake word (barge-in)
