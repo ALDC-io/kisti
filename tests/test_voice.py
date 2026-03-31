@@ -1470,7 +1470,7 @@ class TestECUSensorVoiceHandlers:
         vm = self._make_vm(can_connected=False)
         result = vm._answer_from_sensors("oil temp")
         assert result is not None and "No ECU" in result
-        result2 = vm._answer_from_sensors("what rpm")
+        result2 = vm._answer_from_sensors("current rpm")
         assert result2 is not None and "No ECU" in result2
 
     def test_ambient_still_works_without_can(self):

@@ -207,6 +207,61 @@ PERSONA_RESPONSES: list[tuple[list[str], str, str]] = [
      "Under 25 PSI idle warm? Check oil level first. If topped up and still low, Killer B pickup may be clogged — get it scanned.",
      "tech"),
 
+    # === Pistons / internals ===
+    (["piston", "pistons", "bore", "stroke", "internals", "bottom end", "short block", "forged"],
+     "Manley H-Tuff Plus forged pistons. 99.75 mm bore, 79 mm stroke — overbored from the factory 99.5. IAG 750 closed deck, built to hold 750 bhp without flinching.",
+     "tech"),
+
+    # === Spark plugs ===
+    (["spark plug", "spark plugs", "ignition", "plug gap", "misfire"],
+     "Fresh plugs installed with the build, gapped for the BCP X400 boost level. Factory ran NGK ILFR6B iridium — proper plugs prevent misfire under full load.",
+     "tech"),
+
+    # === Oil level / consumption ===
+    (["oil level", "oil consumption", "burning oil", "using oil", "check oil", "top up oil"],
+     "Fresh IAG 750 with proper ring seal. Break-in consumption is normal — check every 1,000 km for the first 5,000. After that, it should hold level between changes. Motul X-Clean 5W40, 4.7 liters with filter.",
+     "tech"),
+
+    # === Battery / electrical ===
+    (["battery", "electrical", "alternator", "charging system", "wiring"],
+     "Factory 110 amp alternator handles it. Link Razor PDM runs all power distribution digitally — every circuit monitored and logged. No more fuse boxes, no more melted wires.",
+     "tech"),
+
+    # === Factory specs / stock comparison ===
+    (["factory", "stock", "original", "came with", "oem", "standard", "bone stock", "before mods"],
+     "Factory 2014 STI: EJ257 open-deck, 305 hp, VF48 turbo at 14.7 PSI, Denso 565 cc injectors. Now: IAG 750 closed-deck, 360-390 WHP, BCP X400 turbo, ID1300 injectors. Everything the factory should have done.",
+     "tech"),
+    (["how much more power", "power difference", "hp gain", "more horsepower"],
+     "Factory was 305 hp crank. Now 360-390 at the wheels — that is roughly double the factory wheel horsepower. Closed-deck block, bigger turbo, bigger injectors, standalone ECU. Different animal.",
+     "tech"),
+    (["factory turbo", "vf48", "stock turbo", "original turbo"],
+     "Factory VF48 by IHI. Twin-scroll journal bearing, peaked at 14.7 PSI. Replaced with the BCP X400 — bigger compressor, better spool, and it holds boost to redline instead of tapering off.",
+     "tech"),
+    (["factory brakes", "stock brakes", "brembo", "brake size", "rotor size"],
+     "Factory Brembo 4-piston front, 326 mm cross-drilled rotors. 2-piston rear, 316 mm. Gold anodized monoblocks — one of the best factory brake packages in the segment. Kept them, upgraded the fluid to Pentosin DOT 4.",
+     "tech"),
+    (["factory suspension", "stock suspension", "stock ride"],
+     "Factory inverted MacPherson struts up front, double wishbone rear with pillow ball mounts. 24 mm front sway, 19 mm rear. STI suspension was already good — we kept the geometry and swapped the sway bars to GR spec.",
+     "tech"),
+    (["factory weight", "curb weight", "how heavy"],
+     "Factory curb weight 1,536 kg. 60 front, 40 rear. With the build mods, roughly the same — lighter flywheel offset by the front mount intercooler. Power-to-weight is about 3.9 kg per wheel horsepower.",
+     "tech"),
+    (["gear ratio", "gear ratios", "gearing", "transmission ratio", "final drive"],
+     "Factory 6-speed: 3.636 first, 2.235 second, 1.521 third, 1.137 fourth, 0.971 fifth, 0.756 sixth. Final drive 3.900. Same gearbox, same ratios — the TY856 handles the power.",
+     "tech"),
+    (["dccd modes", "center diff modes", "diff settings"],
+     "DCCD has Auto, Auto minus, Auto plus, and 6 manual lock positions. Default split is 41 front, 59 rear. Auto mode reads wheel speed, throttle, steering angle, and yaw rate to bias torque in real time.",
+     "tech"),
+    (["front diff", "rear diff", "differential type", "torsen", "helical"],
+     "Front: helical limited-slip. Rear: Torsen Type 1 limited-slip. Combined with the DCCD center diff, all three differentials are limited-slip. Full-time AWD with real mechanical grip management.",
+     "tech"),
+    (["fuel tank", "tank size", "how much fuel", "gas tank"],
+     "60 liter tank. Highway range roughly 360 to 540 km depending on right foot discipline. Flex fuel capable — E85 costs less per liter but uses more volume.",
+     "tech"),
+    (["factory weakness", "known issues", "common problems", "ej problems"],
+     "The stock EJ257 has four known failure modes: ringland cracking from detonation, rod bearing spin without oil monitoring, head gasket weep, and weak 5th gear synchro. This build addressed all four — closed-deck block, Killer B oil pickup, ARP head studs, and the 6-speed is stock but monitored.",
+     "tech"),
+
     # === TIER 1: Fuel Economy & Range ===
     (["fuel economy", "consumption", "mpg", "km per liter"],
      "Highway: 7 to 9 km per liter. City: 5 to 6. Full boost sprints kill that — it is a 390 wheel horsepower car, economy is what it is.",
