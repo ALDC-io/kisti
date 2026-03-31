@@ -177,8 +177,8 @@ WAKE_WORDS = [
     "hey ki",  # shortest "hey" variant — only matches if nothing longer does
     # Common Whisper misheards
     "keys to", "keeps to", "key stee",
-    "ki sti", "kist", "key sti", "kissty", "dc",
-    "he's to", "hes to", "kesti", "he's the",
+    "ki sti", "kist", "key sti", "kissty",
+    "kesti",
     # Common Whisper misheards of "Jarvis" (USB mic + gain distortion)
     "nervous", "service", "jervis", "gervis", "jarvus",
     "harvest", "jarves", "javas", "travis",
