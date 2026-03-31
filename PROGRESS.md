@@ -346,3 +346,33 @@ Added complete Mission Raceway track day session with 6 laps (1 warm-up, 3 hot, 
 - Update src/app/page.tsx pit engineer card: name "DGX Spark", role "Pit-Side AI", spec "1 PFLOP, 128GB, 1.2 kg", URL to nvidia.com/products/workstations/dgx-spark/, bg-white
 - Update nvidia-sponsorship-letter.md with final three-tier ask details (currently template version)
 - Save sponsorship docs to Nextcloud: `/home/aldc/nextcloud-rclone/ALDC Management/CCE_projects/02-ai-chat-visualization/2026-03-20-kisti-edge-ai-codriver/`
+
+## Session: 2026-03-31 — Sponsorship Narrative Rewrite + Hardware Alignment
+
+### Completed
+- **Sponsorship letter complete rewrite**: Pivoted from enterprise capability showcase to grassroots accessibility narrative. Subject: "Garage-Built AI Co-Driver Running on Jetson". Core argument: "NVIDIA made automotive AI accessible to regular people...The kind of people who don't drive McLarens and don't know anyone who does...That market — grassroots, aftermarket, enthusiast automotive AI — exists now, and NVIDIA is the reason."
+- **Three-tier hardware ask crystallized**: In-car (AGX Thor: 1,000+ TOPS, 128GB, 40-130W configurable), Pit-side (DGX Spark: 1 PFLOP, 128GB, 1.2kg), Cloud (Zeus Memory: 3.5M+ memories). Explicit hardware specs + NVIDIA product URLs in sponsorship letter.
+- **Website hardware audit + fixes**: Found and fixed 8 locations across 5 files (src/app/page.tsx ×2, src/app/tech/page.tsx ×4, src/app/partners/page.tsx, src/lib/kistiGraph.ts) changing from Orin NX (100 TOPS, 16GB) to AGX Thor (1,000+ TOPS, 128GB) to align with sponsorship ask.
+- **Image optimization**: Downloaded NVIDIA Jetson AGX Thor product shot from official CDN (developer.download.nvidia.com), optimized from 7.4MB to 55KB using ffmpeg scale filter while preserving white background quality.
+- **Nextcloud archival**: Saved sponsorship documents (letter + strategy) to Nextcloud with markdown formatting for proper rendering.
+- **Production deploy**: Merged kisti-headless to main, pushed to GitHub, Vercel auto-deployed. Site now shows AGX Thor (1,000+ TOPS, 128GB LPDDR5X) + DGX Spark (1 PFLOP, 128GB, 1.2kg) across all pages.
+
+### Learnings
+- **Sponsorship angle correction**: The pitch is NOT about showcasing what Jetson hardware can do (enterprise story). It's about showing that Jetson *enabled* garage builders to do what was previously only accessible to OEMs (grassroots story). This distinction reversed the entire narrative arc.
+- **Website-sponsorship alignment critical**: Site was showing aspirational Orin NX while sponsorship letter asked for AGX Thor. Mixed messaging breaks credibility. Site must always reflect actual hardware ask, not future aspirations.
+- **Official CDN sources over marketing**: NVIDIA developer.download.nvidia.com proved more reliable than PNY marketing CDN for product images. Also more authoritative for long-term links.
+- **Markdown for Nextcloud archival**: Plain text doesn't render properly in Nextcloud. Keep markdown formatting (**bold**, ## headings) in archived documentation copies.
+- **Git stash pattern for merge conflicts**: When local changes block checkout, use `git stash --include-untracked` → `checkout` → `merge` → `push` → `stash pop` workflow. Clean, atomic, low friction.
+
+### Failed Approaches
+- **Enterprise-capability pitch**: Initial sponsorship framing focused on demonstrating edge AI capabilities ("Look what you can do on Jetson"). Didn't resonate. Corrected to accessibility pitch ("Look who can now do this, not just McLaren").
+- **Plain text for Nextcloud**: Attempted to convert markdown sponsorship letter to plain text for email readability. Broke Nextcloud rendering. Reverted to markdown for archival + separate email review.
+- **WebFetch on NVIDIA marketing pages**: Tried to fetch NVIDIA product images from public marketing site — returned 404. Switched to developer.download.nvidia.com CDN which has official product shots.
+
+### Key Decision
+- **AGX Thor on site is non-aspirational**: We have an Orin Nano currently installed, but sponsorship ask is for AGX Thor. Site correctly reflects the ask (Thor), not the current hardware (Nano). This keeps messaging aligned with partnership proposal.
+
+### Next Steps
+- Confirm sponsorship letter resonates in actual NVIDIA business development call
+- Monitor kisti.analyticlabs.io production metrics (PostHog) for visitor intent signals
+- E85 sustainability angle in messaging (renewable fuel + edge AI = differentiated story)
