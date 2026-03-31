@@ -55,6 +55,22 @@ const LINK_PRODUCTS = [
   },
 ];
 
+const NVIDIA_PRODUCTS = [
+  {
+    id: "jetson-orin-nx",
+    src: "/assets/nvidia_jetson_orin_nx.jpg",
+    name: "Jetson Orin NX 16GB",
+    role: "Edge Compute",
+    spec: "100 TOPS, 16GB LPDDR5",
+    url: "https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/jetson-orin/",
+    widthMm: 69.6,
+    heightMm: 45,
+    targetX: 50,
+    targetY: 88,
+    sizeClass: "w-40 lg:w-full",
+  },
+];
+
 /* ------------------------------------------------------------------ */
 
 interface LeaderLine {
@@ -63,6 +79,7 @@ interface LeaderLine {
   y1: number;
   x2: number;
   y2: number;
+  color: string;
 }
 
 export default function Home() {
@@ -72,6 +89,7 @@ export default function Home() {
   /* Leader-line state */
   const sectionRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const nvidiaCardRefs = useRef<Map<string, HTMLElement>>(new Map());
   const [lines, setLines] = useState<LeaderLine[]>([]);
   const [svgSize, setSvgSize] = useState({ w: 0, h: 0 });
 
@@ -116,6 +134,23 @@ export default function Home() {
           svgRect.left + oX + (p.targetX / 100) * rW - sectionRect.left,
         y2:
           svgRect.top + oY + (p.targetY / 100) * rH - sectionRect.top,
+        color: "#f59e0b",
+      });
+    }
+    for (const p of NVIDIA_PRODUCTS) {
+      const card = nvidiaCardRefs.current.get(p.id);
+      if (!card) continue;
+      const cr = card.getBoundingClientRect();
+
+      next.push({
+        id: p.id,
+        x1: cr.left - sectionRect.left,
+        y1: cr.top + cr.height / 2 - sectionRect.top,
+        x2:
+          svgRect.left + oX + (p.targetX / 100) * rW - sectionRect.left,
+        y2:
+          svgRect.top + oY + (p.targetY / 100) * rH - sectionRect.top,
+        color: "#76b900",
       });
     }
     setLines(next);
@@ -219,6 +254,68 @@ export default function Home() {
                 streams={state.streams}
               />
             </div>
+
+            {/* Nvidia Hardware — right panel */}
+            <div
+              className={`shrink-0 transition-all duration-300 lg:w-56 ${
+                selectedNodeId
+                  ? "pointer-events-none opacity-0 lg:w-0 lg:overflow-hidden"
+                  : ""
+              }`}
+            >
+              <div className="mb-4 flex items-center gap-2">
+                <img
+                  src="/assets/jetson_orin_logo.svg"
+                  alt="NVIDIA Jetson"
+                  className="h-4"
+                  draggable={false}
+                />
+                <span className="text-xs font-semibold uppercase tracking-wider text-foreground/40">
+                  Edge AI Platform
+                </span>
+              </div>
+
+              <div className="flex gap-3 overflow-x-auto pb-2 lg:flex-col lg:items-center lg:gap-4 lg:overflow-visible lg:pb-0">
+                {NVIDIA_PRODUCTS.map((product) => (
+                  <a
+                    key={product.id}
+                    ref={(el) => {
+                      if (el) nvidiaCardRefs.current.set(product.id, el);
+                      else nvidiaCardRefs.current.delete(product.id);
+                    }}
+                    href={product.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`group flex flex-col overflow-hidden rounded-xl border border-white/10 bg-white/5 transition-colors hover:border-edge-compute/30 hover:bg-white/[0.08] lg:min-w-0 ${product.sizeClass}`}
+                  >
+                    <div
+                      className="overflow-hidden bg-black"
+                      style={{
+                        aspectRatio: `${product.widthMm} / ${product.heightMm}`,
+                      }}
+                    >
+                      <img
+                        src={product.src}
+                        alt={product.name}
+                        className="h-full w-full object-contain p-2 transition-transform group-hover:scale-105"
+                        draggable={false}
+                      />
+                    </div>
+                    <div className="p-2.5">
+                      <div className="text-[10px] font-semibold uppercase tracking-wider text-edge-compute/80">
+                        {product.role}
+                      </div>
+                      <p className="mt-0.5 text-sm font-semibold text-foreground">
+                        {product.name}
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-foreground/40">
+                        {product.spec}
+                      </p>
+                    </div>
+                  </a>
+                ))}
+              </div>
+            </div>
           </div>
 
           {/* Leader lines overlay — desktop only */}
@@ -230,7 +327,7 @@ export default function Home() {
             >
               <defs>
                 <marker
-                  id="leader-dot"
+                  id="leader-dot-amber"
                   viewBox="0 0 10 10"
                   refX="5"
                   refY="5"
@@ -239,15 +336,27 @@ export default function Home() {
                 >
                   <circle cx="5" cy="5" r="4" fill="#f59e0b" opacity="0.8" />
                 </marker>
+                <marker
+                  id="leader-dot-green"
+                  viewBox="0 0 10 10"
+                  refX="5"
+                  refY="5"
+                  markerWidth="5"
+                  markerHeight="5"
+                >
+                  <circle cx="5" cy="5" r="4" fill="#76b900" opacity="0.8" />
+                </marker>
               </defs>
               {lines.map((l) => {
                 const dx = l.x2 - l.x1;
-                // Control points: leave card horizontally, arrive at target horizontally
                 const cx1 = l.x1 + dx * 0.45;
                 const cx2 = l.x2 - dx * 0.25;
+                const markerId =
+                  l.color === "#76b900"
+                    ? "leader-dot-green"
+                    : "leader-dot-amber";
                 return (
                   <g key={l.id}>
-                    {/* Shadow for contrast on dark bg */}
                     <path
                       d={`M${l.x1},${l.y1} C${cx1},${l.y1} ${cx2},${l.y2} ${l.x2},${l.y2}`}
                       stroke="black"
@@ -255,36 +364,33 @@ export default function Home() {
                       fill="none"
                       opacity={0.15}
                     />
-                    {/* Dashed leader */}
                     <path
                       d={`M${l.x1},${l.y1} C${cx1},${l.y1} ${cx2},${l.y2} ${l.x2},${l.y2}`}
-                      stroke="#f59e0b"
+                      stroke={l.color}
                       strokeWidth={1.5}
                       strokeDasharray="8 5"
                       fill="none"
                       opacity={0.5}
-                      markerEnd="url(#leader-dot)"
+                      markerEnd={`url(#${markerId})`}
                       className="animate-leader-dash"
                     />
-                    {/* Source dot */}
                     <circle
                       cx={l.x1}
                       cy={l.y1}
                       r={3}
-                      fill="#f59e0b"
+                      fill={l.color}
                       opacity={0.6}
                     />
-                    {/* Target pulse ring */}
                     <circle
                       cx={l.x2}
                       cy={l.y2}
                       r={6}
                       fill="none"
-                      stroke="#f59e0b"
+                      stroke={l.color}
                       strokeWidth={1}
                       opacity={0.25}
                       className="animate-node-glow"
-                      style={{ color: "#f59e0b" }}
+                      style={{ color: l.color }}
                     />
                   </g>
                 );
@@ -354,6 +460,32 @@ export default function Home() {
               <div className="flex-1" style={{ minHeight: 320 }}>
                 <PitEngineerView state={state} />
               </div>
+              <a
+                href="https://www.nvidia.com/en-us/data-center/h100/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group mt-3 flex items-center gap-4 overflow-hidden rounded-xl border border-white/10 bg-white/5 transition-colors hover:border-edge-compute/30 hover:bg-white/[0.08]"
+              >
+                <div className="h-20 w-32 shrink-0 overflow-hidden bg-[#1a3a6b]">
+                  <img
+                    src="/assets/nvidia_h100.jpg"
+                    alt="NVIDIA HGX H100"
+                    className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                    draggable={false}
+                  />
+                </div>
+                <div className="py-2 pr-4">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-edge-compute/80">
+                    Cloud Inference
+                  </div>
+                  <p className="mt-0.5 text-sm font-semibold text-foreground">
+                    NVIDIA HGX H100
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-foreground/40">
+                    3,958 TFLOPS FP8, 80GB HBM3
+                  </p>
+                </div>
+              </a>
             </div>
           </div>
         </section>
