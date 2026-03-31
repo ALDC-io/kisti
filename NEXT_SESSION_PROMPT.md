@@ -47,20 +47,20 @@
 
 ## Section 2: Prioritized TODO for kisti-15
 
-### 1. Deploy kisti-14 Changes to Jetson (HIGH)
-- [ ] `git push` on workstation, `ssh aldc@192.168.22.131 "cd repos/kisti && git pull"` on Jetson
-- [ ] Add `ANTHROPIC_API_KEY` to Jetson environment (in `~/k` launcher or `.env`)
-- [ ] Restart KiSTI to pick up frontier engine + jokes
+### 1. Restart KiSTI with Frontier Engine (HIGH — code deployed, key set)
+- [x] `git push` + Jetson `git pull` — DONE
+- [x] `ANTHROPIC_API_KEY` set in `~/k` launcher — DONE
+- [ ] Restart KiSTI: `ssh aldc@192.168.22.131 "~/k"` (kills old, starts with frontier)
 - [ ] Test: ask a general knowledge question → should get Claude Haiku response
 - [ ] Test: ask "tell me a joke" multiple times → should get different jokes
 - [ ] Check logs for "Frontier LLM engine started" and "Frontier cache hit/miss" messages
 
-### 2. Regenerate Wake Word Samples + Train (HIGH — blocked on sample gen)
-- [ ] `/tmp/kisti_wake_samples/` was lost (reboot/cleanup). Regenerate:
-  `ssh aldc@192.168.22.131 "cd repos/kisti && python3 scripts/train_wake_word.py"`
-- [ ] This generates 200 positive + 500 negative synthetic samples, then trains custom verifier
-- [ ] Output model: `/data/models/hey_kisti.pkl`
-- [ ] Set `KISTI_WAKE_MODEL=/data/models/hey_kisti.pkl` in `~/k`
+### 2. Complete Wake Word Training (HIGH — training in progress on Jetson)
+- [x] Samples regenerated: 100 positive + 200 negative in `/tmp/kisti_wake_samples/`
+- [x] Training kicked off: PID 40696 on Jetson (`python3 scripts/train_wake_word.py`)
+- [ ] Check if training completed: `ls -la /data/models/hey_kisti.pkl`
+- [ ] If model exists, add to `~/k`: `export KISTI_WAKE_MODEL=/data/models/hey_kisti.pkl`
+- [ ] If training failed, check logs and retry: `python3 scripts/train_wake_word.py`
 - [ ] Record ~50 real "Hey KiSTI" samples with JK's voice:
   `python3 scripts/record_wake_samples.py --count 50`
 - [ ] Retrain with combined synthetic + real for better accuracy
@@ -105,9 +105,9 @@
 ## Section 4: Test Baseline
 
 ```
-804 passed in 44.33s (workstation, 2026-03-31)
-Breakdown: 767 (kisti-13 baseline) + 11 (jokes) + 26 (frontier engine)
-Jetson: changes NOT yet deployed
+805 passed in 45.06s (workstation, 2026-03-31)
+Breakdown: 767 (kisti-13 baseline) + 12 (jokes) + 26 (frontier engine)
+Jetson: code deployed (commit 0ca70d0), needs restart
 ```
 
 ## Section 5: Jetson System State
@@ -120,9 +120,10 @@ Jetson: changes NOT yet deployed
 - **WiFi**: Connected
 - **Piper voices**: 10 available at `/data/piper/`
 - **TTS cache**: 420 .cache files (prewarm complete)
-- **Wake samples**: `/tmp/kisti_wake_samples/` DOES NOT EXIST — needs regeneration
-- **Branch**: `kisti-headless` (kisti-14 changes NOT yet pushed/deployed)
-- **ANTHROPIC_API_KEY**: NOT yet set on Jetson
+- **Wake samples**: 100 positive + 200 negative in `/tmp/kisti_wake_samples/`. Training PID 40696 may have completed
+- **Branch**: `kisti-headless` (kisti-14 deployed, commit `0ca70d0`)
+- **ANTHROPIC_API_KEY**: Set in `~/k` launcher (Max plan key)
+- **KiSTI needs restart**: Running old code (PID 2416). Run `~/k` to pick up frontier + 500 jokes
 
 ## Section 6: Architecture — Frontier LLM Integration
 
