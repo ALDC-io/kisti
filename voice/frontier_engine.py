@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import threading
 import time
 import urllib.error
@@ -58,6 +59,18 @@ CREATE TABLE IF NOT EXISTS frontier_cache (
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _strip_markdown(text: str) -> str:
+    """Strip markdown formatting so TTS doesn't speak asterisks/hashes."""
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)   # **bold**
+    text = re.sub(r'\*(.+?)\*', r'\1', text)         # *italic*
+    text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)  # # headers
+    text = re.sub(r'`(.+?)`', r'\1', text)           # `code`
+    text = re.sub(r'^\s*[-*]\s+', '', text, flags=re.MULTILINE)  # - bullets
+    text = re.sub(r'\n{2,}', '. ', text)              # double newlines → period
+    text = re.sub(r'\n', ' ', text)                    # single newlines → space
+    return text.strip()
 
 
 class FrontierLLMEngine:
@@ -358,6 +371,8 @@ class FrontierLLMEngine:
         if memory_context and si_drive_mode != "Sport Sharp":
             system_prompt += f"\n\nRelevant memories:\n{memory_context}"
 
+        system_prompt += "\n\nIMPORTANT: Never use markdown formatting (no **, *, #, `, or bullet points). Speak in plain text — your output is read aloud by text-to-speech."
+
         if si_drive_mode == "Sport":
             system_prompt += "\n\nSPORT MODE: One sentence max. Numbers and status only."
         elif si_drive_mode == "Sport Sharp":
@@ -400,7 +415,7 @@ class FrontierLLMEngine:
                 log.warning("Frontier API returned empty response")
                 return None
 
-            return text
+            return _strip_markdown(text)
 
         except urllib.error.HTTPError as exc:
             log.warning("Frontier API HTTP error %d: %s", exc.code, exc.reason)

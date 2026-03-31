@@ -32,7 +32,7 @@ from voice.frontier_engine import FrontierLLMEngine
 # would miss persona matching and go to the frontier engine.
 PREWARM_QUERIES: list[tuple[str, str]] = [
     # Automotive fundamentals
-    ("auto", "Why do boxer engines have unequal length headers?"),
+    ("auto", "Why do Subaru EJ engines have unequal length headers while Porsche boxers use equal length?"),
     ("auto", "What is the difference between open deck and closed deck engine blocks?"),
     ("auto", "How does a turbocharger wastegate work?"),
     ("auto", "What causes turbo lag and how do you reduce it?"),

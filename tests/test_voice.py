@@ -549,7 +549,9 @@ class TestExpandedPersona:
         assert _match_persona("Who tunes you?") is not None
 
     def test_can_bus(self):
-        assert _match_persona("How does the CAN bus work?") is not None
+        # "How does" is a general knowledge signal → frontier passthrough
+        # Direct question about KiSTI's CAN still matches persona
+        assert _match_persona("Tell me about your CAN bus") is not None
 
     def test_emergency(self):
         assert _match_persona("I think there's a problem") is not None
@@ -1169,9 +1171,12 @@ class TestTier2DrivingTechnique:
     """Tests for TIER 2 driving technique responses."""
 
     def test_braking_technique(self):
+        # "What is" is a general knowledge signal → frontier passthrough
+        # Direct question about KiSTI's brakes still matches persona
         result = _match_persona("What is trail braking technique?")
+        assert result is None  # → frontier handles general technique questions
+        result = _match_persona("How are your brakes?")
         assert result is not None
-        assert "brake" in result.lower() or "trail" in result.lower()
 
     def test_cornering(self):
         result = _match_persona("What's the best racing line?")

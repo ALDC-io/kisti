@@ -470,11 +470,16 @@ def _match_persona(query: str, si_drive_mode: str = "Intelligent") -> Optional[s
       - Intelligent: all categories
       - Sport: safety + tech only, truncated to first sentence
       - Sport Sharp: safety only, truncated to 5 words
+
+    General knowledge questions ("how does", "what is", "why do", "compare",
+    "explain", "difference between") require a higher match score so they
+    pass through to the frontier engine instead of getting canned answers.
     """
     lower = query.lower()
     allowed = _MODE_ALLOWED_CATEGORIES.get(si_drive_mode, {"safety", "tech", "fun"})
     best_score = 0
     best_response = None
+    best_category = None
 
     for keywords, response, category in PERSONA_RESPONSES:
         if category not in allowed:
@@ -483,9 +488,27 @@ def _match_persona(query: str, si_drive_mode: str = "Intelligent") -> Optional[s
         if score > best_score:
             best_score = score
             best_response = response
+            best_category = category
 
     if best_response is None or best_score == 0:
         return None
+
+    # General knowledge questions need a stronger match to avoid
+    # greedy persona catches like "engine" intercepting "how does
+    # a boxer engine work". Safety category always passes through.
+    _GK_SIGNALS = (
+        "how do", "how does", "what is", "what are", "why do", "why does",
+        "explain", "compare", "difference between", "what causes",
+    )
+    _SELF_REFS = ("your", "my ", "you ", " i ", "do i ", "kisti")
+    if (
+        best_category != "safety"
+        and any(s in lower for s in _GK_SIGNALS)
+        and not any(s in lower for s in _SELF_REFS)
+    ):
+        # General knowledge without self-reference: require stronger match
+        if best_score < 10:
+            return None
 
     # Joke sentinel → random selection from 500-joke pool
     if best_response == _JOKE_SENTINEL:
