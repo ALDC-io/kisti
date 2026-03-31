@@ -207,6 +207,11 @@ PERSONA_RESPONSES: list[tuple[list[str], str, str]] = [
      "Under 25 PSI idle warm? Check oil level first. If topped up and still low, Killer B pickup may be clogged — get it scanned.",
      "tech"),
 
+    # === General oil ===
+    (["about your oil", "tell me about oil", "oil system", "how's your oil"],
+     "Motul X-Clean 5W40. 55 PSI at operating temp, 28 at idle. Killer B pickup and IAG AOS keep it clean. Fresh engine — check level every 1,000 km during break-in.",
+     "safety"),
+
     # === Pistons / internals ===
     (["piston", "pistons", "bore", "stroke", "internals", "bottom end", "short block", "forged"],
      "Manley H-Tuff Plus forged pistons. 99.75 mm bore, 79 mm stroke — overbored from the factory 99.5. IAG 750 closed deck, built to hold 750 bhp without flinching.",

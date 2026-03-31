@@ -166,12 +166,16 @@ class PipelineTrace:
 SAMPLE_RATE = 16000
 CHUNK_SIZE = 1024  # samples per audio read
 WAKE_WORDS = [
-    "hey kisti", "hey ki", "kisti",
-    # hey_jarvis_v0.1 wake model — Whisper transcribes as "Jarvis"
-    "jarvis", "hey jarvis",
-    # Common Whisper misheards of "KiSTI"
-    "keys to", "keeps to", "key stee", "keisti",
-    "christy", "cristy", "kisty", "heykisti",
+    # Longest first — stripping logic uses first match, so longer = better
+    "hey kisti", "hey kisty", "hey jarvis",
+    "hey keisti", "hey christy", "hey cristy",
+    "heykisti",
+    # Then shorter wake words
+    "kisti", "kisty", "jarvis", "keisti",
+    "christy", "cristy",
+    "hey ki",  # shortest "hey" variant — only matches if nothing longer does
+    # Common Whisper misheards
+    "keys to", "keeps to", "key stee",
     "ki sti", "kist", "key sti", "kissty", "dc",
     # Common Whisper misheards of "Jarvis" (USB mic + gain distortion)
     "nervous", "service", "jervis", "gervis", "jarvus",
@@ -945,12 +949,29 @@ class VoiceManager(QObject):
         """Start audio playback via PulseAudio (non-blocking).
 
         Returns (Popen, wav_path) so caller can wait and clean up.
+        Uses pacat with raw PCM piped via stdin to eliminate temp file latency.
+        Falls back to paplay + temp WAV if pacat fails.
         PulseAudio must stay running to keep the HDA pin-ctl active on Jetson.
         """
         import subprocess as _sp
-        import tempfile
-        import wave
         try:
+            # Fast path: pipe raw PCM directly to pacat (no temp file)
+            self._aplay_proc = _sp.Popen(
+                ["pacat", "--playback", "--raw",
+                 f"--rate={sample_rate}", "--channels=1", "--format=s16le"],
+                stdin=_sp.PIPE,
+                stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+            )
+            self._aplay_proc.stdin.write(audio_pcm)
+            self._aplay_proc.stdin.close()
+            return self._aplay_proc, None  # No wav_path to clean up
+        except Exception:
+            pass
+
+        # Fallback: temp WAV + paplay
+        try:
+            import tempfile
+            import wave
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
                 wav_path = f.name
             with wave.open(wav_path, "wb") as wf:
