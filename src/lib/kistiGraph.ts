@@ -245,10 +245,10 @@ export const NODES: NodeDef[] = [
     hotThreshold: 95,
     description: "Link ECU G5 Neo 4 — central engine management, CAN bus hub",
   },
-  // Jetson Orin — trunk area
+  // Jetson Orin NX — trunk area
   {
     id: "jetson",
-    label: "Jetson Orin",
+    label: "Jetson Orin NX",
     type: "edge-compute",
     x: 50,
     y: 88,
@@ -258,7 +258,7 @@ export const NODES: NodeDef[] = [
     warnThreshold: 75,
     hotThreshold: 90,
     description:
-      "NVIDIA Jetson Orin — edge inference, telemetry aggregation, cloud sync",
+      "NVIDIA Jetson Orin NX Super Developer Kit 16GB — edge inference, telemetry aggregation, cloud sync",
   },
 ];
 
