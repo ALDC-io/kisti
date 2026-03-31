@@ -500,15 +500,26 @@ def _match_persona(query: str, si_drive_mode: str = "Intelligent") -> Optional[s
         "how do", "how does", "what is", "what are", "why do", "why does",
         "explain", "compare", "difference between", "what causes",
     )
-    _SELF_REFS = ("your", "my ", "you ", " i ", "do i ", "kisti")
+    _SELF_REFS = ("your", "my ", "you", " i ", "do i ", "kisti")
     if (
         best_category != "safety"
         and any(s in lower for s in _GK_SIGNALS)
         and not any(s in lower for s in _SELF_REFS)
     ):
-        # General knowledge without self-reference: require stronger match
         if best_score < 10:
             return None
+
+    # Short fragments without context should fall through to frontier.
+    # Queries under 5 words with only one keyword match are likely
+    # sentence fragments from VAD splits, not real questions about KiSTI.
+    word_count = len(lower.split())
+    if (
+        best_category != "safety"
+        and word_count <= 3
+        and best_score <= 6
+        and not any(s in lower for s in _SELF_REFS)
+    ):
+        return None
 
     # Joke sentinel → random selection from 500-joke pool
     if best_response == _JOKE_SENTINEL:

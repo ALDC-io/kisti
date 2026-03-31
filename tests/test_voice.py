@@ -212,7 +212,7 @@ class TestPersonaMatching:
         assert _match_persona("How are the brakes?") is not None
 
     def test_turbo_keywords(self):
-        assert _match_persona("How's the boost?") is not None
+        assert _match_persona("How's your boost?") is not None
 
     def test_identity_keywords(self):
         result = _match_persona("Who are you?")
@@ -591,7 +591,7 @@ class TestModeAwarePersona:
     def test_intelligent_returns_all_categories(self):
         """Intelligent mode returns fun, tech, and safety."""
         assert _match_persona("Who are you?", "Intelligent") is not None  # fun
-        assert _match_persona("How's the boost?", "Intelligent") is not None  # tech
+        assert _match_persona("How's your boost?", "Intelligent") is not None  # tech
         assert _match_persona("How are the brakes?", "Intelligent") is not None  # safety
 
     def test_sport_blocks_fun(self):
@@ -601,7 +601,7 @@ class TestModeAwarePersona:
 
     def test_sport_allows_tech(self):
         """Sport mode allows tech-category responses."""
-        result = _match_persona("How's the boost?", "Sport")
+        result = _match_persona("How's your boost?", "Sport")
         assert result is not None
 
     def test_sport_allows_safety(self):
