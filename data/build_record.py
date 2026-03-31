@@ -11,7 +11,7 @@ Body odometer at install: 113,736 km
 Engine hours at install: 0
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 
 INSTALL_DATE = date(2026, 3, 27)
@@ -42,7 +42,10 @@ class EngineSpec:
     cast_stamp: str = "EJ25"
     machined_stamps: tuple = ("22222", "91 BB", "16 BB")
 
-    # Bottom end
+    # Bottom end — pistons & short block
+    pistons: str = "Manley H-Tuff Plus Forged"
+    bore_mm: float = 99.75   # overbored from factory 99.5 mm
+    stroke_mm: float = 79.0
     head_studs: str = "ARP Custom Age DOHC"
     oil_pickup: str = "IAG Upper Windage Tray & Oil Pickup"
     rear_main_seal: str = "OEM"
@@ -206,3 +209,134 @@ Fuel base {BASELINES.fuel_base_psi} PSI, rises 1:1 with boost. AFR cruise {BASEL
 
 Casting: {ENGINE.casting}, batch {ENGINE.batch_code}, stamps {', '.join(ENGINE.machined_stamps)}.
 Installed {INSTALL_DATE}. Body: {BODY_KM_AT_INSTALL:,} km. Engine: 0 km — fresh build, pre-first start."""
+
+
+# ========================================================================
+# Factory specifications — 2014 Subaru WRX STI (GR chassis) as delivered.
+# Used for before/after comparisons in persona responses.
+# ========================================================================
+
+@dataclass(frozen=True)
+class FactorySpec:
+    """Factory specs for the 2014 Subaru WRX STI (GR chassis, USDM)."""
+
+    # Engine
+    engine_code: str = "EJ257"
+    config: str = "Flat-4 DOHC 16-valve AVCS, open-deck aluminum"
+    displacement_cc: int = 2457
+    bore_mm: float = 99.5
+    stroke_mm: float = 79.0
+    compression_ratio: str = "8.2:1"
+    hp: int = 305
+    hp_rpm: int = 6000
+    torque_lb_ft: int = 290
+    torque_rpm: int = 4000
+    redline_rpm: int = 6700
+    rev_limiter_rpm: int = 7200
+    fuel_octane_min: int = 91
+
+    # Turbo
+    turbo: str = "IHI VF48 (twin-scroll, journal bearing)"
+    factory_boost_psi: float = 14.7
+    wastegate: str = "Internal swing-valve, ECU-controlled 3-port solenoid"
+
+    # Transmission
+    trans: str = "6-speed manual (TY856WB9AA)"
+    gear_1: float = 3.636
+    gear_2: float = 2.235
+    gear_3: float = 1.521
+    gear_4: float = 1.137
+    gear_5: float = 0.971
+    gear_6: float = 0.756
+    gear_reverse: float = 3.545
+    final_drive: float = 3.900
+
+    # Drivetrain
+    dccd: str = "Planetary gear center diff, electromagnetic + mechanical LSD"
+    default_split: str = "41% front / 59% rear"
+    front_diff: str = "Helical limited-slip"
+    rear_diff: str = "Torsen Type-1 limited-slip"
+
+    # Brakes
+    front_brake: str = "Brembo 4-piston monoblock, 326 mm x 30 mm ventilated cross-drilled"
+    rear_brake: str = "Brembo 2-piston monoblock, 316 mm x 20 mm ventilated cross-drilled"
+    brake_fluid: str = "DOT 4"
+
+    # Suspension
+    front_suspension: str = "MacPherson strut, inverted"
+    front_spring_rate: str = "4.0 kg/mm (224 lb/in)"
+    front_sway_bar_mm: int = 24
+    rear_suspension: str = "Double wishbone (multi-link) with pillow ball mounts"
+    rear_spring_rate: str = "3.5 kg/mm (196 lb/in)"
+    rear_sway_bar_mm: int = 19
+
+    # Wheels & tires
+    wheels: str = "18 x 8.5J ET55, 5x114.3"
+    tires: str = "245/40R18 Dunlop SP Sport Maxx RT"
+
+    # Weight & dimensions
+    curb_weight_kg: int = 1536
+    curb_weight_lbs: int = 3386
+    weight_distribution: str = "60% front / 40% rear"
+    wheelbase_mm: int = 2625
+    track_front_mm: int = 1530
+    track_rear_mm: int = 1530
+    length_mm: int = 4580
+    width_mm: int = 1795
+    height_mm: int = 1470
+    ground_clearance_mm: int = 155
+
+    # Fuel system
+    injectors: str = "Denso 565 cc top-feed"
+    fuel_pump: str = "In-tank electric, ~255 LPH (Denso)"
+    fuel_rail_psi: float = 43.5
+    fuel_tank_liters: int = 60
+
+    # Cooling
+    radiator: str = "Aluminum core, plastic end tanks, 2-row"
+    intercooler: str = "Top-mount air-to-air (TMIC)"
+    oil_cooler: str = "Air-to-oil, front-mounted"
+    coolant_capacity_liters: float = 6.2
+    thermostat_open_c: float = 76.5
+
+    # Electrical
+    alternator_amps: int = 110
+    spark_plugs: str = "NGK ILFR6B iridium (gap 0.7-0.8 mm)"
+    ecu: str = "Denso"
+
+    # Oil
+    oil_spec: str = "5W-30"
+    oil_capacity_liters: float = 4.7
+
+    # Performance
+    zero_to_sixty_s: str = "4.7-5.0"
+    quarter_mile_s: str = "13.2-13.5 @ 102-104 mph"
+    top_speed_mph: int = 155
+    lateral_g: str = "0.90-0.95"
+
+    # Known weaknesses
+    known_weaknesses: tuple = (
+        "Ringland failure under detonation (open-deck block)",
+        "Rod bearing spin without oil pressure monitoring",
+        "Head gasket weep (less common on turbo EJ)",
+        "5th gear synchro weak under hard shifting",
+    )
+
+
+FACTORY = FactorySpec()
+
+
+def factory_vs_build() -> str:
+    """Generate a factory vs current build comparison."""
+    return f"""Factory 2014 STI vs current build:
+Engine: {FACTORY.engine_code} open-deck {FACTORY.hp} hp → IAG 750 closed-deck {ENGINE.current_tune_whp} WHP ({ENGINE.power_capability_bhp} bhp capable).
+Block: Factory open-deck aluminum → IAG 750 closed-deck forged. {ENGINE.pistons}, overbored {ENGINE.bore_mm} mm (factory {FACTORY.bore_mm} mm).
+Turbo: {FACTORY.turbo} @ {FACTORY.factory_boost_psi} PSI → {ENGINE.turbo}.
+Fuel: {FACTORY.injectors} → {ENGINE.injectors}, {ENGINE.fuel_pump}, {ENGINE.fuel_regulator}. Flex fuel ready.
+Cooling: Factory 2-row plastic/aluminum → {ENGINE.radiator}, Cyl 4 cooling mod, {ENGINE.oil_separator}.
+Intercooler: Factory TMIC → {ENGINE.intercooler} (front mount).
+Clutch: Factory → {ENGINE.clutch}, {ENGINE.flywheel}.
+ECU: {FACTORY.ecu} → {ENGINE.ecu} standalone.
+Brakes: Factory {FACTORY.front_brake} retained. Fluid upgraded to {ENGINE.brake_fluid}.
+Suspension: Factory inverted struts retained. Swaybars swapped to GR spec. {ENGINE.lower_mounts}.
+Known factory weaknesses addressed: closed-deck block (ringlands), ARP studs (head gaskets), aftermarket oil pickup (bearing protection)."""

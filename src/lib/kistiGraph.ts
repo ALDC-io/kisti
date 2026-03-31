@@ -220,7 +220,7 @@ export const NODES: NodeDef[] = [
   },
   {
     id: "weather-cam",
-    label: "Weather Cam",
+    label: "Weather Station",
     type: "camera",
     x: 70,
     y: 8,
@@ -229,7 +229,7 @@ export const NODES: NodeDef[] = [
     max: 30,
     warnThreshold: 10,
     hotThreshold: 5,
-    description: "Weather and ambient conditions camera — rain, fog, light detection for adaptive driving",
+    description: "Yoctopuce Yocto-Spruce weather station — ambient temperature, humidity, pressure for environmental awareness",
   },
   // Link ECU G5 Neo 4 — center of car
   {

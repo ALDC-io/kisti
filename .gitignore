@@ -8,3 +8,4 @@ __pycache__/
 node_modules/
 *.duckdb
 *.duckdb.wal
+data/tts_cache/

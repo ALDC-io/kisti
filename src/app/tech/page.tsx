@@ -5,13 +5,13 @@ const PIPELINE_STAGES = [
     title: "1. Sensor Layer",
     description:
       "13 high-frequency sensors (brake temps, tire temps, EGT, boost, oil temp/pressure, wideband O₂) sample at 4-10Hz via analog/CAN interfaces.",
-    detail: "Brake FL/FR/RL/RR thermocouples, tire FL/FR/RL/RR infrared sensors, K-type EGT probe, MAP sensor, NTC thermistor, oil pressure sender, Bosch LSU 4.9 wideband.",
+    detail: "Brake FL/FR/RL/RR thermocouples, tire FL/FR/RL/RR infrared sensors, K-type EGT probe, Cobb 4 Bar MAP sensor, GM IAT sensor, 150 PSI oil pressure sensor, flex fuel sensor, Bosch LSU 4.9 wideband.",
   },
   {
     title: "2. Vision Layer",
     description:
       "4 front-mounted cameras feed directly to the Jetson Orin via USB 3.0 and CSI — thermal, depth, visual, and weather sensing.",
-    detail: "Teledyne FLIR thermal IR, 3D LiDAR point cloud, high-speed RGB camera, weather/ambient conditions camera.",
+    detail: "Teledyne FLIR thermal IR, 3D LiDAR point cloud, high-speed RGB camera, Yoctopuce Yocto-Spruce weather station.",
   },
   {
     title: "3. ECU Aggregation",
@@ -22,8 +22,8 @@ const PIPELINE_STAGES = [
   {
     title: "4. Edge Inference",
     description:
-      "NVIDIA Jetson Orin processes telemetry and vision data at the edge — anomaly detection, pattern matching, and predictive diagnostics in <50ms.",
-    detail: "40 TOPS AI performance, TensorRT optimized models, 4 camera inputs, local data buffering when offline.",
+      "NVIDIA Jetson Orin NX processes telemetry and vision data at the edge — anomaly detection, pattern matching, and predictive diagnostics in <50ms.",
+    detail: "100 TOPS AI performance (16GB LPDDR5), TensorRT optimized models, 4 camera inputs, local data buffering when offline.",
   },
   {
     title: "5. Cloud Sync",
@@ -113,6 +113,86 @@ export default function TechPage() {
             ))}
           </div>
 
+          {/* Voice AI Pipeline */}
+          <div className="mt-12 space-y-4">
+            <h2 className="text-xl font-semibold text-foreground/80">
+              Voice AI Pipeline
+            </h2>
+            <p className="text-sm text-foreground/60">
+              Fully offline conversational AI — no cloud dependency, no cellular required. The entire voice stack runs on-device on the Jetson Orin NX.
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {[
+                {
+                  title: "Speech-to-Text",
+                  desc: "whisper.cpp with CUDA acceleration",
+                  detail: "~130ms for 3-second utterances. Custom wake word detection with barge-in echo cancellation.",
+                },
+                {
+                  title: "Text-to-Speech",
+                  desc: "Piper TTS — sub-200ms conversational responses",
+                  detail: "Three voice modes: Informal (personality), Standard (clinical data), Safety-Critical (emergency only).",
+                },
+                {
+                  title: "Edge Memory",
+                  desc: "DuckDB + ONNX embeddings on-device",
+                  detail: "Persistent knowledge across sessions. Voice-activated 'remember' commands. Cloud sync when WiFi available.",
+                },
+                {
+                  title: "Anomaly Detection",
+                  desc: "Real-time pattern matching on telemetry streams",
+                  detail: "Threshold-based alerts sourced from build baselines. Predictive diagnostics with spoken warnings.",
+                },
+              ].map((item) => (
+                <div
+                  key={item.title}
+                  className="rounded-lg border border-white/10 bg-white/5 p-5"
+                >
+                  <h3 className="text-sm font-semibold text-kisti-accent">
+                    {item.title}
+                  </h3>
+                  <p className="mt-1 text-sm text-foreground/70">
+                    {item.desc}
+                  </p>
+                  <p className="mt-1 text-xs text-foreground/40">
+                    {item.detail}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* The Vehicle */}
+          <div className="mt-12 rounded-xl border border-kisti-accent/20 bg-kisti-accent/5 p-6">
+            <h2 className="text-xl font-semibold text-foreground/80">
+              The Vehicle
+            </h2>
+            <p className="mt-3 text-sm text-foreground/60">
+              2014 Subaru WRX STI Hatch. IAG 750 Closed Deck short block (rated 750 BHP), BCP X400 turbo, ID1300 injectors, COBB front-mount intercooler. Full standalone flex fuel tune by Boost Barn Motorsports. Track-tested at Mission Raceway, BC.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {[
+                "E85 Corn Ethanol",
+                "IAG 750 Block",
+                "BCP X400 Turbo",
+                "360-390 WHP",
+                "Link G5 Neo 4 ECU",
+                "Fortune Auto Coilovers",
+                "Competition Clutch Stage 2",
+              ].map((tag) => (
+                <span
+                  key={tag}
+                  className="rounded-full border border-kisti-accent/20 bg-kisti-accent/10 px-3 py-1 text-xs font-medium text-kisti-accent"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+            <p className="mt-4 text-xs text-foreground/40">
+              Runs exclusively on E85 — corn-derived ethanol. One of the few edge AI automotive platforms powered by renewable fuel.
+            </p>
+          </div>
+
           {/* Specs */}
           <div className="mt-12 grid gap-4 sm:grid-cols-3">
             {[
@@ -120,7 +200,7 @@ export default function TechPage() {
               { label: "Sample Rate", value: "4-10 Hz" },
               { label: "Edge Latency", value: "<50ms" },
               { label: "CAN Speed", value: "500 Kbps" },
-              { label: "AI Performance", value: "40 TOPS" },
+              { label: "AI Performance", value: "100 TOPS" },
               { label: "Cloud Memories", value: "3.5M+" },
             ].map((spec) => (
               <div

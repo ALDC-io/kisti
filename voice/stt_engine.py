@@ -88,7 +88,7 @@ def _is_hallucination(text: str) -> bool:
         "huh",
     ]
     for h in hallucinations:
-        if lower == h or lower.startswith(h):
+        if lower == h:
             return True
     return False
 
@@ -206,6 +206,11 @@ class STTEngine:
             f'Content-Disposition: form-data; name="temperature"\r\n\r\n0.0\r\n'
             f"--{boundary}\r\n"
             f'Content-Disposition: form-data; name="response_format"\r\n\r\njson\r\n'
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="language"\r\n\r\nen\r\n'
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="initial_prompt"\r\n\r\n'
+            f"Hey KiSTI, the AI co-driver. Boost, oil, brake, tire, RPM, ECU, turbo, PSI.\r\n"
             f"--{boundary}--\r\n"
         ).encode()
 
