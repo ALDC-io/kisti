@@ -101,6 +101,11 @@ class FrontierLLMEngine:
         if self._running:
             return
 
+        # Cannot start without API key
+        if not self._api_key:
+            log.warning("No API key — frontier engine disabled")
+            return
+
         # Initialize cache table if we have a DB connection
         if self._conn:
             try:
@@ -110,20 +115,16 @@ class FrontierLLMEngine:
                 log.warning("Failed to create frontier_cache table: %s", exc)
 
         # Start WiFi checker thread
-        if self._api_key:
-            self._stop_wifi_check = False
-            self._wifi_check_thread = threading.Thread(
-                target=self._wifi_checker, daemon=True
-            )
-            self._wifi_check_thread.start()
-            log.info(
-                "Frontier LLM engine started (model=%s, WiFi check every %.0fs)",
-                self._model,
-                self.WIFI_CHECK_INTERVAL_S,
-            )
-        else:
-            log.warning("No API key — frontier engine disabled")
-
+        self._stop_wifi_check = False
+        self._wifi_check_thread = threading.Thread(
+            target=self._wifi_checker, daemon=True
+        )
+        self._wifi_check_thread.start()
+        log.info(
+            "Frontier LLM engine started (model=%s, WiFi check every %.0fs)",
+            self._model,
+            self.WIFI_CHECK_INTERVAL_S,
+        )
         self._running = True
 
     def stop(self) -> None:

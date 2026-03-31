@@ -334,7 +334,16 @@ class VoiceManager(QObject):
         self._stt.start()
         self._tts.start()
         if self._frontier:
-            self._frontier.start()
+            # Check settings to see if user has enabled frontier cloud
+            # Default to enabled if no setting exists (opt-in by default)
+            frontier_enabled = True
+            if self._edge_memory:
+                frontier_enabled = self._edge_memory.get_setting_bool("frontier_enabled", default=True)
+
+            if frontier_enabled:
+                self._frontier.start()
+            else:
+                log.info("Frontier cloud disabled per user settings")
         self._llm.start()
         self._running = True
 
@@ -655,6 +664,13 @@ class VoiceManager(QObject):
         timing_cmd = self._handle_timing_command(lower)
         if timing_cmd:
             resp = VoiceResponse(text=timing_cmd, source="command", tier="system")
+            self._compose_and_speak(resp, user_text=transcription, trace=trace)
+            return
+
+        # Frontier cloud control commands
+        frontier_cmd = self._handle_frontier_command(lower)
+        if frontier_cmd:
+            resp = VoiceResponse(text=frontier_cmd, source="command", tier="system")
             self._compose_and_speak(resp, user_text=transcription, trace=trace)
             return
 
@@ -998,6 +1014,40 @@ class VoiceManager(QObject):
         except Exception as exc:
             log.warning("Audio playback failed: %s", exc)
             return None, None
+
+    def _handle_frontier_command(self, query_lower: str) -> Optional[str]:
+        """Handle frontier cloud control commands.
+
+        Returns spoken confirmation, or None if not a frontier command.
+        Stores consent in edge memory settings table.
+        """
+        if not self._frontier or not self._edge_memory:
+            return None
+
+        # Disable cloud command (check before enable to avoid "activate"→"deactivate" substring match)
+        if any(phrase in query_lower for phrase in ["disable cloud", "turn off cloud", "deactivate cloud"]):
+            if not self._frontier.is_running:
+                return "Cloud is already disabled."
+            self._frontier.stop()
+            self._edge_memory.set_setting_bool("frontier_enabled", False)
+            log.info("Frontier cloud disabled via voice command")
+            return "Cloud disabled."
+
+        # Enable cloud command
+        if any(phrase in query_lower for phrase in ["enable cloud", "turn on cloud", "activate cloud"]):
+            if self._frontier.is_running:
+                return "Cloud is already enabled."
+            self._frontier.start()
+            self._edge_memory.set_setting_bool("frontier_enabled", True)
+            log.info("Frontier cloud enabled via voice command")
+            return "Cloud enabled."
+
+        # Status query
+        if "cloud status" in query_lower or "is cloud" in query_lower:
+            status = "enabled" if self._frontier.is_running else "disabled"
+            return f"Cloud is {status}."
+
+        return None
 
     def _handle_timing_command(self, query_lower: str) -> Optional[str]:
         """Handle voice commands that control timing mode.
