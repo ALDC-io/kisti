@@ -61,6 +61,14 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _truncate_sentences(text: str, max_sentences: int = 2) -> str:
+    """Keep only the first N sentences for concise TTS output."""
+    sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+    if len(sentences) <= max_sentences:
+        return text.strip()
+    return " ".join(sentences[:max_sentences])
+
+
 def _strip_markdown(text: str) -> str:
     """Strip markdown formatting so TTS doesn't speak asterisks/hashes."""
     text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)   # **bold**
@@ -207,6 +215,7 @@ class FrontierLLMEngine:
         # Tier 2: Check local cache first
         cached = self._check_cache(query_hash)
         if cached is not None:
+            cached = _truncate_sentences(cached, max_sentences=2)
             latency = time.monotonic() - start_time
             log.info("Frontier cache hit: %s (%.1fms)", query_hash[:8], latency * 1000)
             return LLMResponse(
@@ -360,7 +369,10 @@ class FrontierLLMEngine:
         si_drive_mode: str,
     ) -> Optional[str]:
         """POST to Claude Messages API. Returns response text or None."""
-        max_tokens = MODE_TOKEN_CAPS.get(si_drive_mode, 64)
+        # Frontier responses must be short — co-driver, not lecturer.
+        # Cap lower than persona to keep TTS snappy.
+        _FRONTIER_TOKEN_CAPS = {"Intelligent": 80, "Sport": 40, "Sport Sharp": 20}
+        max_tokens = _FRONTIER_TOKEN_CAPS.get(si_drive_mode, 40)
         temperature = MODE_TEMPERATURE.get(si_drive_mode, 0.6)
 
         # Build system prompt (same as Ollama path)
@@ -371,7 +383,7 @@ class FrontierLLMEngine:
         if memory_context and si_drive_mode != "Sport Sharp":
             system_prompt += f"\n\nRelevant memories:\n{memory_context}"
 
-        system_prompt += "\n\nIMPORTANT: Never use markdown formatting (no **, *, #, `, or bullet points). Speak in plain text — your output is read aloud by text-to-speech."
+        system_prompt += "\n\nIMPORTANT: You are a voice co-driver. Keep answers to 1-2 short sentences max. Be punchy and direct — the driver is focused on the road. Never use markdown formatting (no **, *, #, `, or bullet points). Plain text only — output is read aloud by text-to-speech."
 
         if si_drive_mode == "Sport":
             system_prompt += "\n\nSPORT MODE: One sentence max. Numbers and status only."
