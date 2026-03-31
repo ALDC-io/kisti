@@ -1141,7 +1141,9 @@ class VoiceManager(QObject):
         # Guard: component-specific temperature queries should NEVER return
         # ambient data. Route to ECU handler (if CAN) or persona (if not).
         _COMPONENT_QUALIFIERS = ("engine", "oil", "coolant", "tire", "tyre",
-                                 "brake", "egt", "exhaust", "transmission", "trans")
+                                 "brake", "egt", "exhaust", "transmission", "trans",
+                                 "cpu", "gpu", "processor", "chip", "board",
+                                 "turbo", "intercooler", "radiator", "differential")
         if any(w in query_lower for w in ["temperature", "temp"]):
             if any(cq in query_lower for cq in _COMPONENT_QUALIFIERS):
                 if not s.can_connected:
