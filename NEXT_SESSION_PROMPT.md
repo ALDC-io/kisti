@@ -2,114 +2,86 @@
 
 **Working dir**: `/home/aldc/repos/kisti/`
 **Jetson**: `192.168.22.131` (user `aldc`). SSH: `ssh aldc@192.168.22.131`
-**Live URL**: N/A (voice mode — KiSTI running fullscreen on Jetson)
 **Test baseline**: 824 tests passing
-**Team session**: `kisti-speaks`
-**Deploy path**: `/home/aldc/repos/kisti/` on Jetson (branch: `kisti-headless`)
-**Launcher**: `~/k` (auto-detects mic, sets ANTHROPIC_API_KEY + KISTI_WAKE_MODEL)
+**Branch**: `kisti-headless` (commit `9b6b85e`)
+**Launcher**: `~/k` (ANTHROPIC_API_KEY + KISTI_WAKE_MODEL + KISTI_NO_WAKE=1)
 
 ## Section 1: What kisti-15 Did
 
-### Task 1: Restart KiSTI with Frontier Engine — DONE
-- Killed old PID 2416, started via `~/k`, verified "Frontier LLM engine started" in logs
-- Standalone frontier test confirmed: boxer engine headers question → Claude Haiku response in ~2s
-- Joke test confirmed: 3/3 unique jokes from `random.choice()` pool
-- Live voice tested by JK: persona matches working ("Can you hear me?", "Tell me about the brakes")
+### Frontier Engine — LIVE & WORKING
+- Restart confirmed, "Frontier LLM engine started" in logs
+- Standalone test: boxer engine query → Claude Haiku response ~2s
+- 3/3 unique jokes from random pool
+- **Prewarm**: 34 queries cached (auto, subaru, tuning, handling, racing, stem)
+- **Markdown stripping**: `_strip_markdown()` before TTS, system prompt says "plain text only"
+- **2-sentence cap**: `_truncate_sentences()` on both live and cached responses
+- **Token cap**: 120 (Intelligent), 60 (Sport), 20 (Sport Sharp) — enough to finish sentences
 
-### Task 2: Wake Word Training — PARTIAL
-- **scipy upgraded** to 1.15.3 (fixes `scipy.io.wavfile` attribute error)
-- **OWW custom verifier can't train new wake word**: base `hey_jarvis` model scores "Hey KiSTI" at 0.00008 (needs 0.5). Architectural mismatch — custom verifier only personalizes existing wake words, can't create new ones
-- **Alternative approach**: trained raw embedding classifier at `/data/models/hey_kisti.pkl` (99.2% accuracy, 50 KB, logistic regression on openwakeword preprocessor features)
-- **pkl model not compatible** with OWW loader in `mic_capture.py` (expects ONNX). Needs integration layer
-- `KISTI_WAKE_MODEL=/data/models/hey_kisti.pkl` added to `~/k` (staged, not active)
-- `train_wake_word.py` already had correct `hey_jarvis` model name
-- **Still needed**: real voice samples (JK), pkl→OWW integration in `mic_capture.py`, or full ONNX training via Colab
+### Persona → Frontier Passthrough — PARTIALLY WORKING, NEEDS MORE TUNING
+- General knowledge signals ("how does", "what is", "compare") bypass persona at score < 10
+- Short fragments (≤3 words, score ≤6, no self-ref) pass to frontier
+- Self-referencing queries ("your engine", "you make") still match persona
+- **Still too greedy on some queries** — JK reported it's "not quite there"
+- VAD splits long sentences (pauses mid-question), fragments hit persona separately
+- **Check logs on startup** — JK wants next session to verify frontier responses are working
 
-### Task 3: Voice Commands for Frontier Control — ALREADY DONE (kisti-14)
-- `_handle_frontier_command` at `voice_manager.py:1018-1050` — fully implemented
-- Commands: "enable cloud", "disable cloud", "cloud status" + 3 variants each
-- DuckDB settings persistence, boot-time consent check, 12 tests
-- No work needed this session
+### Wake Word — BROKEN, BYPASSED
+- OWW can't load pkl model (expects ONNX)
+- Whisper mangles "Hey KiSTI" → "He's to", "Kesti", "See" with USB mic
+- `KISTI_NO_WAKE=1` in `~/k` bypasses wake word requirement (all speech → query)
+- This means KiSTI responds to ALL ambient speech — only for bench testing
+- **Root cause**: USB mic quality + 3x gain + whisper base.en model
 
-### Task 4: Frontier Cache Prewarm + Soak Test — DONE
-- **New**: `scripts/prewarm_frontier_cache.py` — 34 queries across 6 categories (auto, subaru, tuning, handling, racing, stem)
-- **New**: `tests/test_prewarm_frontier.py` — 7 tests
-- **Prewarm executed**: 34/34 queries cached, ~157s total, avg 4s/query
-- **Soak status**: KiSTI running healthy, 943 MB RSS (12%), 4.9 GB available, no errors
-- Cached queries will serve at ~2ms instead of ~4s
+### Wake Word Training
+- scipy upgraded to 1.15.3
+- pkl classifier trained at `/data/models/hey_kisti.pkl` (99.2% accuracy)
+- NOT compatible with OWW loader — needs integration layer in `mic_capture.py`
+- Real voice samples (JK) still needed
+
+### Voice Commands for Frontier Control — ALREADY DONE (kisti-14)
+- "enable cloud" / "disable cloud" / "cloud status" all working with tests
 
 ## Section 2: Prioritized TODO for kisti-16
 
-### 1. Wake Word Integration (HIGH — model trained, needs code)
-- [ ] Add pkl verifier layer to `mic_capture.py` alongside OWW
-- [ ] Load pkl model, extract embeddings from OWW preprocessor, run classifier
-- [ ] If positive + threshold, treat as wake detection
-- [ ] Record 50 real "Hey KiSTI" samples from JK: `python3 scripts/record_wake_samples.py --count 50`
-- [ ] Retrain with real + synthetic samples for better accuracy
-- [ ] Alternative: full ONNX training via Colab notebook (https://github.com/dscripka/openwakeword)
+### 1. Tune Persona→Frontier Scoring (HIGH — JK says "not quite there")
+- Check logs first: `tail -50 /tmp/kisti_startup.log` — are frontier responses reaching TTS?
+- Problem: single-keyword matches ("engine", "subaru", "boxer") intercept general knowledge
+- Current fix: GK signals need score ≥10, fragments ≤3 words blocked without self-ref
+- Consider: weighted scoring (multi-word keywords score higher than single-word), or whitelist approach
+- Key file: `voice/llm_engine.py:488-520` (`_match_persona` scoring logic)
+- Test persona changes against: "compare porsche and subaru boxers", "what is trail braking", "tell me about your engine", "tell me a joke"
 
-### 2. Soak Test Monitoring (MEDIUM — running, needs observation)
-- [ ] Monitor frontier cache hit ratio over time (grep logs for "cache hit/miss")
-- [ ] Check memory usage stability over 24h
-- [ ] Verify WiFi transition handling (connect/disconnect iPhone hotspot)
-- [ ] Ask JK to test general knowledge questions via voice to see frontier responses
-- [ ] Check for DuckDB memory leaks or connection issues
+### 2. JK's Architecture Question: Frontier-First Design
+- JK asked: "should we start with frontier AI with local Zeus memory context and only fall back to local LLM when connectivity is lost?"
+- This inverts the current tier order: frontier → persona → fallback (instead of persona → frontier → fallback)
+- Would make persona a fast-path cache for known questions, frontier the default brain
+- Significant architectural change — needs plan mode
 
-### 3. Zeus Memory Proxy for Frontier (MEDIUM)
-- [ ] Route frontier queries through Zeus API for centralized auth/logging/cost tracking
-- [ ] New Zeus endpoint: `POST /api/v1/chat/completions`
-- [ ] Single API key management, query attribution per device
+### 3. VAD Sentence Splitting
+- VAD cuts sentences on natural pauses, sending fragments separately
+- "Explain the difference between Porsche and [pause] Subaru Boxer Engines" → 2 queries
+- Consider: accumulation buffer that waits for sentence-final intonation or longer silence
 
-### 4. Phase 10: Hardware Integration (BLOCKED on hardware)
-- [ ] GPS09 Pro CAN wiring (JK)
-- [ ] Real GPS data validation
-- [ ] IMU-assisted track learning
+### 4. Wake Word Integration (pkl → OWW bridge)
+- `/data/models/hey_kisti.pkl` exists but `mic_capture.py` expects ONNX
+- Need: load pkl alongside OWW preprocessor, run classifier on embeddings
+- Or: full ONNX training via Colab
+- Record 50 real voice samples: `python3 scripts/record_wake_samples.py --count 50`
 
-## Section 3: Key Files with Line Numbers
+## Section 3: Key Files
 
-| File | Purpose | Key Lines |
-|------|---------|-----------|
-| `voice/frontier_engine.py` | Frontier LLM engine | 63-95 (class), 99-128 (start), 170-234 (query), 243-288 (cache), 324-338 (cache_stats) |
-| `voice/voice_manager.py` | Voice pipeline + commands | 617-675 (command routing), 1018-1050 (_handle_frontier_command), 335-347 (boot consent) |
-| `voice/mic_capture.py` | Mic + OWW wake detection | 75-133 (init + OWW load), 358-460 (OWW predict loop) |
-| `voice/llm_engine.py` | Persona + frontier wire | 440-455 (car jokes), 460-510 (_match_persona), 634-653 (frontier call) |
-| `data/edge_memory.py` | Edge memory + settings | 45 (settings DDL), 375-400 (get/set setting) |
-| `scripts/prewarm_frontier_cache.py` | **NEW** Cache prewarm | 37-72 (PREWARM_QUERIES), 75-120 (prewarm function) |
-| `scripts/train_wake_word.py` | Wake word training | 329-394 (custom verifier — won't work for new wake word) |
-| `tests/test_prewarm_frontier.py` | **NEW** 7 prewarm tests | Full file |
+| File | Key Lines |
+|------|-----------|
+| `voice/llm_engine.py` | 130 (engine keywords), 389 (subaru/joke keywords), 466-525 (_match_persona + GK filter + fragment filter) |
+| `voice/frontier_engine.py` | 63-75 (_strip_markdown + _truncate_sentences), 207-210 (cache truncation), 240 (live truncation), 367-370 (token caps), 380 (plain text system prompt) |
+| `voice/voice_manager.py` | 169-188 (WAKE_WORDS), 835-840 (KISTI_NO_WAKE bypass), 847 (wake word gate) |
+| `voice/mic_capture.py` | 75-164 (OWW init + passthrough) |
+| `scripts/prewarm_frontier_cache.py` | 37-72 (PREWARM_QUERIES) |
 
-## Section 4: Test Baseline
+## Section 4: Jetson State
 
-```
-824 passed in 97.57s (workstation, 2026-03-31)
-Breakdown: 817 (kisti-14) + 7 (frontier prewarm)
-Jetson: running kisti-14 code (commit 0ca70d0) + prewarm script via scp
-```
-
-## Section 5: Jetson System State
-
-- **KiSTI running**: PID 56676, headless mode, voice ON
-- **Frontier engine**: Started, Claude Haiku, WiFi check 30s
-- **Frontier cache**: 34 prewarmed entries in DuckDB
-- **Ollama**: DISABLED
-- **whisper-server**: Running at port 8081
-- **RAM**: 2.2 GB used / 4.9 GB available
-- **Disk**: /data NVMe 429 GB free
-- **WiFi**: Connected
-- **Piper voices**: 10 at `/data/piper/`
-- **TTS cache**: 420 .cache files
-- **Wake model**: `/data/models/hey_kisti.pkl` (50 KB, not integrated)
-- **Wake samples**: 200 positive + 301 negative in `/tmp/kisti_wake_samples/`
-- **scipy**: 1.15.3 (upgraded from 1.8.0)
-- **Branch**: `kisti-headless` (Jetson has commit `0ca70d0` + prewarm script via scp)
-- **ANTHROPIC_API_KEY**: Set in `~/k`
-- **KISTI_WAKE_MODEL**: Set in `~/k` (pkl, not active — OWW can't load it)
-
-## Section 6: Uncommitted Changes (workstation)
-
-```
-2 files not yet committed:
-  scripts/prewarm_frontier_cache.py (new)
-  tests/test_prewarm_frontier.py (new)
-Branch ahead of origin/kisti-headless by 2 commits
-```
+- **KiSTI**: Running, headless, KISTI_NO_WAKE=1
+- **Frontier**: Started, 34 cached entries, WiFi connected
+- **RAM**: ~2.2 GB / 7.4 GB
+- **scipy**: 1.15.3
+- **Commit**: `9b6b85e`
