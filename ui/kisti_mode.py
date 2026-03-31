@@ -592,13 +592,9 @@ class KistiModeWidget(QWidget):
         self._idle_check.timeout.connect(self._idle_tick)
         self._idle_check.start()
 
-        # Voice manager waveform polling (no cross-thread signals)
+        # Voice manager waveform — DISABLED pending Jetson freeze investigation
         self._voice_mgr = None
         self._voice_waveform_active = False
-        self._voice_poll_timer = QTimer(self)
-        self._voice_poll_timer.setInterval(25)  # 40 Hz — matches envelope rate
-        self._voice_poll_timer.timeout.connect(self._voice_poll_tick)
-        self._voice_poll_timer.start()
 
         # Audio player for Piper TTS (real voice output + waveform sync)
         self._audio_player = None
