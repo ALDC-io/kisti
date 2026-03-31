@@ -67,16 +67,31 @@
 - OWW docs: https://github.com/dscripka/openWakeWord
 - OWW training: https://github.com/dscripka/openWakeWord#training-new-models
 
-### 2. Soak Test Headless Mode (MEDIUM)
+### 2. Fix ECU Keyword Guard — Too Aggressive (HIGH)
+- "tell me about the brakes" → "No ECU connected" (wrong — should be persona)
+- "what's my brake pressure" → "No ECU connected" (correct — live data query)
+- **Fix**: split `_ECU_KEYWORDS` into two lists: live-data keywords (pressure, temp, reading) vs component names (brake, tire, suspension)
+- Only block live-data queries without CAN. Let "tell me about X" fall through to persona.
+- Same issue with: tire, suspension, boost (bare word), speed, brake, braking
+- File: `voice_manager.py:1152-1175`
+
+### 3. TTS Speed — Response Latency (HIGH)
+- Pipeline: STT ~250ms (fast), LLM ~10ms (instant persona), **TTS 1.5-3.5s (bottleneck)**
+- Piper model: `en_US-danny-low.onnx` (already low quality = fast)
+- **Fix**: TTS cache for frequent persona responses — pre-synthesize and cache WAV files
+- First hit synthesizes + caches, repeat plays cached WAV instantly
+- ~86 persona responses = ~86 cached WAVs, trivial disk space
+
+### 4. Add Missing Persona Responses (MEDIUM)
+- "pistons" — unanswered, needs persona response (Manley forged, bore/stroke)
+- Check edge DuckDB: `SELECT * FROM memories WHERE tags LIKE '%unanswered%'` for more gaps
+- Coolant temp persona: `["coolant temp", "coolant temperature", "water temp"]`
+
+### 5. Soak Test Headless Mode (MEDIUM)
 - [ ] Leave KiSTI headless running for extended period
 - [ ] Verify no memory leaks, no freezes, no mic drift
-- [ ] Check edge memory for unanswered query patterns
 
-### 3. Coolant Temperature Persona (LOW)
-- [ ] Add: `["coolant temp", "coolant temperature", "water temp"]` → persona response
-- [ ] Currently hits ECU guard → "No ECU connected"
-
-### 4. Phase 10: Hardware Integration (BLOCKED on hardware)
+### 6. Phase 10: Hardware Integration (BLOCKED on hardware)
 - [ ] GPS09 Pro CAN wiring (JK)
 - [ ] Real GPS data validation
 - [ ] IMU-assisted track learning
