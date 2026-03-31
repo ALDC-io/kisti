@@ -784,7 +784,7 @@ class VoiceManager(QObject):
                 heard_words = set(re.findall(r'\b\w+\b', lower))
                 if heard_words and spoken_words:
                     overlap = len(heard_words & spoken_words) / len(heard_words)
-                    if overlap > 0.3:
+                    if overlap > 0.5:
                         log.info("Echo suppressed (%.0f%% overlap with last speech): '%s'", overlap * 100, text[:60])
                         return
 
@@ -1151,28 +1151,54 @@ class VoiceManager(QObject):
                 # CAN connected — let ECU block below handle it
 
         # === ECU / CAN sensor queries (when Link G5 is connected) ===
-        _ECU_KEYWORDS = (
+        # Multi-word phrases that unambiguously request live sensor data
+        _ECU_LIVE_PHRASES = (
             "oil temp", "oil temperature", "oil pressure", "oil psi",
             "coolant temp", "coolant temperature", "engine temp", "water temp",
-            "intake temp", "intake air", "iat",
-            "boost pressure", "boost psi", "manifold", "boost",
-            "battery", "voltage", "charging",
+            "intake temp", "intake air",
+            "boost pressure", "boost psi",
             "fuel pressure", "fuel rail", "fuel psi",
-            "injector duty", "injector", "duty cycle",
-            "lambda", "air fuel", "afr", "rich", "lean",
-            "ethanol", "e85", "flex fuel",
-            "rpm", "revs", "engine speed",
-            "how fast", "wheel speed", "wheel slip",
+            "injector duty", "duty cycle",
+            "air fuel", "afr",
+            "flex fuel",
+            "engine speed",
+            "wheel speed", "wheel slip",
             "brake pressure", "steering angle",
-            "lateral g", "g force", "how many g", "yaw",
-            "dccd", "what gear", "which gear", "current gear",
+            "lateral g", "g force", "how many g",
             "tire pressure", "tyre pressure", "tire temp", "tyre temp",
+            "what gear", "which gear", "current gear",
+        )
+
+        # Bare component/sensor words — only block with a live-data indicator
+        _ECU_COMPONENT_BARE = (
+            "boost", "rpm", "revs", "speed", "throttle",
             "tire", "tyre", "brake", "braking",
             "suspension", "sway", "camber", "alignment",
-            "speed", "throttle", "accelerat",
+            "battery", "voltage", "charging",
+            "lambda", "rich", "lean", "ethanol", "e85",
+            "manifold", "iat", "dccd", "accelerat",
+            "injector", "yaw",
         )
-        if not s.can_connected and any(kw in query_lower for kw in _ECU_KEYWORDS):
-            return "No ECU connected. Link G five not installed yet."
+
+        # Words that signal a live-data request (vs general knowledge)
+        _LIVE_DATA_INDICATORS = (
+            "what's my", "what is my", "whats my",
+            "how much", "how many", "how fast",
+            "current", "right now", "live", "actual",
+            "reading", "gauge", "sensor",
+            "pressure", "psi", "voltage", "percent",
+            "degrees", "temperature", "temp",
+        )
+
+        if not s.can_connected:
+            # Multi-word live phrases always block
+            if any(kw in query_lower for kw in _ECU_LIVE_PHRASES):
+                return "No ECU connected. Link G five not installed yet."
+            # Bare component names only block with live-data indicator
+            has_component = any(kw in query_lower for kw in _ECU_COMPONENT_BARE)
+            has_live = any(ind in query_lower for ind in _LIVE_DATA_INDICATORS)
+            if has_component and has_live:
+                return "No ECU connected. Link G five not installed yet."
 
         if s.can_connected:
             # Oil temperature
