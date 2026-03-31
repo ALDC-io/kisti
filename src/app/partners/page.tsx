@@ -21,7 +21,7 @@ const PARTNERS = [
     name: "NVIDIA",
     role: "Edge AI Platform",
     description:
-      "Jetson Orin NX Super Developer Kit — 100 TOPS, 16GB LPDDR5 — powers whisper.cpp STT, Piper TTS, anomaly detection, and edge memory, all fully offline.",
+      "Jetson AGX Thor — 1,000+ TOPS, 128GB LPDDR5X — powers whisper.cpp STT, Piper TTS, LLM inference, anomaly detection, and edge memory, all fully offline.",
     color: "#76b900",
     logo: "/assets/jetson_orin_logo.svg",
   },

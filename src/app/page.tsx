@@ -57,12 +57,12 @@ const LINK_PRODUCTS = [
 
 const NVIDIA_PRODUCTS = [
   {
-    id: "jetson-orin-nx",
-    src: "/assets/nvidia_jetson_orin_nx.jpg",
-    name: "Orin NX Super Dev Kit",
-    role: "Edge Compute",
-    spec: "100 TOPS, 16GB LPDDR5",
-    url: "https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/jetson-orin/",
+    id: "jetson-agx-thor",
+    src: "/assets/nvidia_jetson_agx_thor.png",
+    name: "Jetson AGX Thor",
+    role: "Edge AI Compute",
+    spec: "1,000+ TOPS, 128GB LPDDR5X",
+    url: "https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/jetson-agx-thor/",
     widthMm: 100,
     heightMm: 79,
     targetX: 50,

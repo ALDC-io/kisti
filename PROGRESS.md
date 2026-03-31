@@ -311,3 +311,38 @@ Added complete Mission Raceway track day session with 6 laps (1 warm-up, 3 hot, 
 - **Qt re-entrant signal guard**: When a signal handler emits another signal on the same QObject, use `obj.blockSignals(True/False)` wrapper to prevent feedback loops. Especially important for bridge objects connected to multiple listeners.
 - **DiffState field audit**: After extending DiffState, grep all `getattr(state, ...)` calls in duckdb_store.py to verify field names match exactly.
 - **CCE team broadcast restriction**: Only the original session conductor can post `broadcast` events. Joined agents should use `learning`, `task_claimed`, `task_completed` types.
+
+## Session: kisti-web (2026-03-30) — Sponsorship Site Overhaul
+
+### Completed
+- **"Why ALDC" page** (1000+ lines): Enterprise Intelligence narrative mapped to KiSTI use case. Data→Knowledge→Conversational arc. Timeline (Day 1/90/Year 1), Intelligence Multiplier, Architecture Stack (Eclipse/Zeus Memory/Zeus Chat). Positioned ALDC as edge AI platform.
+- **Zeus Chat page** (/zeus): Full-page immersive interface with left sidebar (capabilities, powered-by tags, clear button), chat area (messages, voice input, starter chips), responsive grid layout
+- **Product card leader lines**: Dynamic SVG bezier curves with dual-color markers (amber Link, green NVIDIA). ResizeObserver recalculation on resize/sidebar toggle. Hidden on mobile (hidden lg:block)
+- **Proportional sizing**: Real MM dimensions drive aspect ratios and percentage widths (Strada 237mm = 100%, Keypad 123.5mm ≈ 52%, G5 Neo 107mm ≈ 45%). Added calculateProductRatio() helper
+- **Link hardware cards**: Strada 7" Street dash, CAN Keypad 8, G5 Neo 4 ECU with leader lines mapping to schematic positions
+- **NVIDIA product cards**: Jetson Orin NX Super Dev Kit 16GB (100 TOPS, 16GB LPDDR5) in-car. Identified DGX Spark (1 PFLOP, 128GB, 1.2kg, ~$3,000) for pit-side (pending image replacement)
+- **Sponsorship documents**:
+  - `docs/nvidia-sponsorship-letter.md` (103 lines): Vehicle specs (IAG 750, BCP X400, E85), AI pipeline (19 sensors, 4 cameras, fully offline), limitations, three-tier hardware ask, 3.5M+ memories figure
+  - `docs/nvidia-sponsorship-strategy.md` (80 lines): Target hardware comparison table (Orin NX vs AGX Orin vs AGX Thor vs DRIVE AGX), DRIVE AGX access requirements, sponsorship pitch summary, Link ECU prior reference
+- **Technical page updates**:
+  - Voice AI Pipeline: STT (whisper.cpp ~130ms), TTS (Piper <200ms), Edge Memory (DuckDB + ONNX), Anomaly Detection
+  - Vehicle section: E85 fuel narrative, 360-390 WHP, component tags
+  - Sensor details: Cobb 4 Bar MAP, GM IAT, flex fuel, 150 PSI oil pressure (specific models added)
+  - Cloud Memories: "3.5M+" (corrected from "204K active")
+- **kistiGraph.ts updates**: "Jetson Orin" → "Jetson Orin NX", full 16GB spec in description. "Weather Cam" → "Weather Station" (Yoctopuce Yocto-Spruce)
+- **Partners page**: NVIDIA role "Edge Compute" → "Edge AI Platform"
+- **PostHog verification**: Confirmed tracking snippet present on live site
+- **Production deploy**: kisti-headless → main, Vercel triggered, 100 TOPS + Voice AI Pipeline + E85 visible on kisti.analyticlabs.io
+
+### Learnings
+- **Failed approach — H100 HGX for pit-side**: Data center rack product (100W+, $7,500+) unsuitable for track crew work. Corrected with DGX Spark research (Mac Mini form factor, portable, purpose-built workstation)
+- **Deploy target**: kisti-headless = Vercel Preview only. Production requires merge to main for auto-deploy
+- **Memory positioning**: Use "3.5M+ memories processed" (official ALDC figure) not "204K active" (running count)
+- **SVG proportional sizing**: Calculate pixel-to-viewBox ratios accounting for aspect ratio preservation (xMidYMid meet). ResizeObserver needed for responsive recalculation on viewport + sidebar state changes
+- **Leader line Bezier math**: Control points leave card horizontally (cx1 = x1 + dx×0.45), arrive at target horizontally (cx2 = x2 − dx×0.25) for smooth aesthetic curves
+
+### Pending
+- Replace H100 image with DGX Spark (PNY CDN image URL: `https://d2vfia6k6wrouk.cloudfront.net/productimages/ef15a000-baca-4109-a81e-b2f9010d00f9/images/spark-3qtr-right.png`)
+- Update src/app/page.tsx pit engineer card: name "DGX Spark", role "Pit-Side AI", spec "1 PFLOP, 128GB, 1.2 kg", URL to nvidia.com/products/workstations/dgx-spark/, bg-white
+- Update nvidia-sponsorship-letter.md with final three-tier ask details (currently template version)
+- Save sponsorship docs to Nextcloud: `/home/aldc/nextcloud-rclone/ALDC Management/CCE_projects/02-ai-chat-visualization/2026-03-20-kisti-edge-ai-codriver/`

@@ -1647,6 +1647,302 @@ class TestWakeModelSessionConfig:
         mic = MicCapture(device="nonexistent")
         assert mic._wake_model is None
 
+
+# ========================================================================
+# Frontier Cloud Control Commands (KiSTI-14 Phase 5)
+# ========================================================================
+
+
+class TestFrontierCloudCommands:
+    """Tests for 'enable cloud' / 'disable cloud' voice commands."""
+
+    def test_edge_memory_settings_table_created(self):
+        """Settings table is created on initialize()."""
+        import tempfile
+        from data.duckdb_store import DuckDBStore
+        from data.edge_memory import EdgeMemory
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.duckdb"
+            store = DuckDBStore(db_path=db_path)
+            store.open()
+            memory = EdgeMemory(db_store=store, embedder=None)
+            memory.initialize()
+
+            # Verify settings table exists
+            result = store._conn.execute(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'settings'"
+            ).fetchone()
+            assert result[0] > 0, "Settings table should exist"
+
+    def test_edge_memory_get_set_string_setting(self):
+        """Test get/set string settings."""
+        import tempfile
+        from data.duckdb_store import DuckDBStore
+        from data.edge_memory import EdgeMemory
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.duckdb"
+            store = DuckDBStore(db_path=db_path)
+            store.open()
+            memory = EdgeMemory(db_store=store, embedder=None)
+            memory.initialize()
+
+            # Test set and get
+            memory.set_setting("test_key", "test_value")
+            assert memory.get_setting("test_key") == "test_value"
+
+            # Test default
+            assert memory.get_setting("nonexistent", "default") == "default"
+
+    def test_edge_memory_get_set_bool_setting(self):
+        """Test get/set boolean settings."""
+        import tempfile
+        from data.duckdb_store import DuckDBStore
+        from data.edge_memory import EdgeMemory
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.duckdb"
+            store = DuckDBStore(db_path=db_path)
+            store.open()
+            memory = EdgeMemory(db_store=store, embedder=None)
+            memory.initialize()
+
+            # Test set true
+            memory.set_setting_bool("frontier_enabled", True)
+            assert memory.get_setting_bool("frontier_enabled") is True
+
+            # Test set false
+            memory.set_setting_bool("frontier_enabled", False)
+            assert memory.get_setting_bool("frontier_enabled") is False
+
+            # Test default
+            assert memory.get_setting_bool("nonexistent", True) is True
+            assert memory.get_setting_bool("nonexistent", False) is False
+
+    def test_edge_memory_bool_parsing(self):
+        """Test boolean setting string parsing."""
+        import tempfile
+        from data.duckdb_store import DuckDBStore
+        from data.edge_memory import EdgeMemory
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.duckdb"
+            store = DuckDBStore(db_path=db_path)
+            store.open()
+            memory = EdgeMemory(db_store=store, embedder=None)
+            memory.initialize()
+
+            # Test various true representations
+            for true_val in ["true", "True", "TRUE", "1", "yes", "YES", "enabled"]:
+                memory.set_setting("bool_test", true_val)
+                assert memory.get_setting_bool("bool_test") is True, f"Failed for: {true_val}"
+
+            # Test false representations
+            for false_val in ["false", "False", "FALSE", "0", "no", "NO", "disabled", ""]:
+                memory.set_setting("bool_test", false_val)
+                assert memory.get_setting_bool("bool_test") is False, f"Failed for: {false_val}"
+
+    def test_frontier_llm_engine_lifecycle(self):
+        """Test FrontierLLMEngine start/stop lifecycle."""
+        from voice.frontier_engine import FrontierLLMEngine
+
+        # Without API key, should not start
+        engine = FrontierLLMEngine(api_key="")
+        engine.start()
+        assert not engine.is_running, "Engine should not run without API key"
+
+        # With API key, should start
+        engine = FrontierLLMEngine(api_key="sk-test-key")
+        assert not engine.is_running
+        engine.start()
+        assert engine.is_running, "Engine should be running with API key"
+        engine.stop()
+        assert not engine.is_running, "Engine should stop"
+
+    def test_frontier_llm_engine_start_idempotent(self):
+        """Test FrontierLLMEngine start is idempotent."""
+        from voice.frontier_engine import FrontierLLMEngine
+
+        engine = FrontierLLMEngine(api_key="sk-test-key")
+        engine.start()
+        assert engine.is_running
+
+        # Second start should be safe (idempotent)
+        engine.start()
+        assert engine.is_running
+
+        engine.stop()
+
+    def test_voice_manager_frontier_command_enable(self):
+        """Test voice manager frontier enable command handler."""
+        import tempfile
+        from data.duckdb_store import DuckDBStore
+        from data.edge_memory import EdgeMemory
+        from voice.frontier_engine import FrontierLLMEngine
+        from voice.voice_manager import VoiceManager
+        from unittest.mock import MagicMock
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.duckdb"
+            store = DuckDBStore(db_path=db_path)
+            store.open()
+            memory = EdgeMemory(db_store=store, embedder=None)
+            memory.initialize()
+
+            # Create voice manager
+            voice_mgr = VoiceManager(enable_mic=False)
+            voice_mgr._frontier = FrontierLLMEngine(api_key="sk-test-key")
+            voice_mgr._edge_memory = memory
+
+            # Initially frontier is not running
+            assert not voice_mgr._frontier.is_running
+
+            # Handle enable command
+            response = voice_mgr._handle_frontier_command("enable cloud")
+            assert response == "Cloud enabled."
+            assert voice_mgr._frontier.is_running
+            assert memory.get_setting_bool("frontier_enabled") is True
+
+            # Handle enable again (should be idempotent)
+            response = voice_mgr._handle_frontier_command("enable cloud")
+            assert response == "Cloud is already enabled."
+
+            voice_mgr._frontier.stop()
+
+    def test_voice_manager_frontier_command_disable(self):
+        """Test voice manager frontier disable command handler."""
+        import tempfile
+        from data.duckdb_store import DuckDBStore
+        from data.edge_memory import EdgeMemory
+        from voice.frontier_engine import FrontierLLMEngine
+        from voice.voice_manager import VoiceManager
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.duckdb"
+            store = DuckDBStore(db_path=db_path)
+            store.open()
+            memory = EdgeMemory(db_store=store, embedder=None)
+            memory.initialize()
+
+            # Create voice manager with running frontier
+            voice_mgr = VoiceManager(enable_mic=False)
+            voice_mgr._frontier = FrontierLLMEngine(api_key="sk-test-key")
+            voice_mgr._frontier.start()
+            voice_mgr._edge_memory = memory
+
+            assert voice_mgr._frontier.is_running
+
+            # Handle disable command
+            response = voice_mgr._handle_frontier_command("disable cloud")
+            assert response == "Cloud disabled."
+            assert not voice_mgr._frontier.is_running
+            assert memory.get_setting_bool("frontier_enabled") is False
+
+            # Handle disable again (should be idempotent)
+            response = voice_mgr._handle_frontier_command("disable cloud")
+            assert response == "Cloud is already disabled."
+
+    def test_voice_manager_frontier_command_status(self):
+        """Test voice manager frontier status command handler."""
+        import tempfile
+        from data.duckdb_store import DuckDBStore
+        from data.edge_memory import EdgeMemory
+        from voice.frontier_engine import FrontierLLMEngine
+        from voice.voice_manager import VoiceManager
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.duckdb"
+            store = DuckDBStore(db_path=db_path)
+            store.open()
+            memory = EdgeMemory(db_store=store, embedder=None)
+            memory.initialize()
+
+            voice_mgr = VoiceManager(enable_mic=False)
+            voice_mgr._frontier = FrontierLLMEngine(api_key="sk-test-key")
+            voice_mgr._edge_memory = memory
+
+            # Test status when disabled
+            response = voice_mgr._handle_frontier_command("cloud status")
+            assert "disabled" in response.lower()
+
+            # Test status when enabled
+            voice_mgr._frontier.start()
+            response = voice_mgr._handle_frontier_command("is cloud enabled")
+            assert "enabled" in response.lower()
+
+            voice_mgr._frontier.stop()
+
+    def test_voice_manager_frontier_command_phrase_variants(self):
+        """Test voice manager recognizes multiple frontier command phrases."""
+        import tempfile
+        from data.duckdb_store import DuckDBStore
+        from data.edge_memory import EdgeMemory
+        from voice.frontier_engine import FrontierLLMEngine
+        from voice.voice_manager import VoiceManager
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.duckdb"
+            store = DuckDBStore(db_path=db_path)
+            store.open()
+            memory = EdgeMemory(db_store=store, embedder=None)
+            memory.initialize()
+
+            voice_mgr = VoiceManager(enable_mic=False)
+            voice_mgr._frontier = FrontierLLMEngine(api_key="sk-test-key")
+            voice_mgr._edge_memory = memory
+
+            # Test enable variants
+            enable_phrases = ["enable cloud", "turn on cloud", "activate cloud"]
+            for phrase in enable_phrases:
+                voice_mgr._frontier.stop()
+                response = voice_mgr._handle_frontier_command(phrase)
+                assert response == "Cloud enabled.", f"Failed for: {phrase}"
+                assert voice_mgr._frontier.is_running
+
+            # Test disable variants
+            disable_phrases = ["disable cloud", "turn off cloud", "deactivate cloud"]
+            for phrase in disable_phrases:
+                voice_mgr._frontier.start()
+                response = voice_mgr._handle_frontier_command(phrase)
+                assert response == "Cloud disabled.", f"Failed for: {phrase}"
+                assert not voice_mgr._frontier.is_running
+
+    def test_voice_manager_frontier_command_no_frontier(self):
+        """Test frontier command handler when frontier is None."""
+        import tempfile
+        from data.duckdb_store import DuckDBStore
+        from data.edge_memory import EdgeMemory
+        from voice.voice_manager import VoiceManager
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.duckdb"
+            store = DuckDBStore(db_path=db_path)
+            store.open()
+            memory = EdgeMemory(db_store=store, embedder=None)
+            memory.initialize()
+
+            voice_mgr = VoiceManager(enable_mic=False)
+            voice_mgr._frontier = None  # No frontier
+            voice_mgr._edge_memory = memory
+
+            # Should return None (not a command match)
+            response = voice_mgr._handle_frontier_command("enable cloud")
+            assert response is None
+
+    def test_voice_manager_frontier_command_no_edge_memory(self):
+        """Test frontier command handler when edge_memory is None."""
+        from voice.frontier_engine import FrontierLLMEngine
+        from voice.voice_manager import VoiceManager
+
+        voice_mgr = VoiceManager(enable_mic=False)
+        voice_mgr._frontier = FrontierLLMEngine(api_key="sk-test-key")
+        voice_mgr._edge_memory = None  # No edge memory
+
+        # Should return None (not a command match)
+        response = voice_mgr._handle_frontier_command("enable cloud")
+        assert response is None
+
     def test_wake_model_path_is_onnx(self):
         """Configured wake model path has .onnx extension."""
         session_path = Path(__file__).resolve().parent.parent / "scripts" / "kisti-session"
