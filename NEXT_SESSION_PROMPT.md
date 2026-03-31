@@ -1,81 +1,115 @@
-# KiSTI — Next Session Prompt
+# KiSTI — Next Session Prompt (kisti-16)
 
 **Working dir**: `/home/aldc/repos/kisti/`
 **Jetson**: `192.168.22.131` (user `aldc`). SSH: `ssh aldc@192.168.22.131`
-**Live URL**: https://kisti.analyticlabs.io
-**Branch**: `kisti-headless` (must merge to `main` for production Vercel deploy)
-**Deploy**: Vercel auto-deploys from `main` only. kisti-headless → Preview URL only.
+**Live URL**: N/A (voice mode — KiSTI running fullscreen on Jetson)
+**Test baseline**: 824 tests passing
+**Team session**: `kisti-speaks`
+**Deploy path**: `/home/aldc/repos/kisti/` on Jetson (branch: `kisti-headless`)
+**Launcher**: `~/k` (auto-detects mic, sets ANTHROPIC_API_KEY + KISTI_WAKE_MODEL)
 
-## What Was Done (2026-03-30)
+## Section 1: What kisti-15 Did
 
-### NVIDIA Product Cards + Leader Lines on Homepage
-- Jetson Orin NX Super Dev Kit card on RHS of car schematic with green (#76b900) leader lines
-- H100 HGX card below pit engineer view — **NEEDS REPLACING with DGX Spark** (see TODO #1)
-- Dynamic SVG with dual-color markers (amber Link, green Nvidia)
-- Nvidia panel fades when NodeSidebar opens
+### Task 1: Restart KiSTI with Frontier Engine — DONE
+- Killed old PID 2416, started via `~/k`, verified "Frontier LLM engine started" in logs
+- Standalone frontier test confirmed: boxer engine headers question → Claude Haiku response in ~2s
+- Joke test confirmed: 3/3 unique jokes from `random.choice()` pool
+- Live voice tested by JK: persona matches working ("Can you hear me?", "Tell me about the brakes")
 
-### Schematic + Site Updates
-- "Jetson Orin" → "Jetson Orin NX" in kistiGraph.ts + partners page
-- "Weather Cam" → "Weather Station" (Yoctopuce Yocto-Spruce)
-- Tech page: 100 TOPS, Voice AI Pipeline section, Vehicle/E85 section, specific sensor models
-- Partners: NVIDIA role "Edge AI Platform" with Orin NX 100 TOPS capabilities
+### Task 2: Wake Word Training — PARTIAL
+- **scipy upgraded** to 1.15.3 (fixes `scipy.io.wavfile` attribute error)
+- **OWW custom verifier can't train new wake word**: base `hey_jarvis` model scores "Hey KiSTI" at 0.00008 (needs 0.5). Architectural mismatch — custom verifier only personalizes existing wake words, can't create new ones
+- **Alternative approach**: trained raw embedding classifier at `/data/models/hey_kisti.pkl` (99.2% accuracy, 50 KB, logistic regression on openwakeword preprocessor features)
+- **pkl model not compatible** with OWW loader in `mic_capture.py` (expects ONNX). Needs integration layer
+- `KISTI_WAKE_MODEL=/data/models/hey_kisti.pkl` added to `~/k` (staged, not active)
+- `train_wake_word.py` already had correct `hey_jarvis` model name
+- **Still needed**: real voice samples (JK), pkl→OWW integration in `mic_capture.py`, or full ONNX training via Colab
 
-### NVIDIA Sponsorship Docs
-- `docs/nvidia-sponsorship-letter.md` — complete draft, real specs, E85 angle, 3.5M+ memories
-- `docs/nvidia-sponsorship-strategy.md` — DRIVE AGX research, target hardware comparison, pitch points
+### Task 3: Voice Commands for Frontier Control — ALREADY DONE (kisti-14)
+- `_handle_frontier_command` at `voice_manager.py:1018-1050` — fully implemented
+- Commands: "enable cloud", "disable cloud", "cloud status" + 3 variants each
+- DuckDB settings persistence, boot-time consent check, 12 tests
+- No work needed this session
 
-## Prioritized TODO
+### Task 4: Frontier Cache Prewarm + Soak Test — DONE
+- **New**: `scripts/prewarm_frontier_cache.py` — 34 queries across 6 categories (auto, subaru, tuning, handling, racing, stem)
+- **New**: `tests/test_prewarm_frontier.py` — 7 tests
+- **Prewarm executed**: 34/34 queries cached, ~157s total, avg 4s/query
+- **Soak status**: KiSTI running healthy, 943 MB RSS (12%), 4.9 GB available, no errors
+- Cached queries will serve at ~2ms instead of ~4s
 
-### 1. Replace H100 with DGX Spark on Homepage (HIGH)
-The H100 HGX is a data center rack — wrong for pit crew. Replace with **NVIDIA DGX Spark**:
-- **Product**: DGX Spark — 1 PFLOP FP4, 128GB, 1.2 kg, ~$3,000, Mac Mini size
-- **Role on site**: "Pit-Side AI" under the pit engineer view
-- **Image URLs** (PNY CDN, clean isolated product shots on transparent bg):
-  - Best 3/4 angle: `https://d2vfia6k6wrouk.cloudfront.net/productimages/ef15a000-baca-4109-a81e-b2f9010d00f9/images/spark-3qtr-right.png`
-  - Top view: `https://d2vfia6k6wrouk.cloudfront.net/productimages/ef15a000-baca-4109-a81e-b2f9010d00f9/images/spark-3qtr-top-left.png`
-- Download to `public/assets/nvidia_dgx_spark.png`
-- Delete `public/assets/nvidia_h100.jpg`
-- Edit `src/app/page.tsx` ~lines 463-488:
-  - href → `https://www.nvidia.com/en-us/products/workstations/dgx-spark/`
-  - img src → `/assets/nvidia_dgx_spark.png`
-  - bg → `bg-white` (product is gold on transparent)
-  - alt/name → "NVIDIA DGX Spark"
-  - role → "Pit-Side AI"
-  - spec → "1 PFLOP, 128GB, 1.2 kg"
-- After edit: `git checkout main && git merge kisti-headless && git push origin main`
+## Section 2: Prioritized TODO for kisti-16
 
-### 2. Update Sponsorship Letter with Three-Tier Stack (HIGH)
-Current letter asks generically for "AGX Orin/Thor/DRIVE AGX". Update to the clear three-tier ask:
-- **In-car**: Jetson AGX Thor — 1,000+ TOPS, 128GB, 40-130W configurable (40W mode = quiet for voice)
-- **Pit-side**: DGX Spark — 1 PFLOP, 128GB, 1.2 kg (portable AI workstation trackside)
-- **Cloud**: Zeus Memory — 3.5M+ memories, deep analysis
-- Add noise argument: AGX Thor configurable 40W for voice, 130W only when engine running
-- Mention DGX Spark replaces the generic "cloud compute" ask
+### 1. Wake Word Integration (HIGH — model trained, needs code)
+- [ ] Add pkl verifier layer to `mic_capture.py` alongside OWW
+- [ ] Load pkl model, extract embeddings from OWW preprocessor, run classifier
+- [ ] If positive + threshold, treat as wake detection
+- [ ] Record 50 real "Hey KiSTI" samples from JK: `python3 scripts/record_wake_samples.py --count 50`
+- [ ] Retrain with real + synthetic samples for better accuracy
+- [ ] Alternative: full ONNX training via Colab notebook (https://github.com/dscripka/openwakeword)
 
-### 3. Save Work to Nextcloud (MEDIUM)
-- Target: `/home/aldc/nextcloud-rclone/ALDC Management/CCE_projects/02-ai-chat-visualization/2026-03-20-kisti-edge-ai-codriver/`
-- Copy `docs/nvidia-sponsorship-letter.md` and `docs/nvidia-sponsorship-strategy.md` there
+### 2. Soak Test Monitoring (MEDIUM — running, needs observation)
+- [ ] Monitor frontier cache hit ratio over time (grep logs for "cache hit/miss")
+- [ ] Check memory usage stability over 24h
+- [ ] Verify WiFi transition handling (connect/disconnect iPhone hotspot)
+- [ ] Ask JK to test general knowledge questions via voice to see frontier responses
+- [ ] Check for DuckDB memory leaks or connection issues
 
-### 4. In-Car Product Card — User's Actual vs Displayed Hardware (LOW)
-- User's actual hardware: Jetson Orin Nano (40 TOPS, 8GB)
-- Site shows: Jetson Orin NX 16GB (100 TOPS) — this is the target/sponsor ask
-- Consider: add subtle "current" vs "target" distinction, or keep as-is for the pitch
+### 3. Zeus Memory Proxy for Frontier (MEDIUM)
+- [ ] Route frontier queries through Zeus API for centralized auth/logging/cost tracking
+- [ ] New Zeus endpoint: `POST /api/v1/chat/completions`
+- [ ] Single API key management, query attribution per device
 
-## Key Files
+### 4. Phase 10: Hardware Integration (BLOCKED on hardware)
+- [ ] GPS09 Pro CAN wiring (JK)
+- [ ] Real GPS data validation
+- [ ] IMU-assisted track learning
 
-| File | Purpose |
-|------|---------|
-| `src/app/page.tsx` | Homepage — product cards, leader lines, H100 card (~line 463) |
-| `src/app/tech/page.tsx` | Tech — voice AI pipeline, vehicle/E85, sensor details |
-| `src/app/partners/page.tsx` | Partner cards (NVIDIA = "Edge AI Platform") |
-| `src/lib/kistiGraph.ts` | Schematic nodes (Jetson at x:50, y:88) |
-| `docs/nvidia-sponsorship-letter.md` | Sponsorship pitch letter |
-| `docs/nvidia-sponsorship-strategy.md` | Research + strategy + comparison tables |
-| `public/assets/nvidia_h100.jpg` | DELETE — replace with DGX Spark |
-| `public/assets/nvidia_jetson_orin_nx.jpg` | Cropped Orin NX dev kit product shot |
+## Section 3: Key Files with Line Numbers
 
-## Jetson State (from kisti-14/15)
-- Orin Nano, 8GB RAM, whisper-server port 8081
-- Frontier engine deployed (Claude Haiku via ANTHROPIC_API_KEY)
-- 805 tests passing, TTS cache 420 files
-- Branch: kisti-headless
+| File | Purpose | Key Lines |
+|------|---------|-----------|
+| `voice/frontier_engine.py` | Frontier LLM engine | 63-95 (class), 99-128 (start), 170-234 (query), 243-288 (cache), 324-338 (cache_stats) |
+| `voice/voice_manager.py` | Voice pipeline + commands | 617-675 (command routing), 1018-1050 (_handle_frontier_command), 335-347 (boot consent) |
+| `voice/mic_capture.py` | Mic + OWW wake detection | 75-133 (init + OWW load), 358-460 (OWW predict loop) |
+| `voice/llm_engine.py` | Persona + frontier wire | 440-455 (car jokes), 460-510 (_match_persona), 634-653 (frontier call) |
+| `data/edge_memory.py` | Edge memory + settings | 45 (settings DDL), 375-400 (get/set setting) |
+| `scripts/prewarm_frontier_cache.py` | **NEW** Cache prewarm | 37-72 (PREWARM_QUERIES), 75-120 (prewarm function) |
+| `scripts/train_wake_word.py` | Wake word training | 329-394 (custom verifier — won't work for new wake word) |
+| `tests/test_prewarm_frontier.py` | **NEW** 7 prewarm tests | Full file |
+
+## Section 4: Test Baseline
+
+```
+824 passed in 97.57s (workstation, 2026-03-31)
+Breakdown: 817 (kisti-14) + 7 (frontier prewarm)
+Jetson: running kisti-14 code (commit 0ca70d0) + prewarm script via scp
+```
+
+## Section 5: Jetson System State
+
+- **KiSTI running**: PID 56676, headless mode, voice ON
+- **Frontier engine**: Started, Claude Haiku, WiFi check 30s
+- **Frontier cache**: 34 prewarmed entries in DuckDB
+- **Ollama**: DISABLED
+- **whisper-server**: Running at port 8081
+- **RAM**: 2.2 GB used / 4.9 GB available
+- **Disk**: /data NVMe 429 GB free
+- **WiFi**: Connected
+- **Piper voices**: 10 at `/data/piper/`
+- **TTS cache**: 420 .cache files
+- **Wake model**: `/data/models/hey_kisti.pkl` (50 KB, not integrated)
+- **Wake samples**: 200 positive + 301 negative in `/tmp/kisti_wake_samples/`
+- **scipy**: 1.15.3 (upgraded from 1.8.0)
+- **Branch**: `kisti-headless` (Jetson has commit `0ca70d0` + prewarm script via scp)
+- **ANTHROPIC_API_KEY**: Set in `~/k`
+- **KISTI_WAKE_MODEL**: Set in `~/k` (pkl, not active — OWW can't load it)
+
+## Section 6: Uncommitted Changes (workstation)
+
+```
+2 files not yet committed:
+  scripts/prewarm_frontier_cache.py (new)
+  tests/test_prewarm_frontier.py (new)
+Branch ahead of origin/kisti-headless by 2 commits
+```
