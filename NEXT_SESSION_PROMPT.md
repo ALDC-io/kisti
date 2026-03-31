@@ -1,87 +1,85 @@
-# KiSTI — Next Session Prompt (kisti-16)
+# KiSTI — Next Session Prompt (kisti-17)
 
 **Working dir**: `/home/aldc/repos/kisti/`
 **Jetson**: `192.168.22.131` (user `aldc`). SSH: `ssh aldc@192.168.22.131`
-**Test baseline**: 824 tests passing
-**Branch**: `kisti-headless` (commit `9b6b85e`)
+**Test baseline**: 825 tests passing
+**Branch**: `kisti-headless` (commit `82dde70`)
 **Launcher**: `~/k` (ANTHROPIC_API_KEY + KISTI_WAKE_MODEL + KISTI_NO_WAKE=1)
 
-## Section 1: What kisti-15 Did
+## Section 1: What kisti-16 Did
 
-### Frontier Engine — LIVE & WORKING
-- Restart confirmed, "Frontier LLM engine started" in logs
-- Standalone test: boxer engine query → Claude Haiku response ~2s
-- 3/3 unique jokes from random pool
-- **Prewarm**: 34 queries cached (auto, subaru, tuning, handling, racing, stem)
-- **Markdown stripping**: `_strip_markdown()` before TTS, system prompt says "plain text only"
-- **2-sentence cap**: `_truncate_sentences()` on both live and cached responses
-- **Token cap**: 120 (Intelligent), 60 (Sport), 20 (Sport Sharp) — enough to finish sentences
+### Persona Scoring Fix — DONE
+- Replaced two fragile filters (GK signals + fragment filter) with unified self-ref guard
+- Rule: non-safety, non-joke queries without self-reference ("your", "you", "my", "kisti") need score >= 10
+- Single keywords like "engine"(6), "boxer"(6), "subaru"(6) now route to frontier
+- Self-referencing queries still match persona instantly
+- 18 tests updated to expect frontier routing; 1 new self-ref test added → 825 total
 
-### Persona → Frontier Passthrough — PARTIALLY WORKING, NEEDS MORE TUNING
-- General knowledge signals ("how does", "what is", "compare") bypass persona at score < 10
-- Short fragments (≤3 words, score ≤6, no self-ref) pass to frontier
-- Self-referencing queries ("your engine", "you make") still match persona
-- **Still too greedy on some queries** — JK reported it's "not quite there"
-- VAD splits long sentences (pauses mid-question), fragments hit persona separately
-- **Check logs on startup** — JK wants next session to verify frontier responses are working
+### Frontier Conversation History — DONE
+- `FrontierLLMEngine.query()` and `_call_api()` now accept `conversation_history` parameter
+- Last 3 `DialogueTurn` objects passed as multi-turn messages to Claude API
+- Cache skipped when conversation history present (context-dependent answers)
+- Wired through `LLMEngine.query()` → `voice_manager.py` passes `self._dialogue.last_turns`
+- Verified working in logs: follow-up questions get contextual answers
 
-### Wake Word — BROKEN, BYPASSED
-- OWW can't load pkl model (expects ONNX)
-- Whisper mangles "Hey KiSTI" → "He's to", "Kesti", "See" with USB mic
-- `KISTI_NO_WAKE=1` in `~/k` bypasses wake word requirement (all speech → query)
-- This means KiSTI responds to ALL ambient speech — only for bench testing
-- **Root cause**: USB mic quality + 3x gain + whisper base.en model
+### System Prompt Rewrite — DONE
+- `KISTI_SYSTEM_PROMPT` rewritten to be conversational, not spec-heavy
+- Build facts kept as reference ("share when asked, not by default")
+- Added: "Do NOT mention your own build, specs, or parts in general knowledge answers"
+- Removed: roast mode spec ammunition, "fire back with specs" instruction
+- Verified: "Porsche vs Subaru" answer no longer references "our EJ257"
 
-### Wake Word Training
-- scipy upgraded to 1.15.3
-- pkl classifier trained at `/data/models/hey_kisti.pkl` (99.2% accuracy)
-- NOT compatible with OWW loader — needs integration layer in `mic_capture.py`
-- Real voice samples (JK) still needed
+### VAD Silence Threshold — DONE
+- `SPEECH_END_FRAMES` bumped from 8 (256ms) to 14 (448ms)
+- Reduces sentence splitting on natural speech pauses
+- Still splitting on longer pauses — may need further tuning
 
-### Voice Commands for Frontier Control — ALREADY DONE (kisti-14)
-- "enable cloud" / "disable cloud" / "cloud status" all working with tests
+## Section 2: Prioritized TODO for kisti-17
 
-## Section 2: Prioritized TODO for kisti-16
+### 1. Upgrade Whisper Model (HIGH — JK says transcription is poor)
+- Current: `ggml-base.en.bin` (142MB) — misses proper nouns ("Porsche" → "Portia's")
+- `ggml-small.en.bin` (466MB) already downloaded at `/data/whisper.cpp/models/`
+- **Recommended**: Download `medium.en` (1.5GB) for best accuracy — Jetson has 5GB RAM free
+- Download: `cd /data/whisper.cpp/models && bash download-ggml-model.sh medium.en`
+- Restart whisper-server: `pkill -f whisper-server && nohup /data/whisper.cpp/build/bin/whisper-server -m /data/whisper.cpp/models/ggml-medium.en.bin --host 127.0.0.1 --port 8081 -t 4 > /tmp/whisper_server.log 2>&1 &`
+- Then restart KiSTI: `pkill -f 'python3.*main' && nohup ~/k > /tmp/kisti_startup.log 2>&1 &`
+- **Test latency** — medium.en will be slower (~0.5-1s vs 0.2s for base). If too slow, fall back to small.en
+- Consider: start with small.en, test, then try medium.en
 
-### 1. Tune Persona→Frontier Scoring (HIGH — JK says "not quite there")
-- Check logs first: `tail -50 /tmp/kisti_startup.log` — are frontier responses reaching TTS?
-- Problem: single-keyword matches ("engine", "subaru", "boxer") intercept general knowledge
-- Current fix: GK signals need score ≥10, fragments ≤3 words blocked without self-ref
-- Consider: weighted scoring (multi-word keywords score higher than single-word), or whitelist approach
-- Key file: `voice/llm_engine.py:488-520` (`_match_persona` scoring logic)
-- Test persona changes against: "compare porsche and subaru boxers", "what is trail braking", "tell me about your engine", "tell me a joke"
+### 2. Frontier-First Architecture (JK wants this — needs plan mode)
+- Current: persona → frontier → fallback
+- Proposed: frontier → persona → fallback
+- Persona becomes fast-path cache for known answers, frontier is default brain
+- Eliminates scoring problem entirely — everything goes to frontier unless known fast answer
+- Key concern: latency (frontier ~2-4s vs persona <1ms) and offline behavior
+- **Start with plan mode** — significant architectural change
 
-### 2. JK's Architecture Question: Frontier-First Design
-- JK asked: "should we start with frontier AI with local Zeus memory context and only fall back to local LLM when connectivity is lost?"
-- This inverts the current tier order: frontier → persona → fallback (instead of persona → frontier → fallback)
-- Would make persona a fast-path cache for known questions, frontier the default brain
-- Significant architectural change — needs plan mode
+### 3. VAD Further Tuning
+- 448ms helps but still splits on longer pauses
+- Consider accumulation buffer that waits for sentence-ending patterns
+- Or: increase to 600ms but test for responsiveness tradeoff
 
-### 3. VAD Sentence Splitting
-- VAD cuts sentences on natural pauses, sending fragments separately
-- "Explain the difference between Porsche and [pause] Subaru Boxer Engines" → 2 queries
-- Consider: accumulation buffer that waits for sentence-final intonation or longer silence
+### 4. Stray Persona Match Investigation
+- "Yeah, that's it." → persona_match: "The difference between a project car..." (score >= 10 somehow)
+- Low priority — investigate which keyword entry is matching
 
-### 4. Wake Word Integration (pkl → OWW bridge)
-- `/data/models/hey_kisti.pkl` exists but `mic_capture.py` expects ONNX
-- Need: load pkl alongside OWW preprocessor, run classifier on embeddings
-- Or: full ONNX training via Colab
-- Record 50 real voice samples: `python3 scripts/record_wake_samples.py --count 50`
+### 5. Wake Word (deferred from kisti-15)
+- OWW can't load pkl model, `KISTI_NO_WAKE=1` bypasses
+- Real voice samples still needed for custom "Hey KiSTI" model
 
 ## Section 3: Key Files
 
-| File | Key Lines |
-|------|-----------|
-| `voice/llm_engine.py` | 130 (engine keywords), 389 (subaru/joke keywords), 466-525 (_match_persona + GK filter + fragment filter) |
-| `voice/frontier_engine.py` | 63-75 (_strip_markdown + _truncate_sentences), 207-210 (cache truncation), 240 (live truncation), 367-370 (token caps), 380 (plain text system prompt) |
-| `voice/voice_manager.py` | 169-188 (WAKE_WORDS), 835-840 (KISTI_NO_WAKE bypass), 847 (wake word gate) |
-| `voice/mic_capture.py` | 75-164 (OWW init + passthrough) |
-| `scripts/prewarm_frontier_cache.py` | 37-72 (PREWARM_QUERIES) |
+| File | Key Lines | What Changed |
+|------|-----------|--------------|
+| `voice/llm_engine.py` | 32-66 (system prompt), 493-510 (unified self-ref guard) | Prompt rewrite + scoring fix |
+| `voice/frontier_engine.py` | 191-265 (query with history), 374-420 (_call_api multi-turn) | Conversation history |
+| `voice/voice_manager.py` | 718 (passes dialogue.last_turns) | Wired conversation history |
+| `voice/mic_capture.py` | 38 (SPEECH_END_FRAMES=14) | VAD threshold bump |
 
 ## Section 4: Jetson State
 
-- **KiSTI**: Running, headless, KISTI_NO_WAKE=1
-- **Frontier**: Started, 34 cached entries, WiFi connected
-- **RAM**: ~2.2 GB / 7.4 GB
-- **scipy**: 1.15.3
-- **Commit**: `9b6b85e`
+- **KiSTI**: Running, headless, KISTI_NO_WAKE=1, commit `82dde70`
+- **Whisper**: base.en model (small.en downloaded but NOT active yet)
+- **Frontier**: Started, WiFi connected, conversation history working
+- **RAM**: ~2.2 GB / 7.4 GB (plenty for model upgrade)
+- **Disk**: 191 GB free
