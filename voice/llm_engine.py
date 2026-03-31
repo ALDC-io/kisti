@@ -544,15 +544,16 @@ class LLMEngine:
                 tokens=len(matched.split()),
             )
 
-        # Ollama for novel/complex questions (2-4s on Orin Nano)
-        if self._available_model:
-            try:
-                return self._query_ollama(
-                    user_message, telemetry_context, memory_context,
-                    si_drive_mode, max_tokens, start_time,
-                )
-            except Exception as exc:
-                log.warning("Ollama query failed: %s — using fallback", exc)
+        # Ollama DISABLED — GPU memory reserved for display compositor.
+        # Re-enable when Link G5 CAN provides real telemetry context.
+        # if self._available_model:
+        #     try:
+        #         return self._query_ollama(
+        #             user_message, telemetry_context, memory_context,
+        #             si_drive_mode, max_tokens, start_time,
+        #         )
+        #     except Exception as exc:
+        #         log.warning("Ollama query failed: %s — using fallback", exc)
 
         # Final fallback
         latency = time.monotonic() - start_time
