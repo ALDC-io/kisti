@@ -714,12 +714,13 @@ class VoiceManager(QObject):
         if not _match_persona(lower, self._si_drive_mode.label) and self._llm.is_real:
             self.response_ready.emit("Let me think about that.")
 
-        # Query LLM
+        # Query LLM (pass dialogue history so frontier has conversation context)
         response = self._llm.query(
             user_message=resolved_query,
             telemetry_context=context,
             memory_context=memory_context,
             si_drive_mode=self._si_drive_mode.label,
+            conversation_history=self._dialogue.last_turns,
         )
 
         if trace:

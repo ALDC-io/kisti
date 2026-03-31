@@ -194,6 +194,7 @@ class FrontierLLMEngine:
         telemetry_context: str = "",
         memory_context: str = "",
         si_drive_mode: str = "Intelligent",
+        conversation_history: list | None = None,
     ) -> Optional[LLMResponse]:
         """Try cache then live API. Returns None if unavailable.
 
@@ -202,6 +203,7 @@ class FrontierLLMEngine:
             telemetry_context: Current sensor snapshot.
             memory_context: Relevant edge memories.
             si_drive_mode: Current driving mode.
+            conversation_history: Recent DialogueTurn objects for multi-turn context.
 
         Returns:
             LLMResponse if cache hit or API success, None otherwise.
@@ -210,29 +212,33 @@ class FrontierLLMEngine:
             return None
 
         start_time = time.monotonic()
-        query_hash = self._hash_query(user_message)
+        has_history = bool(conversation_history)
 
-        # Tier 2: Check local cache first
-        cached = self._check_cache(query_hash)
-        if cached is not None:
-            cached = _truncate_sentences(cached, max_sentences=2)
-            latency = time.monotonic() - start_time
-            log.info("Frontier cache hit: %s (%.1fms)", query_hash[:8], latency * 1000)
-            return LLMResponse(
-                text=cached,
-                model=f"{self._model}/cached",
-                tier="frontier_cache",
-                latency_s=latency,
-                tokens=len(cached.split()),
-            )
+        # Tier 2: Check local cache first (skip if conversation has history —
+        # same query in different contexts needs different answers)
+        if not has_history:
+            query_hash = self._hash_query(user_message)
+            cached = self._check_cache(query_hash)
+            if cached is not None:
+                cached = _truncate_sentences(cached, max_sentences=2)
+                latency = time.monotonic() - start_time
+                log.info("Frontier cache hit: %s (%.1fms)", query_hash[:8], latency * 1000)
+                return LLMResponse(
+                    text=cached,
+                    model=f"{self._model}/cached",
+                    tier="frontier_cache",
+                    latency_s=latency,
+                    tokens=len(cached.split()),
+                )
 
         # Tier 3: Live API call (requires WiFi)
         if not self._wifi_available:
-            log.debug("Frontier: offline, no cache hit for %s", query_hash[:8])
+            log.debug("Frontier: offline, no cache hit")
             return None
 
         response_text = self._call_api(
-            user_message, telemetry_context, memory_context, si_drive_mode
+            user_message, telemetry_context, memory_context, si_drive_mode,
+            conversation_history=conversation_history,
         )
         if response_text is None:
             return None
@@ -240,13 +246,15 @@ class FrontierLLMEngine:
         # Truncate to 2 sentences before caching and speaking
         response_text = _truncate_sentences(response_text, max_sentences=2)
 
-        # Cache the response for offline replay
-        self._cache_response(query_hash, user_message, response_text, self._model)
+        # Cache the response for offline replay (only standalone queries —
+        # conversation-dependent answers would be wrong in a different context)
+        if not has_history:
+            self._cache_response(query_hash, user_message, response_text, self._model)
 
         latency = time.monotonic() - start_time
         log.info(
             "Frontier API response: %s (%.1fms, %d tokens)",
-            query_hash[:8],
+            self._hash_query(user_message)[:8],
             latency * 1000,
             len(response_text.split()),
         )
@@ -370,6 +378,7 @@ class FrontierLLMEngine:
         telemetry_context: str,
         memory_context: str,
         si_drive_mode: str,
+        conversation_history: list | None = None,
     ) -> Optional[str]:
         """POST to Claude Messages API. Returns response text or None."""
         # Give Claude enough room to finish 2 sentences cleanly.
@@ -393,14 +402,22 @@ class FrontierLLMEngine:
         elif si_drive_mode == "Sport Sharp":
             system_prompt += "\n\nSPORT SHARP: Critical safety only. 5 words max. Silence otherwise."
 
+        # Build messages with conversation history for multi-turn context.
+        # Last 3 turns give frontier enough context for follow-up questions
+        # like "save that last part" or "tell me more about that".
+        messages = []
+        if conversation_history:
+            for turn in conversation_history[-3:]:
+                messages.append({"role": "user", "content": turn.user_text})
+                messages.append({"role": "assistant", "content": turn.response_summary})
+        messages.append({"role": "user", "content": user_message})
+
         payload = {
             "model": self._model,
             "max_tokens": max_tokens,
             "temperature": temperature,
             "system": system_prompt,
-            "messages": [
-                {"role": "user", "content": user_message},
-            ],
+            "messages": messages,
         }
 
         body = json.dumps(payload).encode("utf-8")

@@ -34,22 +34,22 @@ class TestNewPersonaEntries:
         assert result is not None
         assert "plug" in result.lower() or "NGK" in result
 
-    def test_ignition_persona(self):
-        result = _match_persona("how's the ignition system", "Intelligent")
-        assert result is not None
+    def test_ignition_routes_to_frontier(self):
+        assert _match_persona("how's the ignition system", "Intelligent") is None  # → frontier
 
-    def test_oil_level_persona(self):
-        result = _match_persona("how's the oil level", "Intelligent")
-        assert result is not None
-        assert "break-in" in result.lower() or "level" in result.lower() or "ring seal" in result.lower()
+    def test_oil_level_routes_to_frontier(self):
+        assert _match_persona("how's the oil level", "Intelligent") is None  # → frontier
+        result = _match_persona("how's your oil level", "Intelligent")
+        assert result is not None  # self-ref → persona (may match oil type or oil level entry)
 
     def test_burning_oil_persona(self):
         result = _match_persona("are you burning oil", "Intelligent")
         assert result is not None
 
-    def test_battery_persona(self):
-        result = _match_persona("tell me about the battery", "Intelligent")
-        assert result is not None
+    def test_battery_routes_to_frontier(self):
+        assert _match_persona("tell me about the battery", "Intelligent") is None  # → frontier
+        result = _match_persona("tell me about your battery", "Intelligent")
+        assert result is not None  # self-ref → persona
         assert "PDM" in result or "alternator" in result.lower()
 
     def test_electrical_persona(self):
@@ -60,14 +60,11 @@ class TestNewPersonaEntries:
 class TestFactorySpecPersona:
     """Test factory spec comparison persona responses."""
 
-    def test_factory_query(self):
-        result = _match_persona("what did the car come with from factory", "Intelligent")
-        assert result is not None
-        assert "305" in result or "factory" in result.lower()
+    def test_factory_query_routes_to_frontier(self):
+        assert _match_persona("what did the car come with from factory", "Intelligent") is None  # → frontier
 
-    def test_stock_query(self):
-        result = _match_persona("what was the stock setup", "Intelligent")
-        assert result is not None
+    def test_stock_query_routes_to_frontier(self):
+        assert _match_persona("what was the stock setup", "Intelligent") is None  # → frontier
 
     def test_power_difference(self):
         result = _match_persona("how much more power do you have now", "Intelligent")
@@ -111,10 +108,8 @@ class TestFactorySpecPersona:
         assert result is not None
         assert "Torsen" in result or "helical" in result.lower() or "limited-slip" in result.lower()
 
-    def test_fuel_tank(self):
-        result = _match_persona("how big is the fuel tank", "Intelligent")
-        assert result is not None
-        assert "60" in result
+    def test_fuel_tank_routes_to_frontier(self):
+        assert _match_persona("how big is the fuel tank", "Intelligent") is None  # → frontier
 
     def test_factory_weakness(self):
         result = _match_persona("what are the known issues with the ej", "Intelligent")

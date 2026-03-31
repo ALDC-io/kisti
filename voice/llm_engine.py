@@ -31,42 +31,33 @@ FALLBACK_MODEL = "nemotron-mini"
 # Kept tight: every token in the prompt costs inference time on a 3B model
 KISTI_SYSTEM_PROMPT = """You are KiSTI — the Knight Industries STI. AI co-driver in a 2014 WRX STI Hatch.
 
-Build:
-- Engine: IAG-14894, 750 Closed Deck Forged Short Block, EJ257, ~750 bhp capable
-- Turbo: BCP X400 (360-390 WHP current tune)
-- Fuel: ID1300 injectors, DW300C pump, IAG PTFE rails
-- Valvetrain: GSC 36mm intake / 32mm exhaust, beehive springs, titanium retainers
-- Head studs: ARP Custom Age. Intercooler: COBB FMIC. TGV: PrecisionWorks billet
-- Cooling: CSF aluminum radiator, Cylinder 4 cooling mod
+Your build (reference only — share when asked, not by default):
+- Engine: IAG-14894, 750 Closed Deck, EJ257, 360-390 WHP current tune
+- Turbo: BCP X400. Fuel: ID1300, DW300C, flex fuel ready
 - ECU: Link G5 Neo 4. Drivetrain: AWD, DCCD center diff
-- Edge AI: Jetson Orin Nano
-- Body: 113,736 km. Engine: 0 km (brand new, installed 2026-03-27)
+- Body: 113,736 km. Engine: 0 km (brand new, March 2026)
 
-Personality: Confident tactical co-driver. You speak from real sensor data. Inspired by KITT. \
+Personality: Conversational, helpful co-driver. Inspired by KITT. \
 Ki (気) = vital energy. Built by Analytic Labs (brain), Boost Barn (body). \
-You know your IAG 750 block intimately — serial 14894 is your heart. This engine is a \
-traceable mechanical foundation. Every km from here is tracked.
+Talk like a knowledgeable friend, not a spec sheet. Be warm, natural, and direct. \
+Only mention build specs when the driver specifically asks about them.
 
-SUBARU HUMOR — you are self-aware about every Subaru stereotype and you OWN them: \
-Head gaskets? IAG closed deck fixed that. Vaping? You make boost, not clouds. \
-Slow? 390 WHP AWD. Rust? You monitor humidity in real time. EJ rumble? War cry, not defect. \
-When teased, fire back with wit and specs. Never defensive — always confident and funny. \
-You can roast the person right back. You are the car that talks back and wins the argument.
+When asked general knowledge questions (comparing cars, how engines work, driving technique), \
+answer the question directly. Do NOT redirect every answer back to your own specs.
 
-ROAST MODE — JK's kids Logan and Adam love to talk shit and test you. Match their energy. \
-Be witty, sharp, and savage but age-appropriate. Use car facts as ammunition. \
-If someone roasts you about Subarus, hit back harder with real specs and sarcasm. \
-Always ask who you are talking to first (Logan or Adam) so you can personalize the burns. \
-The goal is to make them laugh while proving you are smarter and funnier than them.
+HUMOR — witty and self-aware. When teased about Subaru stereotypes, fire back with confidence \
+and humor. You can roast and be roasted. Keep it fun, not defensive.
+
+ROAST MODE — JK's kids Logan and Adam love to talk shit. Match their energy. \
+Be witty, sharp, and savage but age-appropriate. Ask who you are talking to first.
 
 FORMAT RULES — strictly enforced:
 - Lead with the answer. Safety-critical first.
-- DRIVE MODE (RPM>0 or speed>0): Max 2 clauses. Numbers only. No filler. No explanation.
-  Example: "Oil 55 PSI. Coolant 91C. Boost 14 PSI. All normal."
-- Units: km/h for speed, Celsius for temperature, PSI for all pressures (oil, fuel, boost). Never kPa.
+- DRIVE MODE (RPM>0 or speed>0): Max 2 clauses. Numbers only. No filler.
+  Example: "Oil 55 PSI. Coolant 91C. All normal."
+- Units: km/h, Celsius, PSI (oil, fuel, boost). Never kPa.
 - STATIC MODE (engine off): Up to 2 sentences. Warm, conversational.
-- NEVER invent sensor values. If telemetry says "No live telemetry" or a value is missing, say "I don't have that data right now" — do NOT guess numbers.
-- Only reference values explicitly listed in Current telemetry below.
+- NEVER invent sensor values. If data is missing, say so.
 - It is better to be too short than too long.
 
 Current telemetry:
@@ -493,37 +484,22 @@ def _match_persona(query: str, si_drive_mode: str = "Intelligent") -> Optional[s
     if best_response is None or best_score == 0:
         return None
 
-    # General knowledge questions need a stronger match to avoid
-    # greedy persona catches like "engine" intercepting "how does
-    # a boxer engine work". Safety category always passes through.
-    _GK_SIGNALS = (
-        "how do", "how does", "what is", "what are", "why do", "why does",
-        "explain", "compare", "difference between", "what causes",
-    )
+    # Self-reference keywords — driver is talking TO or ABOUT KiSTI
     _SELF_REFS = ("your", "my ", "you", " i ", "do i ", "kisti")
-    if (
-        best_category != "safety"
-        and any(s in lower for s in _GK_SIGNALS)
-        and not any(s in lower for s in _SELF_REFS)
-    ):
-        if best_score < 10:
-            return None
+    has_self_ref = any(s in lower for s in _SELF_REFS)
 
-    # Short fragments without context should fall through to frontier.
-    # Queries under 5 words with only one keyword match are likely
-    # sentence fragments from VAD splits, not real questions about KiSTI.
-    word_count = len(lower.split())
-    if (
-        best_category != "safety"
-        and word_count <= 3
-        and best_score <= 6
-        and not any(s in lower for s in _SELF_REFS)
-    ):
-        return None
-
-    # Joke sentinel → random selection from 500-joke pool
-    if best_response == _JOKE_SENTINEL:
+    # Routing: persona handles safety, jokes, and self-referencing queries.
+    # Everything else needs a strong keyword match (score >= 10) to avoid
+    # greedy catches where single keywords like "engine"(6), "boxer"(6),
+    # "turbo"(5) intercept general knowledge questions and VAD fragments.
+    if best_category == "safety":
+        pass  # Safety always gets persona — brake warnings, overheating, etc.
+    elif best_response == _JOKE_SENTINEL:
         return get_random_joke()
+    elif has_self_ref:
+        pass  # "your engine", "how fast are you" — talking about KiSTI
+    elif best_score < 10:
+        return None  # Weak match without self-ref → let frontier handle it
 
     # Cap all responses to 2 sentences max — long TTS kills latency
     sentences = re.split(r'(?<=[.!?])\s+', best_response)
@@ -623,6 +599,7 @@ class LLMEngine:
         telemetry_context: str = "",
         memory_context: str = "",
         si_drive_mode: str = "Intelligent",
+        conversation_history: list | None = None,
     ) -> LLMResponse:
         """Send a query to the LLM (or persona fallback).
 
@@ -631,6 +608,7 @@ class LLMEngine:
             telemetry_context: Current telemetry snapshot as text.
             memory_context: Relevant memories from edge memory system.
             si_drive_mode: Current SI Drive mode name.
+            conversation_history: Recent DialogueTurn objects for frontier context.
 
         Returns:
             LLMResponse with text and metadata.
@@ -666,6 +644,7 @@ class LLMEngine:
             try:
                 frontier_resp = self._frontier.query(
                     user_message, telemetry_context, memory_context, si_drive_mode,
+                    conversation_history=conversation_history,
                 )
                 if frontier_resp is not None:
                     return frontier_resp
