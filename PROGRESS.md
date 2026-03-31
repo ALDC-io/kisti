@@ -1,5 +1,34 @@
 # KiSTI - Progress
 
+## Session: 2026-03-31 (kisti-17 — Whisper Upgrade + Frontier-First Architecture)
+
+### Completed
+- **Whisper medium.en on GPU** — upgraded from base.en (142MB, ~130ms) to medium.en (1.5GB, ~1s). CUDA already compiled. Added proper nouns to initial_prompt. Benchmarked: small.en=400ms, medium.en=1000ms.
+- **Frontier-first architecture** — flipped routing: safety fast-path → frontier → persona fallback → hard fallback. Created `_match_safety_fast_path()` with 20 instant-response entries. Min score >= 3 prevents "fr" in "france" false positives.
+- **Timeout-based ack** — `threading.Timer(0.3)` fires "Let me think about that" only for slow frontier calls. Cache hits get no ack.
+- **VAD threshold bump** — SPEECH_END_FRAMES 14→19 (448→608ms). Covers mid-sentence pauses.
+- **Stray match resolved** — "Yeah, that's it." can't reproduce; kisti-16's score>=10 threshold already fixed it.
+
+### Files Changed
+- `voice/llm_engine.py` — `_match_safety_fast_path()`, `_INSTANT_RESPONSES`, frontier-first `query()`, `is_real` property
+- `voice/voice_manager.py` — import + timeout-based ack pattern
+- `voice/stt_engine.py` — medium.en model name, proper noun prompt, 15s timeout
+- `voice/mic_capture.py` — SPEECH_END_FRAMES=19
+- `scripts/jetson/whisper-server.service` — medium.en + `-fa` flash attention
+- `tests/test_frontier_engine.py` — updated + 3 new integration tests
+- `tests/test_voice.py` — TestSafetyFastPath class (13 tests), VAD constant update
+- `tests/test_persona_factory.py` — TestSafetyFastPathDistinction class (5 tests)
+- `tests/test_jokes.py` — joke fast-path test
+
+### Test Count: 845 (was 825)
+
+### Learnings
+- whisper.cpp CUDA was already compiled in — always check CMakeCache.txt before rebuilding
+- 2-char keywords ("fr") cause substring false positives in unrelated words — use min score >= 3
+- Frontier-first eliminates the persona scoring problem entirely — frontier handles all ambiguous queries
+
+---
+
 ## Session: 2026-03-31 (kisti-16 — Persona Scoring + Frontier History)
 
 ### Files Changed

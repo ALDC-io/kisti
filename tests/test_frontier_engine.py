@@ -293,15 +293,35 @@ class TestLLMEngineIntegration:
         response = engine.query("what is the capital of Mongolia")
         assert response.tier == "fallback"
 
-    def test_llm_engine_persona_takes_priority_over_frontier(self):
-        """Persona match should return before frontier is called."""
+    def test_safety_fast_path_bypasses_frontier(self):
+        """Safety queries (brakes, oil, overheating) bypass frontier entirely."""
         mock_frontier = MagicMock()
         engine = LLMEngine(frontier=mock_frontier)
         engine._running = True
 
         response = engine.query("How are my brakes?")
         assert response.tier == "persona_match"
+        assert response.model == "persona_safety"
         mock_frontier.query.assert_not_called()
+
+    def test_frontier_takes_priority_over_persona_for_tech(self):
+        """Tech queries that match persona keywords still go to frontier first."""
+        mock_frontier = MagicMock()
+        mock_frontier.query.return_value = LLMResponse(
+            text="Frontier piston answer",
+            model="claude-haiku-4-5",
+            tier="frontier_live",
+            latency_s=0.4,
+            tokens=4,
+        )
+
+        engine = LLMEngine(frontier=mock_frontier)
+        engine._running = True
+
+        response = engine.query("Tell me about the pistons")
+        assert response.tier == "frontier_live"
+        assert response.text == "Frontier piston answer"
+        mock_frontier.query.assert_called_once()
 
     def test_llm_engine_fallback_when_frontier_returns_none(self):
         """If frontier returns None, should fall through to fallback."""
@@ -315,7 +335,7 @@ class TestLLMEngineIntegration:
         assert response.tier == "fallback"
 
     def test_llm_engine_fallback_when_frontier_raises(self):
-        """If frontier raises, should gracefully fall back."""
+        """If frontier raises on non-persona query, should hit hard fallback."""
         mock_frontier = MagicMock()
         mock_frontier.query.side_effect = RuntimeError("API crashed")
 
@@ -324,3 +344,16 @@ class TestLLMEngineIntegration:
 
         response = engine.query("what is the capital of Mongolia")
         assert response.tier == "fallback"
+
+    def test_persona_fallback_when_frontier_fails(self):
+        """If frontier raises on a persona-matching query, persona catches it."""
+        mock_frontier = MagicMock()
+        mock_frontier.query.side_effect = RuntimeError("Network unreachable")
+
+        engine = LLMEngine(frontier=mock_frontier)
+        engine._running = True
+
+        # "your boost" has self-ref + keyword match → persona fallback catches it
+        response = engine.query("How's your boost?")
+        assert response.tier == "persona_match"
+        assert response.model == "persona_keywords"

@@ -30,7 +30,7 @@ from PySide6.QtCore import QObject, QThread, Signal
 
 from model.vehicle_state import DiffState, SIDriveMode
 from voice.frontier_engine import FrontierLLMEngine
-from voice.llm_engine import LLMEngine, _match_persona
+from voice.llm_engine import LLMEngine, _match_safety_fast_path
 from voice.mic_capture import MicCapture
 from voice.stt_engine import STTEngine, HybridSTTEngine
 from voice.tts_engine import TTSEngine
@@ -710,9 +710,17 @@ class VoiceManager(QObject):
         if self._edge_memory and self._si_drive_mode != SIDriveMode.SPORT_SHARP:
             memory_context = self._edge_memory.build_memory_context(resolved_query)
 
-        # Acknowledge before slow LLM path — persona matches return <1ms so skip those
-        if not _match_persona(lower, self._si_drive_mode.label) and self._llm.is_real:
-            self.response_ready.emit("Let me think about that.")
+        # Timeout-based ack: fires "Let me think about that" only if frontier
+        # takes >300ms. Safety fast-path returns instantly, cache hits <2ms,
+        # so the ack only fires for live API calls.
+        is_instant = _match_safety_fast_path(lower, self._si_drive_mode.label) is not None
+        ack_timer = None
+        if not is_instant and self._llm.is_real:
+            ack_timer = threading.Timer(
+                0.3,
+                lambda: self.response_ready.emit("Let me think about that."),
+            )
+            ack_timer.start()
 
         # Query LLM (pass dialogue history so frontier has conversation context)
         response = self._llm.query(
@@ -722,6 +730,10 @@ class VoiceManager(QObject):
             si_drive_mode=self._si_drive_mode.label,
             conversation_history=self._dialogue.last_turns,
         )
+
+        # Cancel ack if response arrived before the timer fired
+        if ack_timer:
+            ack_timer.cancel()
 
         if trace:
             trace.llm_done_at = time.monotonic()

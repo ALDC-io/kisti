@@ -4,6 +4,7 @@ from data.car_jokes import CAR_JOKES, joke_count, category_counts
 from voice.llm_engine import (
     _JOKE_SENTINEL,
     _match_persona,
+    _match_safety_fast_path,
 )
 
 
@@ -70,3 +71,9 @@ class TestCarJokes:
         for _ in range(20):
             result = _match_persona("tell me a joke", "Intelligent")
             assert result != _JOKE_SENTINEL
+
+    def test_joke_in_safety_fast_path(self):
+        """Jokes should fire from the safety fast-path (instant, no API call)."""
+        result = _match_safety_fast_path("tell me a joke", "Intelligent")
+        assert result is not None
+        assert result != "__JOKE__"  # Should be actual joke text, not sentinel

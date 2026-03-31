@@ -1,6 +1,6 @@
 """Tests for new persona responses — pistons, factory specs, and build comparisons."""
 import pytest
-from voice.llm_engine import _match_persona, PERSONA_RESPONSES
+from voice.llm_engine import _match_persona, _match_safety_fast_path, PERSONA_RESPONSES
 from data.build_record import (
     ENGINE, FACTORY, BASELINES, FactorySpec,
     build_summary, build_detail, factory_vs_build,
@@ -173,3 +173,25 @@ class TestFactorySpecDataclass:
         text = build_detail()
         assert "IAG Performance 750" in text
         assert str(ENGINE.serial) in text
+
+
+class TestSafetyFastPathDistinction:
+    """Verify fast-path only catches safety/joke/identity, not tech/fun."""
+
+    def test_pistons_not_in_fast_path(self):
+        assert _match_safety_fast_path("tell me about the pistons", "Intelligent") is None
+        assert _match_persona("tell me about the pistons", "Intelligent") is not None
+
+    def test_oil_change_not_in_fast_path(self):
+        assert _match_safety_fast_path("when should I change the oil", "Intelligent") is None
+
+    def test_safety_in_both(self):
+        """Safety queries work in both fast-path and full persona."""
+        assert _match_safety_fast_path("oil pressure is low") is not None
+        assert _match_persona("oil pressure is low") is not None
+
+    def test_knock_safety_fast_path(self):
+        assert _match_safety_fast_path("I hear pinging from the engine") is not None
+
+    def test_factory_specs_not_in_fast_path(self):
+        assert _match_safety_fast_path("what are the gear ratios") is None

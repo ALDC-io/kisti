@@ -12,7 +12,8 @@ import pytest
 from voice.stt_engine import STTEngine, HybridSTTEngine, TranscriptionResult, SAMPLE_RATE
 from voice.tts_engine import TTSEngine, TTSResult, compute_amplitude_envelope
 from voice.llm_engine import (
-    LLMEngine, LLMResponse, _match_persona, FALLBACK_RESPONSE,
+    LLMEngine, LLMResponse, _match_persona, _match_safety_fast_path,
+    FALLBACK_RESPONSE,
     MODE_TOKEN_CAPS, MODE_TEMPERATURE, _MODE_ALLOWED_CATEGORIES,
 )
 from voice.mic_capture import (
@@ -223,6 +224,62 @@ class TestPersonaMatching:
         assert _match_persona("xyzzyx gibberish qqq") is None
 
 
+class TestSafetyFastPath:
+    """Safety fast-path catches safety/joke/identity queries instantly."""
+
+    def test_safety_brakes(self):
+        result = _match_safety_fast_path("How are the brakes?")
+        assert result is not None
+        assert "caliper" in result.lower() or "piston" in result.lower()
+
+    def test_safety_oil_pressure(self):
+        result = _match_safety_fast_path("Oil pressure is low")
+        assert result is not None
+
+    def test_safety_emergency(self):
+        result = _match_safety_fast_path("I think there's a problem")
+        assert result is not None
+
+    def test_safety_overheat(self):
+        result = _match_safety_fast_path("Engine overheating!")
+        assert result is not None
+
+    def test_joke_instant(self):
+        result = _match_safety_fast_path("Tell me a joke")
+        assert result is not None
+
+    def test_identity_who(self):
+        result = _match_safety_fast_path("Who are you?")
+        assert result is not None
+        assert "kisti" in result.lower()
+
+    def test_identity_greeting(self):
+        result = _match_safety_fast_path("Good morning")
+        assert result is not None
+
+    def test_identity_help(self):
+        result = _match_safety_fast_path("What can you do?")
+        assert result is not None
+
+    def test_tech_not_instant(self):
+        """Tech queries should NOT be caught by fast-path."""
+        assert _match_safety_fast_path("Tell me about the pistons") is None
+
+    def test_fun_not_instant(self):
+        """Fun queries (except jokes/identity) should NOT be caught."""
+        assert _match_safety_fast_path("Tell me about Star Trek") is None
+
+    def test_general_not_instant(self):
+        """General knowledge should NOT be caught."""
+        assert _match_safety_fast_path("What is the capital of France") is None
+
+    def test_sport_sharp_truncation(self):
+        """Sport Sharp truncates safety fast-path to 5 words."""
+        result = _match_safety_fast_path("How are the brakes?", "Sport Sharp")
+        assert result is not None
+        assert len(result.split()) <= 6  # 5 words + period
+
+
 # ========================================================================
 # LED Waveform tests
 # ========================================================================
@@ -376,7 +433,7 @@ class TestMicCapture:
         assert MIC_SAMPLE_RATE == 16000
         assert FRAME_BYTES == 1024  # Silero VAD: 512 samples * 2 bytes
         assert SPEECH_START_FRAMES == 6
-        assert SPEECH_END_FRAMES == 14  # ~448ms — reduced sentence splitting
+        assert SPEECH_END_FRAMES == 19  # ~608ms — reduced sentence splitting
         assert VAD_MODE == 3  # Most aggressive — in-car noise rejection
 
     def test_init_defaults(self):

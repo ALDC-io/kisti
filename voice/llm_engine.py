@@ -437,6 +437,26 @@ FALLBACK_RESPONSE = "Not sure about that. Ask me about boost, oil, or brakes."
 # Joke sentinel — when _match_persona finds this, it returns get_random_joke()
 _JOKE_SENTINEL = "__JOKE__"
 
+# Identity/greeting keywords that should be instant (no reason to burn an API call)
+_INSTANT_IDENTITY_KEYWORDS: set[str] = {
+    "who are you", "what are you", "introduce", "kisti",
+    "how are you", "feeling", "mood", "status",
+    "can you hear", "hear me", "are you there", "you listening",
+    "can you understand", "are you on",
+    "test", "testing", "check check", "mic check",
+    "good morning", "good night", "good evening", "good afternoon",
+    "help", "what can you do", "what do you know", "capabilities",
+}
+
+# Pre-computed instant-response entries: safety + jokes + identity/greetings
+_INSTANT_RESPONSES: list[tuple[list[str], str, str]] = [
+    (kws, resp, cat)
+    for kws, resp, cat in PERSONA_RESPONSES
+    if cat == "safety"
+    or resp == _JOKE_SENTINEL
+    or any(kw in _INSTANT_IDENTITY_KEYWORDS for kw in kws)
+]
+
 
 @dataclass
 class LLMResponse:
@@ -446,6 +466,51 @@ class LLMResponse:
     tier: str           # "local_llm" | "persona_match" | "fallback"
     latency_s: float    # Response generation time
     tokens: int         # Approximate token count
+
+
+def _match_safety_fast_path(query: str, si_drive_mode: str = "Intelligent") -> Optional[str]:
+    """Match query against instant-response entries only.
+
+    Returns a response for safety-critical, joke, and identity/greeting queries.
+    These should NEVER wait for a network call. Returns None for everything else,
+    letting frontier handle it.
+    """
+    lower = query.lower()
+    best_score = 0
+    best_response = None
+
+    for keywords, response, _category in _INSTANT_RESPONSES:
+        score = sum(len(kw) for kw in keywords if kw in lower)
+        if score > best_score:
+            best_score = score
+            best_response = response
+
+    if best_response is None or best_score < 3:
+        # Minimum score 3 prevents 2-char substring false positives
+        # (e.g. "fr" matching "france" from the brake "fr" keyword).
+        return None
+
+    if best_response == _JOKE_SENTINEL:
+        return get_random_joke()
+
+    # Apply mode truncation (same rules as _match_persona)
+    sentences = re.split(r'(?<=[.!?])\s+', best_response)
+    if len(sentences) > 2:
+        best_response = " ".join(sentences[:2])
+
+    if si_drive_mode == "Sport":
+        for sep in (". ", "! ", "? ", " — "):
+            idx = best_response.find(sep)
+            if idx > 0:
+                best_response = best_response[:idx + 1]
+                break
+    elif si_drive_mode == "Sport Sharp":
+        words = best_response.split()[:5]
+        best_response = " ".join(words)
+        if not best_response.endswith("."):
+            best_response += "."
+
+    return best_response
 
 
 # Categories allowed per SI Drive mode
@@ -616,32 +681,21 @@ class LLMEngine:
             LLMResponse with text and metadata.
         """
         start_time = time.monotonic()
-        max_tokens = MODE_TOKEN_CAPS.get(si_drive_mode, 64)
 
-        # Persona keyword matching FIRST — instant (<1ms) curated responses
-        matched = _match_persona(user_message, si_drive_mode)
-        if matched:
+        # TIER 0: Safety fast-path — ALWAYS instant, never waits for network
+        # Catches safety alerts, jokes, and identity/greeting queries.
+        safety_match = _match_safety_fast_path(user_message, si_drive_mode)
+        if safety_match:
             latency = time.monotonic() - start_time
             return LLMResponse(
-                text=matched,
-                model="persona_keywords",
+                text=safety_match,
+                model="persona_safety",
                 tier="persona_match",
                 latency_s=latency,
-                tokens=len(matched.split()),
+                tokens=len(safety_match.split()),
             )
 
-        # Ollama DISABLED — GPU memory reserved for display compositor.
-        # Re-enable when Link G5 CAN provides real telemetry context.
-        # if self._available_model:
-        #     try:
-        #         return self._query_ollama(
-        #             user_message, telemetry_context, memory_context,
-        #             si_drive_mode, max_tokens, start_time,
-        #         )
-        #     except Exception as exc:
-        #         log.warning("Ollama query failed: %s — using fallback", exc)
-
-        # Frontier AI — cloud-connected Claude API with edge cache
+        # TIER 1: Frontier AI — cloud brain (cache then live API)
         if self._frontier:
             try:
                 frontier_resp = self._frontier.query(
@@ -651,9 +705,22 @@ class LLMEngine:
                 if frontier_resp is not None:
                     return frontier_resp
             except Exception as exc:
-                log.warning("Frontier query failed: %s — using fallback", exc)
+                log.warning("Frontier query failed: %s — trying persona fallback", exc)
 
-        # Final fallback
+        # TIER 2: Persona fallback — offline or frontier failure
+        # Full keyword matching gives better answers than a generic fallback.
+        persona_match = _match_persona(user_message, si_drive_mode)
+        if persona_match:
+            latency = time.monotonic() - start_time
+            return LLMResponse(
+                text=persona_match,
+                model="persona_keywords",
+                tier="persona_match",
+                latency_s=latency,
+                tokens=len(persona_match.split()),
+            )
+
+        # TIER 3: Hard fallback
         latency = time.monotonic() - start_time
         return LLMResponse(
             text=FALLBACK_RESPONSE,
@@ -734,5 +801,5 @@ class LLMEngine:
 
     @property
     def is_real(self) -> bool:
-        """True if connected to Ollama with a real model."""
-        return self._available_model is not None
+        """True if frontier engine is available (cloud or cache)."""
+        return self._frontier is not None
