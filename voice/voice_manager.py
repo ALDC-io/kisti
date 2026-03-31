@@ -29,6 +29,7 @@ from typing import Optional
 from PySide6.QtCore import QObject, QThread, Signal
 
 from model.vehicle_state import DiffState, SIDriveMode
+from voice.frontier_engine import FrontierLLMEngine
 from voice.llm_engine import LLMEngine, _match_persona
 from voice.mic_capture import MicCapture
 from voice.stt_engine import STTEngine, HybridSTTEngine
@@ -269,7 +270,10 @@ class VoiceManager(QObject):
             self._stt = STTEngine()
             log.info("Initialized standard whisper.cpp STT engine")
         self._tts = TTSEngine()
-        self._llm = LLMEngine()
+        # Frontier AI — Claude API when WiFi available, edge cache when offline
+        anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        self._frontier = FrontierLLMEngine(api_key=anthropic_key) if anthropic_key else None
+        self._llm = LLMEngine(frontier=self._frontier)
         self._led = LEDWaveformGenerator()
         self._mic = MicCapture(device=mic_device, wake_model=os.environ.get("KISTI_WAKE_MODEL")) if enable_mic else None
 
@@ -329,6 +333,8 @@ class VoiceManager(QObject):
         """Initialize all voice subsystems and start the worker thread."""
         self._stt.start()
         self._tts.start()
+        if self._frontier:
+            self._frontier.start()
         self._llm.start()
         self._running = True
 
@@ -365,6 +371,8 @@ class VoiceManager(QObject):
         self._stt.stop()
         self._tts.stop()
         self._llm.stop()
+        if self._frontier:
+            self._frontier.stop()
         log.info("Voice manager stopped")
 
     def set_si_drive_mode(self, mode: SIDriveMode) -> None:
@@ -423,9 +431,12 @@ class VoiceManager(QObject):
         self._edge_memory = edge_memory
 
     def set_duckdb_store(self, store: object, session_id: str = "") -> None:
-        """Inject DuckDB store for latency recording."""
+        """Inject DuckDB store for latency recording + frontier cache."""
         self._duckdb_store = store
         self._session_id = session_id
+        # Wire DuckDB connection to frontier engine for response caching
+        if self._frontier and hasattr(store, "_conn") and store._conn:
+            self._frontier._conn = store._conn
 
     def toggle_voice(self) -> VoiceToggleState:
         """Cycle voice state: Normal → Quiet → Off → Normal (K4 button)."""
