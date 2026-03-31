@@ -1,5 +1,73 @@
 # KiSTI - Progress
 
+## Session: 2026-03-31 (kisti-16 — Persona Scoring + Frontier History)
+
+### Files Changed
+- `voice/llm_engine.py` — unified self-ref guard, system prompt rewrite
+- `voice/frontier_engine.py` — conversation history (last 3 turns)
+- `voice/voice_manager.py` — wire dialogue.last_turns to LLM query
+- `voice/mic_capture.py` — VAD SPEECH_END_FRAMES 8→14 (448ms)
+- `tests/test_voice.py` — 18 tests updated for frontier routing
+- `tests/test_persona_factory.py` — 6 tests updated
+
+### Key Decisions
+- Persona self-ref guard: score>=10 required for non-safety/non-joke/no-self-ref queries
+- Frontier conversation history: last 3 turns as multi-turn messages, cache skipped with history
+- System prompt: conversational tone, no spec volunteering in general knowledge answers
+- VAD: 256ms→448ms silence threshold reduces sentence splitting
+
+### Done This Session
+- [x] Persona scoring fix — unified self-ref guard replaces GK+fragment filters
+- [x] Frontier conversation history — follow-up questions now work
+- [x] System prompt rewrite — conversational, not spec-heavy
+- [x] VAD silence threshold bumped 256ms→448ms
+- [x] 825 tests passing (824 baseline +1 new self-ref test)
+- [x] Verified live on Jetson: "Porsche vs Subaru" → frontier, no spec dump
+
+### Next Session (kisti-17)
+- [ ] Upgrade Whisper to medium.en (1.5GB) — small.en downloaded, medium.en needs download
+- [ ] Check whisper.cpp CUDA support — rebuild with -DGGML_CUDA=ON for GPU inference
+- [ ] Frontier-first architecture (plan mode) — invert persona→frontier to frontier→persona
+- [ ] Investigate stray persona match: "Yeah, that's it." scored >=10 unexpectedly
+- [ ] VAD further tuning — still splits on longer pauses
+
+### Don't Repeat
+- Don't use two separate filters (GK signal + fragment) for persona routing — gap exists for medium-length fragments without GK prefixes
+- Don't leave SPEECH_END_FRAMES at 8 (256ms) — too aggressive, splits natural speech pauses
+- Whisper base.en insufficient for proper nouns in automotive context
+
+---
+
+## Session: 2026-03-31 (CCE Auto-Learn System Debug)
+
+### Completed
+- **Fixed CCE auto-learn capture system** — Three critical bugs preventing session learnings from reaching leaderboard
+  1. Marker file uniqueness: day-only format → per-session timestamp (prevents same-day collision)
+  2. Source field routing: `cce-session-auto-learn` → `cce_success_log` (leaderboard counter recognition)
+  3. Hook execution order: moved auto-learn before session file cleanup (file access + parameter passing)
+- **Migrated historical learnings** — Updated 41 misrouted memories from wrong source to `cce_success_log`
+- **Verified leaderboard** — Total increased 2063 → 2104, JK Confidential confirmed clean
+
+### Learnings
+- **Failed Approaches** (none this session — system redesign went well)
+- **Successes**
+  - Multi-file hook coordination: stop hook, session-end hook, auto-learn script must share SESSION_ID
+  - Marker file pattern matters: unique per-session prevents collision; explicit parameter passing bypasses cache reads
+  - Source field critical: must match `/api/learnings/count` filter to appear on leaderboard
+  - ZEUS_ALDC_API_KEY routing: confirms all team learnings to Management tenant, never falls back to personal key
+- **Decisions**
+  - Parameter-driven approach: pass SESSION_ID as $1 to functions instead of relying on cache files
+  - Unique marker names: per-minute resolution (not per-day) for same-day multi-session support
+  - Hook ordering: auto-learn must run before cleanup phase to ensure file availability
+
+### Architecture Notes
+- Auto-learn system is core to CCE leaderboard — single source of truth for session work capture
+- Hook bundle (v114) packages these fixes; always publish after editing hooks
+- Session lifecycle: SessionStart → hook sync → work → SessionEnd/Stop → auto-learn → cleanup
+- Marker pattern: `auto-learn-{SESSION_ID}` acts as idempotency guard; must be unique
+
+---
+
 ## Session: 2026-02-10
 
 ### Completed
