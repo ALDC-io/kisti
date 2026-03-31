@@ -10,7 +10,7 @@ const PIPELINE_STAGES = [
   {
     title: "2. Vision Layer",
     description:
-      "4 front-mounted cameras feed directly to the Jetson Orin via USB 3.0 and CSI — thermal, depth, visual, and weather sensing.",
+      "4 front-mounted cameras feed directly to the Jetson AGX Thor via USB 3.0 and CSI — thermal, depth, visual, and weather sensing.",
     detail: "Teledyne FLIR thermal IR, 3D LiDAR point cloud, high-speed RGB camera, Yoctopuce Yocto-Spruce weather station.",
   },
   {
@@ -22,8 +22,8 @@ const PIPELINE_STAGES = [
   {
     title: "4. Edge Inference",
     description:
-      "NVIDIA Jetson Orin NX processes telemetry and vision data at the edge — anomaly detection, pattern matching, and predictive diagnostics in <50ms.",
-    detail: "100 TOPS AI performance (16GB LPDDR5), TensorRT optimized models, 4 camera inputs, local data buffering when offline.",
+      "NVIDIA Jetson AGX Thor processes telemetry and vision data at the edge — anomaly detection, pattern matching, and predictive diagnostics in <50ms.",
+    detail: "1,000+ TOPS AI performance (128GB LPDDR5X), TensorRT optimized models, 16 camera inputs, local data buffering when offline.",
   },
   {
     title: "5. Cloud Sync",
@@ -68,7 +68,7 @@ export default function TechPage() {
               </span>
               <span className="text-foreground/30">→</span>
               <span className="flex items-center rounded-md bg-kisti-accent/15 px-2 py-1">
-                <img src="/assets/jetson_orin_logo.svg" alt="Jetson Orin" className="h-5" draggable={false} />
+                <img src="/assets/jetson_orin_logo.svg" alt="Jetson AGX Thor" className="h-5" draggable={false} />
               </span>
               <span className="text-foreground/30">→</span>
               {/* Branch: Driver View / Zeus → Pit Engineer */}
@@ -119,7 +119,7 @@ export default function TechPage() {
               Voice AI Pipeline
             </h2>
             <p className="text-sm text-foreground/60">
-              Fully offline conversational AI — no cloud dependency, no cellular required. The entire voice stack runs on-device on the Jetson Orin NX.
+              Fully offline conversational AI — no cloud dependency, no cellular required. The entire voice stack runs on-device on the Jetson AGX Thor.
             </p>
             <div className="grid gap-4 sm:grid-cols-2">
               {[
@@ -200,7 +200,7 @@ export default function TechPage() {
               { label: "Sample Rate", value: "4-10 Hz" },
               { label: "Edge Latency", value: "<50ms" },
               { label: "CAN Speed", value: "500 Kbps" },
-              { label: "AI Performance", value: "100 TOPS" },
+              { label: "AI Performance", value: "1,000+ TOPS" },
               { label: "Cloud Memories", value: "3.5M+" },
             ].map((spec) => (
               <div
