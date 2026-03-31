@@ -1,113 +1,66 @@
-# NVIDIA Sponsorship Letter — KiSTI Edge AI Co-Driver
-
-**Subject:** KiSTI — Real-Time Edge AI Co-Driver on Jetson Orin NX | Sponsorship Inquiry
+**Subject:** Garage-Built AI Co-Driver Running on Jetson
 
 ---
 
 Dear NVIDIA Developer Relations Team,
 
-I'm JK, CEO of Analytic Labs (ALDC). I'm reaching out about KiSTI — a motorsports-grade edge AI co-driver we've built entirely on the Jetson platform, deployed inside a real performance vehicle and tested at speed.
+I'm JK, CEO of Analytic Labs (ALDC). I want to show you something your hardware made possible that I don't think you've seen yet.
 
-This isn't a concept. It's running.
+NVIDIA's automotive AI story is McLaren, Mercedes, BMW — billion-dollar OEMs with billion-dollar budgets. That's impressive. But it's not the whole story.
 
-## The Vehicle
+We built an AI co-driver in a garage. A 12-year-old Subaru, a Jetson Orin NX, and open-source software. No OEM partnership. No venture funding. No team of 50 engineers. The car talks to the driver in plain English while they're driving — full voice AI pipeline, 17 live sensor channels, edge memory that persists across sessions — all running offline on a single Jetson.
 
-2014 Subaru WRX STI Hatch. IAG 750 Closed Deck short block (rated 750 BHP). BCP X400 turbo. ID1300 injectors. COBB front-mount intercooler. Competition Clutch Stage 2 with ACT lightweight flywheel. Fortune Auto coilovers. CSF race-spec radiator. The vehicle runs exclusively on **E85 — corn-derived ethanol** — making it one of the few edge AI automotive platforms powered by renewable fuel. Full standalone flex fuel tune by Boost Barn Motorsports. $50K+ build, track-tested at Mission Raceway (BC, Canada).
+That wasn't possible two years ago. Jetson changed that.
 
-## The AI System
+The story NVIDIA hasn't told yet is that Jetson didn't just make edge AI cheaper for the companies that could already afford it. It made automotive AI accessible to regular people. The kind of people who don't drive McLarens and don't know anyone who does. The kind of people who wrench on their cars on weekends. That market — grassroots, aftermarket, enthusiast automotive AI — exists now, and NVIDIA is the reason.
 
-KiSTI (Knight Industries STI) is an edge AI co-driver that monitors **19 sensors and 4 cameras** in real time, speaks to the driver in natural language, and operates **fully offline** — no cloud dependency, no cellular required.
+KiSTI is the proof.
 
-The entire inference stack runs on a single **Jetson Orin NX Super Developer Kit (16GB)**:
+## What We Built
 
-- **Speech-to-text**: whisper.cpp with CUDA acceleration (~130ms for 3-second utterances)
-- **Text-to-speech**: Piper TTS with sub-200ms end-to-end conversational latency
-- **Telemetry**: 17 active sensor channels at 4-10Hz via CAN bus — brake temps (4x thermocouple), tire temps (4x IR), K-type EGT, boost (4-bar MAP), oil temp/pressure, wideband O2, intake air temp, flex fuel content
-- **Vision**: 4 cameras (thermal IR, LiDAR depth, high-speed RGB, weather/ambient) via USB 3.0 and CSI
-- **Edge memory**: DuckDB + ONNX embeddings for on-device knowledge persistence across sessions
-- **Voice modes**: Three operational tiers — Informal (personality-driven, sarcastic), Standard (clinical telemetry), Safety-Critical (emergency alerts only)
-- **Wake word**: Custom voice activation with barge-in echo cancellation
-- **Cloud sync**: Store-and-forward to Zeus Memory (3.5M+ memories processed) via WiFi when connectivity is available
+The Subaru runs on E85 — corn-derived ethanol. That conversion requires a full sensor suite to manage fuel composition, combustion, and engine safety in real time. We work with [Link Engine Management](https://www.linkecu.com/), one of the premier companies building motorsports-grade engine computers, who is sponsoring the complete electronics package: ECU, power distribution, dash, and sensors.
 
-The system detects anomalies, predicts failure patterns, and tells the driver what's happening — in plain English, while they're driving. It remembers previous sessions, learns the driver's patterns, and adapts its alerts based on operational context.
+That gives us 17+ sensor channels streaming live over CAN bus. Instead of just logging that data, we built an AI system on Jetson that turns it into a conversational co-driver:
 
-## The Platform Behind It
+- **Voice pipeline**: whisper.cpp STT + Piper TTS — fully offline, no cloud, no cellular
+- **Sensor fusion**: 17 CAN bus channels from the Link ECU + external sensors (IR tire temps, thermal camera, weather station, 6-axis IMU/GPS)
+- **Edge memory**: DuckDB + ONNX embeddings — the car remembers previous sessions
+- **LLM co-driver**: Mode-aware — casual at cruise, clinical under load, emergency-only at the limit
+- **Cloud sync**: Store-and-forward to our Zeus Memory platform when WiFi is available
 
-KiSTI is built by ALDC — we develop Enterprise Intelligence systems that ingest operational data from 123+ connectors and turn it into conversational, evidence-backed insights. KiSTI demonstrates the same architecture pattern applied to automotive:
+The system is running, with 805 passing tests and a live interactive demo at [kisti.analyticlabs.io](https://kisti.analyticlabs.io). We've tested at Mission Raceway in BC, Canada, and the platform expands as additional sensors come online.
 
-| KiSTI | Enterprise |
-|-------|-----------|
-| Sensors | Data Sources |
-| CAN Bus | APIs |
-| Link ECU | Eclipse (Data Platform) |
-| Jetson Orin NX | Zeus Memory (Context Layer) |
-| Voice Co-Driver | Zeus Chat (Evidence Engine) |
+## Why This Matters to NVIDIA
 
-This isn't a side project — it's a real-world proof of our core technology running at the edge under extreme conditions (heat, vibration, G-forces, engine noise).
+Every Jetson success story on your blog is a robotics lab, a drone company, or an industrial automation firm. Those are important. But they're expected — of course well-funded companies build AI on your hardware.
 
-## Sponsored Hardware Stack
+What's unexpected is someone building an AI co-driver for a 12-year-old car in their garage. That's the story that makes a developer community sit up. That's the story that makes someone think "I could do that" — and then buy a Jetson to try. That grassroots energy is what turned Arduino and Raspberry Pi into ecosystems, not just products. Jetson is already there technically. Project KiSTI is the proof point for the narrative.
 
-Link Engine Management is our ECU and electronics sponsor, providing the complete electronics package: G5 Neo 4 ECU, Razor PDM, AiM Strada 7" Street dash, 8-button CAN Keypad, plus MAP, IAT, flex fuel, and oil pressure sensors. AiM GPS09 Pro provides 6-axis IMU (accelerometer + gyroscope at 100Hz) plus GPS for lap timing and track position.
+We're offering to help tell the story that Jetson has made automotive AI an everyman pursuit — and to showcase what the full NVIDIA edge stack can do:
 
-**The Jetson Orin NX is the only major compute component without a sponsorship partner.**
+### In-Car: Jetson AGX Thor
+**1,000+ TOPS | 128GB | 40-130W configurable**
 
-## What We're Hitting
+The configurable power envelope matters in a car. Low power for the voice pipeline when the cabin is quiet, full power when the engine is running and noise masks everything — unlocking simultaneous LLM + vision + full telemetry. If a garage-built car can run an AI co-driver on AGX Thor, the message is clear: this hardware is for everyone building at the edge, not just OEMs.
 
-At 100 TOPS and 16GB shared memory, we're managing — but making real trade-offs:
+### Pit-Side: DGX Spark
+**1 PFLOP | 128GB | 1.2 kg**
 
-- **LLM inference disabled** to preserve GPU headroom for whisper.cpp STT
-- **Camera streams throttled** — can't run all 4 simultaneously with the voice pipeline active
-- **Embedding generation competes** with real-time speech recognition
-- **Track sessions with full sensor + vision + voice** push the thermal envelope
-- **No concurrent model execution** — one GPU-intensive task at a time
+A portable AI workstation that sits trackside in the toolbox. Session replay, failure pattern analysis, multi-session trends — running locally, no connectivity needed. The motorsports engineer's AI assistant. If the in-car Jetson shows what edge AI can do in motion, the DGX Spark shows what it can do at rest — and it fits in a backpack.
 
-We've proven the concept works at 100 TOPS. More compute would let us prove what it's capable of.
+## What We're Asking
 
-## What We're Looking For — Three-Tier NVIDIA Stack
+We'd like NVIDIA to partner with us on the hardware for both tiers — Jetson AGX Thor for in-car and DGX Spark for pit-side — in exchange for a real-world showcase of grassroots automotive AI running on the NVIDIA stack:
 
-We've designed KiSTI around a clear three-tier architecture. Each tier solves a distinct problem:
+- **Live demo site**: [kisti.analyticlabs.io](https://kisti.analyticlabs.io) — interactive telemetry, driver view, pit engineer dashboard
+- **Real track content**: Heat, vibration, G-forces, engine noise — demos that can't be staged in a lab
+- **E85 sustainability angle**: Edge AI in a renewable-fuel car — a narrative no one else has
+- **Production software**: 805+ tests, edge memory, cloud sync — not a prototype
+- **Sponsor precedent**: Link Engine Management already sponsors the electronics package
 
-### Tier 1 — In-Car: Jetson AGX Thor
-**1,000+ TOPS | 128GB LPDDR5X | 40-130W configurable**
+ALDC builds enterprise intelligence systems for real organizations — KiSTI is the same architecture applied at the edge under extreme conditions. More at [aldc.io](https://www.aldc.io).
 
-The AGX Thor's configurable power envelope is critical for motorsports. At **40W**, it runs the full voice pipeline (STT + TTS + wake word) silently — no fan noise competing with the driver conversation. At **130W** when the engine is running and cabin noise masks everything, it unlocks simultaneous LLM inference + vision + telemetry analysis. This isn't just more compute — it's compute that adapts to the acoustic environment of a 750 BHP race car.
-
-### Tier 2 — Pit-Side: DGX Spark
-**1 PFLOP FP4 | 128GB unified memory | 1.2 kg**
-
-A portable AI workstation that sits trackside with the pit crew. The DGX Spark replaces our current cloud dependency for deep analysis — session replay, failure pattern synthesis, multi-session trend analysis — all running locally at the track without requiring connectivity. At 1.2 kg, it travels in the toolbox.
-
-### Tier 3 — Cloud: Zeus Memory
-**3.5M+ memories | 292,000+ API connections | Deep analysis**
-
-Already operational. Zeus Memory provides the long-term knowledge layer — cross-session learning, historical pattern matching, and enterprise-grade analysis that feeds insights back to the edge devices when connectivity is available.
-
-**Tiers 1 and 2 are the sponsorship ask. Tier 3 is built and running.**
-
-In exchange, we offer:
-
-1. **Live public demo**: [kisti.analyticlabs.io](https://kisti.analyticlabs.io) — interactive telemetry, driver view, pit engineer dashboard
-2. **Zeus Chat interface**: [kisti.analyticlabs.io/zeus](https://kisti.analyticlabs.io/zeus) — talk to the car directly
-3. **Real-world benchmarks** from track sessions at Mission Raceway
-4. **Content-ready platform**: KiSTI generates compelling demos of edge AI under extreme conditions
-5. **Enterprise context**: ALDC's intelligence platform serves real organizations — KiSTI is the same architecture at the edge
-6. **625+ test suite**: Production-grade software with comprehensive test coverage
-7. **E85 sustainability narrative**: Edge AI powered by renewable corn-derived fuel
-
-## The E85 Angle
-
-The vehicle runs exclusively on E85 — corn-derived ethanol. The intersection of sustainable performance and AI at the edge is a narrative that doesn't exist anywhere else. A Jetson-powered co-driver in an ethanol-fueled performance car is a story that writes itself.
-
-## Links
-
-- **Live Demo**: https://kisti.analyticlabs.io
-- **Zeus Chat**: https://kisti.analyticlabs.io/zeus
-- **Technology**: https://kisti.analyticlabs.io/tech
-- **Partners**: https://kisti.analyticlabs.io/partners
-- **Why ALDC**: https://kisti.analyticlabs.io/whyaldc
-- **ALDC**: https://www.aldc.io
-
-Happy to share architecture diagrams, GPU profiling data, track session recordings, and detailed benchmarks.
+I'd welcome 15 minutes to demo the system and discuss how this fits NVIDIA's developer community story. Happy to share architecture details, GPU profiling data, or track session footage.
 
 Best regards,
 
