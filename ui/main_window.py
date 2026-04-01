@@ -109,6 +109,11 @@ class MainWindow(QMainWindow):
         shortcut = QShortcut(QKeySequence(Qt.Key_F11), self)
         shortcut.activated.connect(self._toggle_fullscreen)
 
+        # 1/2/3 keys to switch SI-Drive screens (dev/demo use)
+        for key, idx in [(Qt.Key_1, 0), (Qt.Key_2, 1), (Qt.Key_3, 2)]:
+            sc = QShortcut(QKeySequence(key), self)
+            sc.activated.connect(lambda i=idx: self._on_si_drive_changed(i))
+
         # Mock data generator — disabled, only real hardware
         self._generator = None
         self._radar_manager = None
