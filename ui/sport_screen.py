@@ -121,9 +121,6 @@ class SportScreenWidget(QWidget):
     # ------------------------------------------------------------------
 
     def paintEvent(self, event) -> None:  # noqa: N802
-        if self._snap is None:
-            return
-
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         w = self.width()
@@ -132,9 +129,10 @@ class SportScreenWidget(QWidget):
         # Background
         p.fillRect(0, 0, w, h, QColor(BG_DARK))
 
-        snap = self._snap
-        engine_stale = snap.is_engine_stale()
-        diff_stale = snap.is_diff_stale()
+        # Use real snap or a default empty one for layout painting
+        snap = self._snap if self._snap is not None else DiffState()
+        engine_stale = True if self._snap is None else snap.is_engine_stale()
+        diff_stale = True if self._snap is None else snap.is_diff_stale()
 
         # --- Top band (y=0..100) ---
         self._paint_gear_speed(p, snap, engine_stale)
