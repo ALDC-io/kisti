@@ -39,21 +39,11 @@ fi
 
 export DISPLAY="$_DISP"
 
-# --- Steal X auth cookie from GDM ---
-# GDM's Xorg runs as uid 128 with its own Xauthority. We need that cookie.
+# --- Open X display for local users ---
+# Xorg runs as root with GDM's auth. Use sudo to allow local connections.
 _GDM_AUTH="/run/user/128/gdm/Xauthority"
-if [ -f "$_GDM_AUTH" ] || echo "$SP" | sudo -S test -f "$_GDM_AUTH" 2>/dev/null; then
-    echo "$SP" | sudo -S xauth -f "$_GDM_AUTH" extract - "$_DISP" 2>/dev/null | xauth merge - 2>/dev/null
-    echo "$(date) Merged GDM X cookie for $_DISP" >> "$LOG"
-fi
-
-# Also check user-level auth
-for _try in "/run/user/$(id -u)/gdm/Xauthority" "$HOME/.Xauthority"; do
-    [ -f "$_try" ] && export XAUTHORITY="$_try" && break
-done
-
-# Allow local connections (now that we have the cookie)
-xhost +local: 2>/dev/null || true
+echo "$SP" | sudo -S env DISPLAY="$_DISP" XAUTHORITY="$_GDM_AUTH" xhost +local: 2>/dev/null || true
+echo "$(date) xhost +local: on $_DISP via GDM auth" >> "$LOG"
 
 # --- Kill GNOME shell (we're taking over) ---
 pkill -f gnome-shell 2>/dev/null || true
