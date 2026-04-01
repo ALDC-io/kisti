@@ -33,7 +33,7 @@ from voice.frontier_engine import FrontierLLMEngine
 from voice.llm_engine import LLMEngine, _match_safety_fast_path
 from voice.mic_capture import MicCapture
 from voice.stt_engine import STTEngine, HybridSTTEngine
-from voice.tts_engine import TTSEngine
+from voice.tts_engine import TTSEngine, split_sentences
 from voice.led_waveform import LEDFrame, LEDWaveformGenerator
 
 log = logging.getLogger("kisti.voice")
@@ -895,7 +895,12 @@ class VoiceManager(QObject):
         self._interrupted = True
 
     def _do_speak(self, text: str) -> None:
-        """Synthesize and play speech with LED waveform."""
+        """Synthesize and play speech with LED waveform.
+
+        Multi-sentence responses use streaming TTS: first sentence synthesizes
+        and plays immediately, remaining sentences synthesize while audio plays.
+        Cuts perceived latency from full-text TTS time to single-sentence TTS time.
+        """
         self._set_state(VoiceState.SPEAKING)
         self._interrupted = False
         self._last_spoken_text = text.lower()
@@ -903,57 +908,19 @@ class VoiceManager(QObject):
 
         trace = self._active_trace
 
-        # Synthesize
-        result = self._tts.speak(text)
-        if trace:
-            trace.tts_done_at = time.monotonic()
-
         # Barge-in: keep mic active with raised OWW threshold for interruptible
         # responses; full pause for non-interruptible (critical alerts)
         can_barge = True
         if self._last_response and not self._last_response.can_interrupt:
             can_barge = False
 
-        if self._mic:
-            if can_barge:
-                self._mic.set_barge_in_mode(True)
-            else:
-                self._mic.pause()
+        # Split into sentences for streaming TTS
+        sentences = split_sentences(text)
 
-        if trace:
-            trace.speaker_start_at = time.monotonic()
-
-        # Start audio playback, then drive LEDs concurrently.
-        # Previously LED animation ran BEFORE playback, adding ~2s latency.
-        play_proc = None
-        wav_path = None
-        if not self._interrupted:
-            play_proc, wav_path = self._start_audio(result.audio_pcm, result.sample_rate)
-            # Set shared waveform data for UI polling (no cross-thread signals)
-            self._waveform_data = (result.amplitude_envelope, time.monotonic())
-
-        # Drive LEDs synchronized with audio playback
-        if self._si_drive_mode == SIDriveMode.INTELLIGENT:
-            frames = self._led.waveform_from_envelope(result.amplitude_envelope)
-            for frame in frames:
-                if not self._running or self._interrupted:
-                    break
-                self.led_frame_ready.emit(frame)
-                time.sleep(1.0 / 30.0)
-
-        # Wait for playback to finish (if LED loop ended first)
-        if play_proc:
-            try:
-                play_proc.wait(timeout=60)
-            except Exception:
-                pass
-            self._aplay_proc = None
-            if wav_path:
-                import os
-                try:
-                    os.unlink(wav_path)
-                except OSError:
-                    pass
+        if len(sentences) > 1 and not self._interrupted:
+            self._speak_streamed(sentences, trace, can_barge)
+        else:
+            self._speak_single(text, trace, can_barge)
 
         # Clear waveform data — UI will stop animating on next poll
         self._waveform_data = None
@@ -991,6 +958,154 @@ class VoiceManager(QObject):
         # Reset conversation window AFTER speaking — user hears response, then has 8s to follow up
         self._last_interaction = time.monotonic()
         self._set_state(VoiceState.IDLE)
+
+    def _speak_single(self, text: str, trace: Optional[PipelineTrace],
+                      can_barge: bool) -> None:
+        """Standard TTS path: synthesize full text then play."""
+        result = self._tts.speak(text)
+        if trace:
+            trace.tts_done_at = time.monotonic()
+
+        if self._mic:
+            if can_barge:
+                self._mic.set_barge_in_mode(True)
+            else:
+                self._mic.pause()
+
+        if trace:
+            trace.speaker_start_at = time.monotonic()
+
+        play_proc = None
+        wav_path = None
+        if not self._interrupted:
+            play_proc, wav_path = self._start_audio(result.audio_pcm, result.sample_rate)
+            self._waveform_data = (result.amplitude_envelope, time.monotonic())
+
+        # Drive LEDs synchronized with audio playback
+        if self._si_drive_mode == SIDriveMode.INTELLIGENT:
+            frames = self._led.waveform_from_envelope(result.amplitude_envelope)
+            for frame in frames:
+                if not self._running or self._interrupted:
+                    break
+                self.led_frame_ready.emit(frame)
+                time.sleep(1.0 / 30.0)
+
+        # Wait for playback to finish (if LED loop ended first)
+        if play_proc:
+            try:
+                play_proc.wait(timeout=60)
+            except Exception:
+                pass
+            self._aplay_proc = None
+            if wav_path:
+                try:
+                    os.unlink(wav_path)
+                except OSError:
+                    pass
+
+    def _speak_streamed(self, sentences: list[str], trace: Optional[PipelineTrace],
+                        can_barge: bool) -> None:
+        """Streaming TTS: synthesize+play first sentence, overlap the rest.
+
+        Opens a single pacat process and writes PCM chunks as sentences
+        synthesize. Playback begins as soon as the first sentence is written.
+        Remaining sentences synthesize while the first plays — since TTS speed
+        (~10 words/s) is faster than speech rate (~3 words/s), synthesis stays
+        ahead of playback and audio is seamless.
+        """
+        import subprocess as _sp
+
+        # Synthesize first sentence — this is the perceived latency
+        first_result = self._tts.speak(sentences[0])
+        if trace:
+            trace.tts_done_at = time.monotonic()
+
+        if self._interrupted:
+            return
+
+        # Enable barge-in before playback starts
+        if self._mic:
+            if can_barge:
+                self._mic.set_barge_in_mode(True)
+            else:
+                self._mic.pause()
+
+        if trace:
+            trace.speaker_start_at = time.monotonic()
+
+        # Open single pacat process for entire response
+        try:
+            proc = _sp.Popen(
+                ["pacat", "--playback", "--raw",
+                 f"--rate={first_result.sample_rate}", "--channels=1", "--format=s16le"],
+                stdin=_sp.PIPE,
+                stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+            )
+        except Exception:
+            # pacat unavailable — fall back to non-streaming
+            log.debug("pacat unavailable for streaming, falling back to single-shot")
+            self._speak_single(" ".join(sentences), trace, can_barge)
+            return
+
+        self._aplay_proc = proc
+        audio_start = time.monotonic()
+
+        # Write first sentence PCM — playback begins immediately
+        try:
+            proc.stdin.write(first_result.audio_pcm)
+        except (BrokenPipeError, OSError):
+            self._aplay_proc = None
+            return
+
+        all_envelope = list(first_result.amplitude_envelope)
+        total_duration = first_result.duration_s
+
+        log.info("Streaming TTS: 1/%d (%.0fms synth, %.1fs audio)",
+                 len(sentences), first_result.latency_s * 1000, first_result.duration_s)
+
+        # Synthesize and write remaining sentences while first sentence plays.
+        # TTS at ~100ms/word < speech at ~300ms/word, so synthesis stays ahead.
+        for i, sentence in enumerate(sentences[1:], start=2):
+            if self._interrupted:
+                break
+            result = self._tts.speak(sentence)
+            if self._interrupted:
+                break
+            try:
+                proc.stdin.write(result.audio_pcm)
+            except (BrokenPipeError, OSError):
+                break  # pacat terminated (barge-in or error)
+            all_envelope.extend(result.amplitude_envelope)
+            total_duration += result.duration_s
+            log.debug("Streaming TTS: %d/%d (%.0fms synth)",
+                      i, len(sentences), result.latency_s * 1000)
+
+        # Close stdin — pacat continues playing buffered audio
+        try:
+            proc.stdin.close()
+        except Exception:
+            pass
+
+        # Set waveform data for UI polling
+        self._waveform_data = (all_envelope, audio_start)
+
+        # Drive LEDs for remaining playback time (skip frames already elapsed)
+        if self._si_drive_mode == SIDriveMode.INTELLIGENT:
+            frames = self._led.waveform_from_envelope(all_envelope)
+            elapsed = time.monotonic() - audio_start
+            skip = int(elapsed * 30)  # 30 fps
+            for frame in frames[skip:]:
+                if not self._running or self._interrupted:
+                    break
+                self.led_frame_ready.emit(frame)
+                time.sleep(1.0 / 30.0)
+
+        # Wait for playback to complete
+        try:
+            proc.wait(timeout=60)
+        except Exception:
+            pass
+        self._aplay_proc = None
 
     def _start_audio(self, audio_pcm: bytes, sample_rate: int) -> tuple:
         """Start audio playback via PulseAudio (non-blocking).

@@ -220,7 +220,7 @@ class FrontierLLMEngine:
             query_hash = self._hash_query(user_message)
             cached = self._check_cache(query_hash)
             if cached is not None:
-                max_s = {"Intelligent": 4, "Sport": 2, "Sport Sharp": 1}.get(si_drive_mode, 2)
+                max_s = {"Intelligent": 99, "Sport": 2, "Sport Sharp": 1}.get(si_drive_mode, 2)
                 cached = _truncate_sentences(cached, max_sentences=max_s)
                 latency = time.monotonic() - start_time
                 log.info("Frontier cache hit: %s (%.1fms)", query_hash[:8], latency * 1000)
@@ -245,7 +245,7 @@ class FrontierLLMEngine:
             return None
 
         # Truncate to keep TTS latency bounded (~100ms/word on Piper)
-        max_s = {"Intelligent": 4, "Sport": 2, "Sport Sharp": 1}.get(si_drive_mode, 2)
+        max_s = {"Intelligent": 99, "Sport": 2, "Sport Sharp": 1}.get(si_drive_mode, 2)
         response_text = _truncate_sentences(response_text, max_sentences=max_s)
 
         # Cache the response for offline replay (only standalone queries —

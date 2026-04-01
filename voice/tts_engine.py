@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import struct
 import subprocess
 import time
@@ -54,6 +55,19 @@ TTS_SUBSTITUTIONS: dict[str, str] = {
     "GSC": "G S C",
     " 911": " nine eleven",
 }
+
+
+def split_sentences(text: str) -> list[str]:
+    """Split text into sentences for streaming TTS.
+
+    Returns at least one item (the original text if no split points found).
+    Same regex as frontier_engine._truncate_sentences.
+    """
+    if not text or not text.strip():
+        return [text] if text else [""]
+    sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+    result = [s for s in sentences if s.strip()]
+    return result or [text]
 
 
 @dataclass
