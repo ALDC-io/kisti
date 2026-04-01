@@ -1,5 +1,37 @@
 # KiSTI - Progress
 
+## Session: 2026-04-01 (kisti-20 setup — Boxer Knowledge + HMI Prompt)
+
+### Completed
+- **Boxer engine knowledge** — Comprehensive flat-2 through flat-12 expertise added to system prompt. Corrected Porsche flat-four error (718 Cayman/Boxster MA1/MA2 2016-2024, 356/912 historically). All manufacturers covered.
+- **864 tests passing** — Full QA run, zero regressions.
+- **Jetson health verified** — 49% RAM, 3% GPU, 60C, no swap, 191G root free.
+- **kisti-20 session prompt** — Comprehensive HMI redesign brief committed: multi-display synchronized interface (Excelon + MXG Strada), SI-Drive as master, three required deliverables (CAN map, widget list, mode transition diagram).
+- **Prompt saved** — `prompts/kisti-20-hmi-redesign.md` committed and pushed.
+
+### Files Changed
+- `voice/llm_engine.py` — Boxer engine knowledge (flat-2 through flat-12, all manufacturers + physics)
+- `NEXT_SESSION_PROMPT.md` — kisti-20 HMI redesign brief
+- `prompts/kisti-20-hmi-redesign.md` — Full session prompt for kisti-20
+
+### Key Decisions
+- KiSTI must be a domain expert in boxer engines — prevents Haiku hallucinations on core content
+- kisti-20 will use plan mode + /tui — multi-file architectural redesign
+
+### Don't Repeat
+- Haiku will hallucinate on automotive domain specifics without system prompt context — always add it
+- Always verify frontier responses when domain facts are questionable
+
+### Next Session (kisti-20)
+```
+Read prompts/kisti-20-hmi-redesign.md and execute it.
+```
+- Multi-display HMI redesign (Excelon + MXG Strada + SI-Drive integration)
+- Plan mode first — CAN map, widget list, mode transition diagram required
+- Use /tui for progress tracking
+
+---
+
 ## Session: 2026-04-01 (kisti-19 — Frontier Live + Wake Word Fixes)
 
 ### Completed
