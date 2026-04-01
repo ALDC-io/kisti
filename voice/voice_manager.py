@@ -743,7 +743,7 @@ class VoiceManager(QObject):
             text=response.text, source=response.tier, tier=tier,
             latency_ms=int(response.latency_s * 1000),
         )
-        log.info("LLM response (tier=%s, %.1fs): %s", response.tier, response.latency_s, response.text[:80])
+        log.info("LLM response (tier=%s, %.1fs): %s", response.tier, response.latency_s, response.text[:200])
 
         # Log unanswered queries for future persona/sensor improvement
         if response.tier == "fallback":

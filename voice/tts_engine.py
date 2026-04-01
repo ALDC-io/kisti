@@ -52,6 +52,7 @@ TTS_SUBSTITUTIONS: dict[str, str] = {
     "CSF": "C S F",
     "ARP": "A R P",
     "GSC": "G S C",
+    " 911": " nine eleven",
 }
 
 
