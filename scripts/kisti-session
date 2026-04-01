@@ -25,6 +25,8 @@ fi
 export DISPLAY="${DISPLAY:-:0}"
 export QT_QPA_PLATFORM=xcb
 export OLLAMA_MODELS=/data/ollama
+# Source API keys (ANTHROPIC_API_KEY, ZEUS_API_KEY, etc.)
+[ -f "$HOME/.env" ] && set -a && . "$HOME/.env" && set +a
 # Custom wake word: use trained model if it exists, else fall back to built-in
 if [ -f /data/models/hey_kisti.onnx ]; then
     export KISTI_WAKE_MODEL=/data/models/hey_kisti.onnx
