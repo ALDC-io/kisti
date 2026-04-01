@@ -1,7 +1,8 @@
 """KiSTI - Top Status Bar
 
-Shows mode, clock, GPS, logging, network status, and corporate logos.
-2014 STI gauge cluster style - black face, red accents, chrome trim.
+Shows SI-Drive mode badge, warm-up state, CAN status, clock,
+GPS/logging/network status dots, and corporate logos.
+2014 STI gauge cluster style - black face, mode-colored accents, chrome trim.
 """
 
 from datetime import datetime
@@ -9,8 +10,24 @@ from datetime import datetime
 from PySide6.QtCore import Qt, QTimer, Slot
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QLabel
 
-from ui.theme import GREEN, RED, GRAY, BG_PANEL, CHROME_DARK, WHITE, HIGHLIGHT, FONT_HEADER
+from model.vehicle_state import SIDriveMode, WarmUpState
+from ui.theme import (
+    GREEN, RED, YELLOW, GRAY, BG_PANEL, CHROME_DARK, WHITE, HIGHLIGHT,
+    FONT_HEADER, MODE_I_ACCENT, MODE_S_ACCENT, MODE_SS_ACCENT,
+)
 from ui.branding import kisti_logo, link_ecu_logo, nvidia_logo
+
+_MODE_COLORS = {
+    SIDriveMode.INTELLIGENT: MODE_I_ACCENT,
+    SIDriveMode.SPORT: MODE_S_ACCENT,
+    SIDriveMode.SPORT_SHARP: MODE_SS_ACCENT,
+}
+
+_WARMUP_COLORS = {
+    WarmUpState.COLD: "#4488FF",    # Cool blue
+    WarmUpState.WARMING: "#FF8800",  # Amber
+    WarmUpState.READY: GREEN,        # Green
+}
 
 
 class TopStatusBar(QWidget):
@@ -47,11 +64,20 @@ class TopStatusBar(QWidget):
         self._kisti_logo.setFixedHeight(30)
         layout.addWidget(self._kisti_logo)
 
-        self._mode_label = QLabel("STREET")
-        self._mode_label.setStyleSheet(
-            f"font-size: {FONT_HEADER}px; font-weight: 900; color: {HIGHLIGHT};"
-        )
-        layout.addWidget(self._mode_label)
+        # SI-Drive mode badge (colored pill)
+        self._mode_badge = QLabel("INTELLIGENT")
+        self._update_mode_badge(SIDriveMode.INTELLIGENT)
+        layout.addWidget(self._mode_badge)
+
+        # Warm-up state indicator
+        self._warmup_label = QLabel("\u25cf COLD")
+        self._warmup_label.setStyleSheet(f"color: {_WARMUP_COLORS[WarmUpState.COLD]};")
+        layout.addWidget(self._warmup_label)
+
+        # CAN status dot
+        self._can_dot = QLabel("\u25cf CAN")
+        self._can_dot.setStyleSheet(f"color: {GRAY};")
+        layout.addWidget(self._can_dot)
 
         layout.addStretch()
 
@@ -99,6 +125,38 @@ class TopStatusBar(QWidget):
         # Initial check after 2 seconds (let system settle)
         QTimer.singleShot(2000, self._check_real_hardware)
 
+    def _update_mode_badge(self, mode: SIDriveMode) -> None:
+        """Update SI-Drive badge appearance."""
+        color = _MODE_COLORS.get(mode, MODE_I_ACCENT)
+        self._mode_badge.setText(mode.label.upper())
+        self._mode_badge.setStyleSheet(
+            f"background-color: {color}; color: {WHITE}; "
+            f"font-size: 13px; font-weight: 900; "
+            f"padding: 2px 10px; border-radius: 10px;"
+        )
+
+    def set_si_drive_mode(self, mode_int: int) -> None:
+        """Update badge when SI-Drive mode changes."""
+        try:
+            mode = SIDriveMode(mode_int)
+        except ValueError:
+            return
+        self._update_mode_badge(mode)
+
+    def set_warmup_state(self, warmup_int: int) -> None:
+        """Update warm-up indicator."""
+        try:
+            warmup = WarmUpState(warmup_int)
+        except ValueError:
+            return
+        color = _WARMUP_COLORS.get(warmup, GRAY)
+        self._warmup_label.setText(f"\u25cf {warmup.label.upper()}")
+        self._warmup_label.setStyleSheet(f"color: {color};")
+
+    def set_can_status(self, connected: bool) -> None:
+        """Update CAN bus status dot."""
+        self._can_dot.setStyleSheet(f"color: {GREEN if connected else RED};")
+
     def _update_clock(self):
         self._clock_label.setText(datetime.now().strftime("%H:%M:%S"))
 
@@ -144,5 +202,6 @@ class TopStatusBar(QWidget):
         self._v1_dot.setStyleSheet(f"color: {GREEN if v1_ok else GRAY};")
 
     def update_state(self, system_state, mode_str):
-        """Update mode label from vehicle state (if mock data is active)."""
-        self._mode_label.setText("" if mode_str == "KiSTI" else mode_str)
+        """Legacy compat: update from vehicle state (if mock data active)."""
+        # SI-Drive badge now driven by set_si_drive_mode() signal
+        pass

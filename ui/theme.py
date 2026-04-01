@@ -46,10 +46,17 @@ CHROME_LIGHT = "#C0C0C0"   # Chrome ring highlight
 CHROME_MID = "#909090"     # Chrome ring mid
 CHROME_DARK = "#606060"    # Chrome ring shadow
 
+# SI-Drive Mode Accents
+MODE_I_ACCENT = "#00AAFF"   # Intelligent — calm blue
+MODE_S_ACCENT = "#FF8800"   # Sport — amber
+MODE_SS_ACCENT = "#FF0000"  # Sport Sharp — red
+
 # Font sizes
 FONT_BASE = 14
 FONT_HEADER = 18
 FONT_BIG = 26
+FONT_XLARGE = 36             # Delta time, secondary large values
+FONT_MEGA = 48               # Gear number in Sport#, primary lap time
 
 STYLESHEET = f"""
 QWidget {{

@@ -576,26 +576,34 @@ def main():
     # --- UI vs Headless ---
     window = None
     if not args.headless:
-        window = MainWindow(fullscreen=args.fullscreen, bridge=bridge)
+        window = MainWindow(
+            fullscreen=args.fullscreen,
+            bridge=bridge,
+            mode_manager=mode_mgr,
+        )
 
-        # Wire timing display to bridge for live updates (4 Hz is enough for UI)
-        if timing_mgr:
-            _timing_tick = [0]
+        # Feed DiffState snapshots to the active screen at 20Hz
+        _ui_tick = [0]
 
-            def _update_timing_display():
-                _timing_tick[0] += 1
-                if _timing_tick[0] % 5 == 0:
-                    snap = bridge.snapshot()
-                    if hasattr(window, '_track_mode'):
-                        window._track_mode.update_timing(snap)
+        def _update_screen():
+            _ui_tick[0] += 1
+            snap = bridge.snapshot()
+            window.update_from_bridge(snap)
+            # Also feed timing display at 4Hz
+            if timing_mgr and _ui_tick[0] % 5 == 0:
+                if hasattr(window, '_track_mode'):
+                    window._track_mode.update_timing(snap)
+                # Feed timing data to Sport Sharp screen
+                if hasattr(window, '_sharp_screen') and hasattr(timing_mgr, 'get_timing_data'):
+                    window._sharp_screen.update_timing(timing_mgr.get_timing_data())
 
-            bridge.state_changed.connect(_update_timing_display)
+        bridge.state_changed.connect(_update_screen)
 
-            if mode_mgr:
-                mode_mgr.si_drive_changed.connect(
-                    lambda m: window._track_mode.set_timing_mode(m)
-                    if hasattr(window, '_track_mode') else None
-                )
+        if timing_mgr and mode_mgr:
+            mode_mgr.si_drive_changed.connect(
+                lambda m: window._track_mode.set_timing_mode(m)
+                if hasattr(window, '_track_mode') else None
+            )
 
     # Helper: speak through voice_mgr directly (headless) or window AudioPlayer (UI)
     def _speak(text, urgency="normal"):

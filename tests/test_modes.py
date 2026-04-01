@@ -141,21 +141,13 @@ class TestKeypadRouting:
         bridge.update_keypad(state=KEYPAD_K5, prev_state=0)
         assert manager.coaching_level == initial
 
-    def test_k6_display_cycle(self, manager, bridge):
-        """K6 cycles display modes."""
+    def test_k6_reserved(self, manager, bridge):
+        """K6 is reserved — SI-Drive handles mode selection, no display cycling."""
         assert manager.display_mode == DisplayMode.KISTI
 
         bridge.update_keypad(state=KEYPAD_K6, prev_state=0)
-        assert manager.display_mode == DisplayMode.STREET
-
-        bridge.update_keypad(state=KEYPAD_K6, prev_state=0)
-        assert manager.display_mode == DisplayMode.TRACK
-
-        bridge.update_keypad(state=KEYPAD_K6, prev_state=0)
-        assert manager.display_mode == DisplayMode.DIFF
-
-        bridge.update_keypad(state=KEYPAD_K6, prev_state=0)
-        assert manager.display_mode == DisplayMode.KISTI  # Wraps around
+        # K6 is now a no-op, display mode unchanged
+        assert manager.display_mode == DisplayMode.KISTI
 
 
 class TestDisplayModeEnum:
@@ -171,3 +163,170 @@ class TestCoachingLevelEnum:
         assert CoachingLevel.MINIMAL.label == "Minimal"
         assert CoachingLevel.MODERATE.label == "Moderate"
         assert CoachingLevel.FULL.label == "Full"
+
+
+# ============================================================
+# KiSTI-20: SI-Drive display switching tests
+# ============================================================
+
+
+class TestSIDriveDisplaySwitch:
+    """SI-Drive controls the display — 3 screens, no sub-pages."""
+
+    def test_k6_reserved(self, manager, bridge):
+        """K6 is reserved — no sub-page cycling."""
+        bridge.update_keypad(state=KEYPAD_K6, prev_state=0)
+        # No crash, no state change — K6 is a no-op now
+
+    def test_mode_switch_intelligent_to_sport(self, manager, bridge):
+        """SI-Drive switch from Intelligent to Sport."""
+        received = []
+        manager.si_drive_changed.connect(lambda v: received.append(v))
+        bridge.update_si_drive(mode=1)
+        assert manager.si_drive_mode == SIDriveMode.SPORT
+        assert received == [1]
+
+    def test_mode_switch_sport_to_sharp(self, manager, bridge):
+        """SI-Drive switch from Sport to Sport Sharp."""
+        bridge.update_si_drive(mode=1)
+        bridge.update_si_drive(mode=2)
+        assert manager.si_drive_mode == SIDriveMode.SPORT_SHARP
+
+    def test_full_cycle(self, manager, bridge):
+        """Full SI-Drive cycle: I -> S -> S# -> I."""
+        modes = []
+        manager.si_drive_changed.connect(lambda v: modes.append(v))
+        bridge.update_si_drive(mode=1)  # Sport
+        bridge.update_si_drive(mode=2)  # Sport Sharp
+        bridge.update_si_drive(mode=0)  # Intelligent
+        assert modes == [1, 2, 0]
+
+
+class TestSIDriveStaleness:
+    """SI-Drive staleness fallback to Intelligent."""
+
+    def test_staleness_fallback(self, manager, bridge):
+        """After 5s stale, falls back to Intelligent."""
+        import time
+
+        # Switch to Sport
+        bridge.update_si_drive(mode=1)
+        assert manager.si_drive_mode == SIDriveMode.SPORT
+
+        # Manually set the frame timestamp to 6 seconds ago
+        with bridge._lock:
+            bridge._state.si_drive_frame_ts = time.monotonic() - 6.0
+
+        received = []
+        manager.si_drive_changed.connect(lambda v: received.append(v))
+
+        # Trigger staleness check
+        state = bridge.snapshot()
+        manager._check_si_drive_staleness(state)
+
+        assert manager.si_drive_mode == SIDriveMode.INTELLIGENT
+        assert 0 in received  # Emitted Intelligent (0)
+
+    def test_no_fallback_when_fresh(self, manager, bridge):
+        """No fallback when SI-Drive frame is recent."""
+        bridge.update_si_drive(mode=2)  # Sport Sharp
+        assert manager.si_drive_mode == SIDriveMode.SPORT_SHARP
+
+        received = []
+        manager.si_drive_changed.connect(lambda v: received.append(v))
+
+        state = bridge.snapshot()
+        manager._check_si_drive_staleness(state)
+
+        assert manager.si_drive_mode == SIDriveMode.SPORT_SHARP
+        assert received == []  # No fallback
+
+    def test_no_fallback_when_already_intelligent(self, manager, bridge):
+        """No signal emitted if already in Intelligent and stale."""
+        import time
+
+        bridge.update_si_drive(mode=0)  # Intelligent
+        with bridge._lock:
+            bridge._state.si_drive_frame_ts = time.monotonic() - 10.0
+
+        received = []
+        manager.si_drive_changed.connect(lambda v: received.append(v))
+
+        state = bridge.snapshot()
+        manager._check_si_drive_staleness(state)
+
+        assert received == []  # Already Intelligent, no signal
+
+    def test_no_fallback_when_never_received(self, manager, bridge):
+        """No fallback when SI-Drive frame was never received (ts=0.0)."""
+        bridge.update_si_drive(mode=1)
+        with bridge._lock:
+            bridge._state.si_drive_frame_ts = 0.0
+
+        received = []
+        manager.si_drive_changed.connect(lambda v: received.append(v))
+
+        state = bridge.snapshot()
+        manager._check_si_drive_staleness(state)
+
+        # Should not fallback — never received means default is fine
+        assert received == []
+
+
+class TestMainWindowSIDrive:
+    """MainWindow switches screens based on SI-Drive."""
+
+    def test_si_drive_switches_stack(self, qapp):
+        from ui.main_window import MainWindow
+        win = MainWindow()
+        assert win._stack.currentIndex() == 0  # Starts on Intelligent
+
+        win._on_si_drive_changed(1)
+        assert win._stack.currentIndex() == 1  # Sport
+
+        win._on_si_drive_changed(2)
+        assert win._stack.currentIndex() == 2  # Sport Sharp
+
+        win._on_si_drive_changed(0)
+        assert win._stack.currentIndex() == 0  # Back to Intelligent
+
+    def test_invalid_mode_ignored(self, qapp):
+        from ui.main_window import MainWindow
+        win = MainWindow()
+        win._on_si_drive_changed(99)
+        assert win._stack.currentIndex() == 0  # Unchanged
+
+
+class TestStatusBar:
+    """Status bar SI-Drive badge and warm-up tests."""
+
+    def test_initial_badge(self, qapp):
+        from ui.status_bar import TopStatusBar
+        bar = TopStatusBar()
+        assert "INTELLIGENT" in bar._mode_badge.text()
+
+    def test_si_drive_badge_update(self, qapp):
+        from ui.status_bar import TopStatusBar
+        bar = TopStatusBar()
+        bar.set_si_drive_mode(1)
+        assert "SPORT" in bar._mode_badge.text()
+
+    def test_si_drive_badge_sport_sharp(self, qapp):
+        from ui.status_bar import TopStatusBar
+        bar = TopStatusBar()
+        bar.set_si_drive_mode(2)
+        assert "SPORT" in bar._mode_badge.text()  # "SPORT SHARP"
+
+    def test_warmup_state_update(self, qapp):
+        from ui.status_bar import TopStatusBar
+        bar = TopStatusBar()
+        bar.set_warmup_state(2)  # READY
+        assert "READY" in bar._warmup_label.text()
+
+    def test_can_status(self, qapp):
+        from ui.status_bar import TopStatusBar
+        bar = TopStatusBar()
+        bar.set_can_status(True)
+        # CAN dot should be green (we check the stylesheet contains GREEN)
+        from ui.theme import GREEN
+        assert GREEN in bar._can_dot.styleSheet()

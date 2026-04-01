@@ -1,8 +1,11 @@
 """KiSTI - Main Window
 
-Assembles status bar, content area (QStackedWidget), and softkey bar.
-Includes splash screen on startup and full corporate branding.
+SI-Drive-controlled display with 3 screens (Intelligent / Sport / Sport#).
+No softkey bar — SI-Drive physical knob is the only mode selector.
+Content area: 800x440 (full height minus 40px status bar).
 """
+
+import logging
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence, QShortcut
@@ -14,9 +17,12 @@ from config import WINDOW_WIDTH, WINDOW_HEIGHT
 from data.mock_generator import MockDataGenerator
 from data.radar_manager import RadarManager
 from data.models import RadarState
+from model.vehicle_state import DiffStateBridge, SIDriveMode
 from ui.theme import STYLESHEET, BG_DARK, GRAY
 from ui.status_bar import TopStatusBar
-from ui.softkey_bar import BottomSoftkeyBar
+from ui.intelligent_screen import IntelligentScreenWidget
+from ui.sport_screen import SportScreenWidget
+from ui.sharp_screen import SportSharpScreenWidget
 from ui.kisti_mode import KistiModeWidget
 from ui.street_mode import StreetModeWidget
 from ui.track_mode import TrackModeWidget
@@ -24,20 +30,30 @@ from ui.diff_mode import DiffModeWidget
 from ui.video_mode import VideoModeWidget
 from ui.settings_mode import SettingsModeWidget
 from ui.splash_screen import SplashScreen
-from model.vehicle_state import DiffStateBridge
 from can.kisti_can import create_can_source
+
+log = logging.getLogger("kisti.ui.main")
+
+
+def _placeholder(text: str) -> QLabel:
+    """Create a placeholder label for screens not yet built."""
+    lbl = QLabel(f"{text}\n(Coming Soon)")
+    lbl.setAlignment(Qt.AlignCenter)
+    lbl.setStyleSheet(f"color: {GRAY}; font-size: 24px;")
+    return lbl
 
 
 class MainWindow(QMainWindow):
-    """800x480 fixed-size main window with mode switching."""
+    """800x480 fixed-size main window. SI-Drive selects between 3 screens."""
 
-    def __init__(self, fullscreen=False, bridge=None):
+    def __init__(self, fullscreen=False, bridge=None, mode_manager=None):
         super().__init__()
         self.setWindowTitle("KiSTI")
         self.setFixedSize(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setStyleSheet(STYLESHEET)
         self._fullscreen = fullscreen
         self._external_bridge = bridge is not None
+        self._mode_manager = mode_manager
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -49,43 +65,36 @@ class MainWindow(QMainWindow):
         self._status_bar = TopStatusBar(self)
         main_layout.addWidget(self._status_bar)
 
-        # Content area (380px)
+        # Content area (440px — no softkey bar, SI-Drive handles mode selection)
         self._stack = QStackedWidget(self)
         main_layout.addWidget(self._stack, stretch=1)
 
-        # Mode widgets — order matches softkey bar: KiSTI, STREET, TRACK, DIFF, VIDEO, LOG, SETTINGS
+        # CAN / DIFF data pipeline
+        self._diff_bridge = bridge if bridge is not None else DiffStateBridge(self)
+
+        # Legacy mode widgets (kept for voice pipeline + data compat)
         self._kisti_mode = KistiModeWidget(self)
-        self._street_mode = StreetModeWidget(self)
-        self._track_mode = TrackModeWidget(self)
+        self._kisti_mode.set_bridge(self._diff_bridge)
         self._diff_mode = DiffModeWidget(self)
-        self._video_mode = VideoModeWidget(self)
-        self._settings_mode = SettingsModeWidget(self)
-        self._stack.addWidget(self._kisti_mode)     # index 0
-        self._stack.addWidget(self._street_mode)    # index 1
-        self._stack.addWidget(self._track_mode)     # index 2
-        self._stack.addWidget(self._diff_mode)      # index 3
-        self._stack.addWidget(self._video_mode)     # index 4
+        self._diff_mode.set_bridge(self._diff_bridge)
+        self._track_mode = TrackModeWidget(self)
 
-        # Placeholder page for LOG
-        placeholder = QLabel("LOG\n(Coming Soon)")
-        placeholder.setAlignment(Qt.AlignCenter)
-        placeholder.setStyleSheet(f"color: {GRAY}; font-size: 24px;")
-        self._stack.addWidget(placeholder)          # index 5
+        # === 3 SI-Drive screens ===
+        self._intelligent_screen = IntelligentScreenWidget(self)
+        self._sport_screen = SportScreenWidget(self)
+        self._sharp_screen = SportSharpScreenWidget(self)
 
-        self._stack.addWidget(self._settings_mode)  # index 6
+        self._stack.addWidget(self._intelligent_screen)  # index 0: Intelligent
+        self._stack.addWidget(self._sport_screen)        # index 1: Sport
+        self._stack.addWidget(self._sharp_screen)        # index 2: Sport Sharp
 
-        # Softkey bar (60px)
-        self._softkey_bar = BottomSoftkeyBar(self)
-        self._softkey_bar.mode_changed.connect(self._on_mode_changed)
-        main_layout.addWidget(self._softkey_bar)
-
-        # Current mode tracking — start on KiSTI
-        self._current_mode = "KiSTI"
+        self._current_si_drive: int = 0
         self._stack.setCurrentIndex(0)
-        self._mode_indices = {
-            "KiSTI": 0, "STREET": 1, "TRACK": 2, "DIFF": 3,
-            "VIDEO": 4, "LOG": 5, "SETTINGS": 6,
-        }
+
+        # Wire mode manager signals if provided
+        if self._mode_manager is not None:
+            self._mode_manager.si_drive_changed.connect(self._on_si_drive_changed)
+            self._mode_manager.warmup_changed.connect(self._status_bar.set_warmup_state)
 
         # F11 fullscreen toggle
         shortcut = QShortcut(QKeySequence(Qt.Key_F11), self)
@@ -93,19 +102,9 @@ class MainWindow(QMainWindow):
 
         # Mock data generator — disabled, only real hardware
         self._generator = None
-        # self._generator = MockDataGenerator(self)
-        # self._generator.data_updated.connect(self._on_data_updated)
-
-        # Radar manager — only started if real V1 hardware is detected
-        # (mock radar disabled — no fake alerts)
         self._radar_manager = None
         self._latest_radar = RadarState()
 
-        # CAN / DIFF data pipeline
-        # Use external bridge if provided (from main.py), otherwise create our own
-        self._diff_bridge = bridge if bridge is not None else DiffStateBridge(self)
-        self._diff_mode.set_bridge(self._diff_bridge)
-        self._kisti_mode.set_bridge(self._diff_bridge)
         # Only create CAN source if we own the bridge (avoid double listeners)
         if self._external_bridge:
             self._can_listener, self._mock_can = None, None
@@ -118,55 +117,43 @@ class MainWindow(QMainWindow):
 
     def _on_splash_done(self):
         """Called when splash screen closes."""
-        # self._generator.start()  # Disabled — no mock data
-        # Radar: only start if real V1 hardware detected (mock disabled)
         if self._radar_manager is not None:
             self._radar_manager.start()
-        # Start CAN listener — only if we own the bridge (not external)
         if not self._external_bridge and self._can_listener is not None:
             self._can_listener.start()
         if self._fullscreen:
             self.showFullScreen()
 
+    def _on_si_drive_changed(self, mode_int: int) -> None:
+        """Switch display to the screen for the new SI-Drive mode."""
+        if 0 <= mode_int < self._stack.count():
+            self._current_si_drive = mode_int
+            self._stack.setCurrentIndex(mode_int)
+            self._status_bar.set_si_drive_mode(mode_int)
+            log.info("Display: SI-Drive %d (%s)",
+                     mode_int, SIDriveMode(mode_int).label)
+
     def _on_radar_updated(self, radar_state):
         """Store latest radar state for merging into vehicle data pipeline."""
         self._latest_radar = radar_state
 
-    def _on_mode_changed(self, mode):
-        if mode in self._mode_indices:
-            self._stack.setCurrentIndex(self._mode_indices[mode])
-            self._current_mode = mode
+    def update_from_bridge(self, snap) -> None:
+        """Feed DiffState snapshot to the active screen (called at 20Hz)."""
+        widget = self._stack.currentWidget()
+        if hasattr(widget, 'update_state'):
+            widget.update_state(snap)
 
     def _on_data_updated(self, vehicle_state):
-        """Route data to active mode widget and status bar."""
-        # Merge radar state into vehicle telemetry
+        """Route legacy VehicleState data to active screen."""
         vehicle_state.radar = self._latest_radar
         vehicle_state.system.v1_connected = self._latest_radar.connected
 
-        self._status_bar.update_state(vehicle_state.system, self._current_mode)
-
-        # Update the mode that the user is currently viewing
-        if self._current_mode == "KiSTI":
-            self._kisti_mode.update_data(vehicle_state)
-        elif self._current_mode == "STREET":
-            self._street_mode.update_data(vehicle_state)
-        elif self._current_mode == "TRACK":
-            self._track_mode.update_data(vehicle_state)
-        elif self._current_mode == "VIDEO":
-            self._video_mode.update_data(vehicle_state)
-        elif self._current_mode == "DIFF":
-            self._diff_mode.update_data(vehicle_state)
-        elif self._current_mode == "SETTINGS":
-            self._settings_mode.update_data(vehicle_state)
-        # Also set the session mode to match UI mode
-        vehicle_state.session.mode = self._current_mode
+        widget = self._stack.currentWidget()
+        if hasattr(widget, 'update_data'):
+            widget.update_data(vehicle_state)
 
     def queue_speech(self, text: str, urgency: str = "normal") -> None:
-        """Queue text to be spoken through the KiSTI mode AudioPlayer (aplay).
-
-        This is the reliable audio path — uses Piper TTS → aplay.
-        Use this for simulation announcements, condition changes, etc.
-        """
+        """Queue text to be spoken through the KiSTI mode AudioPlayer."""
         self._kisti_mode._queue_lines([text], urgency=urgency)
 
     def _toggle_fullscreen(self):

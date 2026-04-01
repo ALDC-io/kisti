@@ -7,9 +7,10 @@ Listens to SI Drive CAN state and switches all subsystems between:
 
 Also manages:
   - Warm-up state machine (Cold → Warming → Ready)
-  - Display mode cycling (KiSTI → STREET → TRACK → DIFF)
+  - Sub-page cycling within each SI-Drive mode (K6 button)
   - Coaching level cycling (Intelligent mode only)
   - Keypad K1-K6 command routing
+  - SI-Drive staleness fallback (→ Intelligent after 5s)
 """
 
 from __future__ import annotations
@@ -100,6 +101,7 @@ class ModeManager(QObject):
     si_drive_changed = Signal(int)
     warmup_changed = Signal(int)
     display_changed = Signal(int)
+    subpage_changed = Signal(int)
     coaching_changed = Signal(int)
     session_toggle = Signal()
     segment_mark = Signal()
@@ -181,13 +183,15 @@ class ModeManager(QObject):
                 log.debug("K5 ignored — coaching only in Intelligent mode")
 
         if buttons & KEYPAD_K6:
-            self._display = DisplayMode((self._display + 1) % 4)
-            log.info("Display mode: %s (K6)", self._display.label)
-            self.display_changed.emit(int(self._display))
+            # K6 reserved — SI-Drive handles mode selection, no sub-pages
+            log.debug("K6 pressed — reserved (SI-Drive handles mode selection)")
 
     def _check_warmup(self) -> None:
-        """Check engine temperatures and update warm-up state."""
+        """Check engine temperatures, warm-up state, and SI-Drive staleness."""
         state = self._bridge.snapshot()
+
+        # SI-Drive staleness fallback: if no SI-Drive frame for 5s, go Intelligent
+        self._check_si_drive_staleness(state)
 
         # Need engine data to determine warm-up state
         if state.is_engine_stale():
@@ -209,6 +213,19 @@ class ModeManager(QObject):
             log.info("Warm-up: %s → %s (oil=%.0f°C, clt=%.0f°C)",
                      old_warmup.label, self._warmup.label, oil_t, clt_t)
             self.warmup_changed.emit(int(self._warmup))
+
+    # SI-Drive staleness threshold (seconds without 0x6B0 frame)
+    SI_DRIVE_STALE_TIMEOUT_S = 5.0
+
+    def _check_si_drive_staleness(self, state: DiffState) -> None:
+        """Fall back to Intelligent if SI-Drive signal is stale."""
+        if state.si_drive_frame_ts == 0.0:
+            return  # Never received — stay in default (Intelligent)
+        elapsed = time.monotonic() - state.si_drive_frame_ts
+        if elapsed > self.SI_DRIVE_STALE_TIMEOUT_S and self._si_drive != SIDriveMode.INTELLIGENT:
+            log.warning("SI Drive stale (%.1fs) — falling back to Intelligent", elapsed)
+            self._si_drive = SIDriveMode.INTELLIGENT
+            self.si_drive_changed.emit(int(SIDriveMode.INTELLIGENT))
 
     @property
     def si_drive_mode(self) -> SIDriveMode:
