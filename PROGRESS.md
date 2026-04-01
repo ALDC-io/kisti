@@ -1,35 +1,42 @@
 # KiSTI - Progress
 
-## Session: 2026-04-01 (kisti-20 — HMI Redesign Phase 1 + 3 Screens)
+## Session: 2026-04-01 (kisti-19 — Display Auth Fix + Alert Mode-Awareness)
 
-### Status: IN PROGRESS — Display auth blocker on Jetson
+### Status: COMPLETE
 
 ### Completed
-- **Systems design plan** — Full plan via EnterPlanMode + 3 parallel Explore agents. CAN map (no new frames needed), page specs, mode transition sequence.
-- **Architecture simplified** — JK: "12 pages is too much, 1 per mode". No softkey bar. SI-Drive knob is only mode selector. Content area 800x440.
-- **Phase 1 infrastructure** — theme mode accents, flat QStackedWidget, status bar SI-Drive badge, ModeManager staleness fallback (5s), main.py 20Hz data feed.
-- **3 QPainter screens built** — IntelligentScreenWidget (blue), SportScreenWidget (amber), SportSharpScreenWidget (red). All self-contained paintEvent.
-- **879 tests passing** — 864 baseline + 15 new.
-- **Committed and pushed** — kisti-headless branch, commit a56fa9c/91ff768.
+- **Jetson X11 auth blocker FIXED** — Removed GDM entirely. getty auto-login + startx pipeline. No more auth errors, no GNOME interference. KiSTI fullscreen on Excelon confirmed.
+- **Alert engine mode-aware suppression** — Added `_si_drive_mode` attribute, `set_si_drive_mode()` method, mode-based suppression in `_fire()`: Intelligent fires all, Sport suppresses INFO, Sport# suppresses INFO+ADVISORY, CRITICAL always fires.
+- **Critical flash overlay** — NEW ui/widgets/critical_flash_overlay.py (75 lines). QPainter transparent overlay, red/amber border flash on WARNING/CRITICAL in Sport# mode. Integrated to main.py flash_alert().
+- **Qt fullscreen fixed** — setFixedSize blocks WM negotiation; changed to setMinimumSize + FramelessWindowHint + WindowStaysOnTopHint. showFullScreen() now honored.
+- **One-command deploy** — ~/k wrapper: commit + push + deploy-to-jetson.sh. Per user feedback "use the same script all the time".
+- **885 tests passing** — 879 baseline + 6 new mode suppression tests.
+- **All commits pushed** — origin/kisti-headless, ready for merge.
 
 ### Files Changed
-- `ui/theme.py` — MODE_I/S/SS_ACCENT, FONT_XLARGE/MEGA
-- `ui/status_bar.py` — SI-Drive badge, warmup dot, CAN dot
-- `ui/main_window.py` — Flat 3-page QStackedWidget, no softkey bar, update_from_bridge()
-- `modes/mode_manager.py` — SI-Drive staleness fallback, K6 reserved
-- `main.py` — mode_manager kwarg, 20Hz screen feed
-- `ui/intelligent_screen.py` — NEW full QPainter Intelligent screen
-- `ui/sport_screen.py` — NEW full QPainter Sport screen
-- `ui/sharp_screen.py` — NEW full QPainter Sport Sharp screen
-- `tests/test_modes.py` — 29 tests (14 orig + 15 new)
+- `scripts/kisti-session` — auto-detect DISPLAY from /tmp/.X11-unix/, XAUTHORITY fallback, xhost +local:
+- `scripts/jetson/gdm-custom.conf` — WaylandEnable=false (partial mitigation)
+- `scripts/jetson/setup-autologin.sh` — NEW, one-time config: getty + .bash_profile startx integration
+- `scripts/jetson/relaunch.sh` — detects GDM vs startx modes, handles both, proper display detection
+- `scripts/deploy-to-jetson.sh` — simplified to SSH pull+relaunch
+- `~/k` — NEW one-command deploy wrapper
+- `alerts/alert_engine.py` — _si_drive_mode, set_si_drive_mode(), suppression logic
+- `ui/widgets/critical_flash_overlay.py` — NEW transparent overlay, QPainter red/amber flash
+- `ui/main_window.py` — setMinimumSize, frameless hints, flash_alert(), overlay wiring
+- `tests/test_alerts.py` — 6 new mode suppression tests
 
 ### Key Decisions
-- 3 screens only — one per SI-Drive mode, no sub-pages, no softkey bar
-- QPainter-only rendering — no composite QWidget layouts inside new screens
-- Zeus Memory POST accepts but GET 404 — persistence bug, use NEXT_SESSION_PROMPT.md as backup
+- **Remove GDM entirely** — getty + startx simpler than X auth boundary crossing, saves 500MB memory, deterministic boot
+- **Qt fullscreen needs both constraints AND hints** — setFixedSize blocks negotiation; must use setMinimumSize + FramelessWindowHint + WindowStaysOnTopHint
+- **Alert suppression matrix per SI-Drive mode** — Intelligent=all, Sport=suppress INFO, Sport#=suppress INFO+ADVISORY, CRITICAL always fires
 
-### Blocker: Jetson Display Auth
-GDM moved to Wayland. Display :1025 not :0. SSH can't get X auth. Fix: update scripts/kisti-session to auto-detect display. See NEXT_SESSION_PROMPT.md Section 2.
+### Learnings Captured
+- ✅ cce_success_log: Complete kisti-19 summary (ZM: 431249b7...)
+- ✅ cce_failed_approach: XAUTHORITY crossing UID boundary (ZM: 4640533b...)
+- ✅ cce_failed_approach: WaylandEnable=false insufficient (ZM: 7b24d23d...)
+- ✅ cce_failed_approach: xhost +local: doesn't prevent WM clipping (ZM: fd91-4fcf...)
+- ✅ cce_decision_log: Remove GDM entirely (ZM: b94c93c8...)
+- ✅ cce_decision_log: Qt fullscreen constraints (ZM: 24839bc3...)
 
 ### Don't Repeat
 - Haiku hallucinates on automotive domain specifics — always add system prompt context
@@ -37,13 +44,16 @@ GDM moved to Wayland. Display :1025 not :0. SSH can't get X auth. Fix: update sc
 - dcli no Linux ARM64 binary
 - Zeus Memory POST returns ZMID but GET 404 — don't rely on Zeus for plan storage
 - Always use ZEUS_ALDC_API_KEY (management tenant) for shared Zeus memories
-- SSH can't authorize to Jetson X display — must run kisti-session from GDM session or fix auth in script
+- **GDM X auth boundaries are strict** — SSH uid 1000 can't access uid 128 greeter cookies. Simpler to remove GDM than cross boundary.
+- **Qt fullscreen under WM** — setFixedSize creates hard constraint that blocks fullscreen negotiation. Need setMinimumSize + frameless/stay-on-top hints.
+- **X display detection** — ps output matches timestamps, not display numbers. Use /tmp/.X11-unix/ socket filenames instead.
+- **Never give multi-step SSH commands** — wrap in shell script or provide single ~/k wrapper.
 
 ### Next Session (kisti-21)
-1. Fix Jetson display auth (update scripts/kisti-session)
-2. Visually verify 3 screens on 800x480 Excelon
-3. Alert engine mode-awareness
-4. Integration tests
+1. **Design review** — User feedback: screens feel "duplicative of the linkecu mxg". Clarify KiSTI's unique value (AI coaching? predictive shifting? grip analysis? sector comparison?). Define content per SI-Drive mode.
+2. Verify visual layout on Excelon (3 screens 800x480)
+3. Integration tests with real CAN data
+4. Deploy to Aaron @ Boost Barn for tune session
 
 ---
 
