@@ -169,14 +169,16 @@ CHUNK_SIZE = 1024  # samples per audio read
 WAKE_WORDS = [
     # Longest first — stripping logic uses first match, so longer = better
     "hey kisti", "hey kisty", "hey jarvis",
-    "hey keisti", "hey christy", "hey cristy",
+    "hey keisti", "hey keesti", "hey keesty",
+    "hey christy", "hey cristy", "hey keesey",
     "heykisti",
     # Then shorter wake words
     "kisti", "kisty", "jarvis", "keisti",
+    "keesti", "keesty", "keesey", "keesi",
     "christy", "cristy",
     "hey ki",  # shortest "hey" variant — only matches if nothing longer does
     # Common Whisper misheards
-    "keys to", "keeps to", "key stee",
+    "keys to", "keeps to", "key stee", "kee stee",
     "ki sti", "kist", "key sti", "kissty",
     "kesti",
     # Common Whisper misheards of "Jarvis" (USB mic + gain distortion)
@@ -202,7 +204,7 @@ def _fuzzy_wake_word(text: str) -> bool:
         return False
     target = words[1]
     # Check edit distance against known wake word targets
-    for ref in ("jarvis", "kisti"):
+    for ref in ("jarvis", "kisti", "keesti"):
         if len(target) < 3:
             continue
         # Simple edit distance — good enough for 5-6 char words
@@ -225,8 +227,11 @@ def _edit_distance(a: str, b: str) -> int:
             curr.append(min(prev[j + 1] + 1, curr[j] + 1, prev[j] + (ca != cb)))
         prev = curr
     return prev[len(b)]
-QUIET_COMMANDS = ["quiet please kisti", "quiet please", "quiet kisti", "be quiet"]
-RESUME_COMMANDS = ["hey kisti"]
+QUIET_COMMANDS = [
+    "quiet please kisti", "quiet please", "quiet kisti", "quiet keesti",
+    "quiet keesty", "quiet keesey", "be quiet", "be quiet kisti",
+]
+RESUME_COMMANDS = ["hey kisti", "hey keesti", "hey keesty", "hey keesey"]
 
 
 class VoiceState(IntEnum):
