@@ -16,15 +16,15 @@ pkill -9 -f 'python3 main.py' 2>/dev/null || true
 sleep 1
 
 # --- Find the X display ---
-# Method 1: Xorg command line
-_DISP=$(ps aux | grep '[X]org' | grep -oP ':\d+' | head -1)
-# Method 2: lock files
-if [ -z "$_DISP" ]; then
-    for _lock in /tmp/.X*-lock; do
-        [ -f "$_lock" ] || continue
-        _pid=$(cat "$_lock" 2>/dev/null | tr -d ' ')
-        if [ -n "$_pid" ] && kill -0 "$_pid" 2>/dev/null; then
-            _num=$(echo "$_lock" | sed 's|/tmp/.X||;s|-lock||')
+# Method 1: X11 unix sockets (most reliable — Xorg creates these)
+_XORG_PID=$(pgrep -x Xorg 2>/dev/null | head -1)
+_DISP=""
+if [ -n "$_XORG_PID" ]; then
+    for _sock in /tmp/.X11-unix/X*; do
+        [ -S "$_sock" ] || continue
+        _num=$(basename "$_sock" | sed 's/X//')
+        # Prefer lowest display number owned by the running Xorg
+        if [ -z "$_DISP" ]; then
             _DISP=":$_num"
         fi
     done
