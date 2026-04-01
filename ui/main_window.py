@@ -92,8 +92,8 @@ class MainWindow(QMainWindow):
         self._stack.addWidget(self._sport_screen)        # index 1: Sport
         self._stack.addWidget(self._sharp_screen)        # index 2: Sport Sharp
 
-        self._current_si_drive: int = 0
-        self._stack.setCurrentIndex(0)
+        self._current_si_drive: int = 1  # Default: Sport (car starts in Sport)
+        self._stack.setCurrentIndex(1)
 
         # Critical flash overlay (WARNING/CRITICAL visual feedback in S# mode)
         self._flash_overlay = CriticalFlashOverlay(central)
