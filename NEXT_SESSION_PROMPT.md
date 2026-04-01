@@ -97,6 +97,16 @@ Use **plan mode** for this — it's a multi-file architectural redesign. The pla
 7. **State machine** — mode transitions, alarm overrides, offline handling
 8. **Phased implementation** — MVP first, then brake pressure, then advanced
 
+### Required Deliverables (in plan output)
+
+The plan MUST include these concrete artifacts:
+
+1. **CAN Message Map Draft** — complete table of every CAN frame ID, source device, destination(s), byte layout, update rate, and which SI-Drive mode uses it. Include existing frames (0x6A0-0x6A7) and any new frames needed (e.g., SI-Drive mode broadcast, alarm state, brake pressure raw).
+
+2. **Page-by-Page Widget List** — for each Excelon screen (Intelligent home, Sport home, Sport# home, diagnostics, track/performance, settings), list every widget with: position (x,y,w,h approximate), data source, update rate, visual style (gauge/sparkline/number/bar/text), and font size priority (large=glanceable / medium=secondary / small=detail).
+
+3. **Mode Transition Sequence Diagram** — step-by-step flow showing what happens when SI-Drive rotates from one mode to another: CAN signal read → debounce → mode enum update → MXG page switch → Excelon page switch → alarm profile change → shift light profile change → voice mode change → confirmation feedback. Include timing targets and failure handling at each step.
+
 ### What NOT to do
 - Do NOT redesign MXG pages — those are configured in AiM RaceStudio3 software
 - Do NOT break existing voice pipeline — it stays as-is
