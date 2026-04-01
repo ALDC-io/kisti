@@ -1,5 +1,28 @@
 # KiSTI - Progress
 
+## Session: 2026-04-01 (kisti-19 — Frontier Live + Wake Word Fixes)
+
+### Completed
+- **Frontier cloud AI working** — Synced valid ANTHROPIC_API_KEY from workstation, sourced `~/.env` in kisti-session. Full pipeline: wake → STT → Claude Haiku → streaming TTS (5.4s total).
+- **Wake word punctuation fix** — Whisper adds commas/periods that broke exact matching ("Hey, Keisty" ≠ "hey keisty"). Now strips punctuation with `re.sub(r'[^\w\s]', '', text)` before all wake/quiet/resume matching.
+- **Phonetic variants expanded** — Added keisty, keesty, keesey, keesi, casey + "hey" combos. Quiet/resume commands also expanded.
+- **Fuzzy matching** — Added "keesti" as third target alongside "jarvis"/"kisti" for edit-distance matching.
+
+### Files Changed
+- `scripts/kisti-session` — Added `set -a && . ~/.env && set +a` for API key sourcing
+- `voice/voice_manager.py` — Punctuation stripping before wake/quiet/resume matching, expanded WAKE_WORDS, QUIET_COMMANDS, RESUME_COMMANDS
+
+### Key Decisions
+- Sync `~/.env` from workstation via scp (dcli has no ARM64 build for Jetson)
+- Text-based wake word matching is inherently fragile — custom ONNX model is the real fix
+
+### Don't Repeat
+- Whisper medium.en adds punctuation — ALWAYS strip before string matching
+- dcli has no Linux ARM64 binary — don't try npm install or binary copy from x86_64
+- Jetson `~/.env` can go stale — need periodic sync from workstation or Dashlane
+
+---
+
 ## Session: 2026-03-31 (kisti-18 — Streaming TTS + Whisper Service)
 
 ### Completed
