@@ -3,29 +3,34 @@
 ## Session: 2026-03-31 (kisti-17 — Whisper Upgrade + Frontier-First Architecture)
 
 ### Completed
-- **Whisper medium.en on GPU** — upgraded from base.en (142MB, ~130ms) to medium.en (1.5GB, ~1s). CUDA already compiled. Added proper nouns to initial_prompt. Benchmarked: small.en=400ms, medium.en=1000ms.
-- **Frontier-first architecture** — flipped routing: safety fast-path → frontier → persona fallback → hard fallback. Created `_match_safety_fast_path()` with 20 instant-response entries. Min score >= 3 prevents "fr" in "france" false positives.
-- **Timeout-based ack** — `threading.Timer(0.3)` fires "Let me think about that" only for slow frontier calls. Cache hits get no ack.
-- **VAD threshold bump** — SPEECH_END_FRAMES 14→19 (448→608ms). Covers mid-sentence pauses.
-- **Stray match resolved** — "Yeah, that's it." can't reproduce; kisti-16's score>=10 threshold already fixed it.
+- **Whisper medium.en on GPU** — CUDA already compiled (GGML_CUDA=ON). small.en rejected (mangled proper nouns). medium.en accurate.
+- **Frontier-first architecture** — safety-fast-path → frontier → persona-fallback → hard-fallback
+- **Timeout-based ack** — 300ms timer, no ack on cache hits
+- **VAD** — SPEECH_END_FRAMES 14→19 (608ms)
+- **TTS fix** — "911" → "nine eleven", "flat-four boxer" in build spec
+- **Response tuning** — 150 tokens, 4-sentence cap, "cover BOTH sides" prompt, no preamble filler
+- **Log width** — LLM response log widened to 200 chars for debugging
+- **Test count** — 845 (+20 new)
 
 ### Files Changed
-- `voice/llm_engine.py` — `_match_safety_fast_path()`, `_INSTANT_RESPONSES`, frontier-first `query()`, `is_real` property
-- `voice/voice_manager.py` — import + timeout-based ack pattern
-- `voice/stt_engine.py` — medium.en model name, proper noun prompt, 15s timeout
-- `voice/mic_capture.py` — SPEECH_END_FRAMES=19
-- `scripts/jetson/whisper-server.service` — medium.en + `-fa` flash attention
-- `tests/test_frontier_engine.py` — updated + 3 new integration tests
-- `tests/test_voice.py` — TestSafetyFastPath class (13 tests), VAD constant update
-- `tests/test_persona_factory.py` — TestSafetyFastPathDistinction class (5 tests)
-- `tests/test_jokes.py` — joke fast-path test
+- `voice/llm_engine.py` — frontier-first routing, _match_safety_fast_path(), boxer engine context
+- `voice/frontier_engine.py` — token caps, sentence truncation, system prompt tuning
+- `voice/voice_manager.py` — timeout ack, log width
+- `voice/stt_engine.py` — medium.en, proper noun prompt, 15s timeout
+- `voice/tts_engine.py` — "911" substitution
+- `voice/mic_capture.py` — VAD threshold
+- `scripts/jetson/whisper-server.service` — medium.en + flash attention
+- `tests/` — 20 new tests across 4 files
 
-### Test Count: 845 (was 825)
+### Key Decisions
+- medium.en over small.en: proper noun accuracy > 600ms STT savings
+- TTS is 75% of latency — streaming TTS is #1 priority for kisti-18
+- 150 max_tokens Intelligent mode: balance between depth and 4-5s TTS
 
-### Learnings
-- whisper.cpp CUDA was already compiled in — always check CMakeCache.txt before rebuilding
-- 2-char keywords ("fr") cause substring false positives in unrelated words — use min score >= 3
-- Frontier-first eliminates the persona scoring problem entirely — frontier handles all ambiguous queries
+### Don't Repeat
+- Do NOT use small.en — mangles Porsche→potions, Subaru→brew in real use
+- Do NOT remove sentence truncation without streaming TTS — causes 12s+ total latency
+- Always check CMakeCache.txt before rebuilding CUDA deps (whisper.cpp already had CUDA)
 
 ---
 
