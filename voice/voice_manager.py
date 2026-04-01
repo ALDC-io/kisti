@@ -169,13 +169,13 @@ CHUNK_SIZE = 1024  # samples per audio read
 WAKE_WORDS = [
     # Longest first — stripping logic uses first match, so longer = better
     "hey kisti", "hey kisty", "hey jarvis",
-    "hey keisti", "hey keesti", "hey keesty",
-    "hey christy", "hey cristy", "hey keesey",
+    "hey keisti", "hey keesti", "hey keesty", "hey keisty",
+    "hey christy", "hey cristy", "hey keesey", "hey casey",
     "heykisti",
     # Then shorter wake words
     "kisti", "kisty", "jarvis", "keisti",
-    "keesti", "keesty", "keesey", "keesi",
-    "christy", "cristy",
+    "keesti", "keesty", "keesey", "keesi", "keisty",
+    "christy", "cristy", "casey",
     "hey ki",  # shortest "hey" variant — only matches if nothing longer does
     # Common Whisper misheards
     "keys to", "keeps to", "key stee", "kee stee",
@@ -652,14 +652,15 @@ class VoiceManager(QObject):
                 self._compose_and_speak(resp, user_text=transcription, trace=trace)
                 return
 
-        # Check for quiet/resume commands
-        if any(cmd in lower for cmd in QUIET_COMMANDS):
+        # Check for quiet/resume commands (strip punctuation for matching)
+        lower_nopunct = re.sub(r'[^\w\s]', '', lower)
+        if any(cmd in lower_nopunct for cmd in QUIET_COMMANDS):
             self._toggle_state = VoiceToggleState.QUIET
             self._set_state(VoiceState.QUIET)
             resp = VoiceResponse(text="Going quiet.", source="system", tier="system")
             self._compose_and_speak(resp, user_text=transcription)
             return
-        if any(cmd in lower for cmd in RESUME_COMMANDS) and self._state == VoiceState.QUIET:
+        if any(cmd in lower_nopunct for cmd in RESUME_COMMANDS) and self._state == VoiceState.QUIET:
             self._toggle_state = VoiceToggleState.NORMAL
             self._set_state(VoiceState.IDLE)
             resp = VoiceResponse(text="I'm back. What do you need?", source="system", tier="system")
@@ -847,7 +848,10 @@ class VoiceManager(QObject):
                     log.info("Self-trigger suppressed: '%s'", text[:60])
                     return
 
-            has_wake_word = any(w in lower for w in WAKE_WORDS) or _fuzzy_wake_word(lower)
+            # Strip punctuation before wake word matching — Whisper adds
+            # commas/periods that break exact matches (e.g. "Hey, Keisty")
+            lower_clean = re.sub(r'[^\w\s]', '', lower)
+            has_wake_word = any(w in lower_clean for w in WAKE_WORDS) or _fuzzy_wake_word(lower_clean)
             # Fallback: OWW detected wake word but Whisper dropped it from transcription
             if not has_wake_word and self._mic and self._mic._last_wake_detected:
                 log.info("OWW wake detected but not in STT text — treating as wake word")
