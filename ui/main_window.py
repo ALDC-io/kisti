@@ -50,7 +50,10 @@ class MainWindow(QMainWindow):
     def __init__(self, fullscreen=False, bridge=None, mode_manager=None):
         super().__init__()
         self.setWindowTitle("KiSTI")
-        self.setFixedSize(WINDOW_WIDTH, WINDOW_HEIGHT)
+        if fullscreen:
+            self.setMinimumSize(WINDOW_WIDTH, WINDOW_HEIGHT)
+        else:
+            self.setFixedSize(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setStyleSheet(STYLESHEET)
         self._fullscreen = fullscreen
         self._external_bridge = bridge is not None
@@ -128,6 +131,7 @@ class MainWindow(QMainWindow):
         if not self._external_bridge and self._can_listener is not None:
             self._can_listener.start()
         if self._fullscreen:
+            self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
             self.showFullScreen()
 
     def _on_si_drive_changed(self, mode_int: int) -> None:
