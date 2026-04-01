@@ -1,5 +1,35 @@
 # KiSTI - Progress
 
+## Session: 2026-03-31 (kisti-18 — Streaming TTS + Whisper Service)
+
+### Completed
+- **Streaming TTS architecture** — Split multi-sentence responses, pipe PCM to single pacat process. First sentence plays immediately (~1s), remaining sentences synthesize while first plays. Perceived latency: 4s → 1s.
+- **Whisper-server systemd service** — Installed on Jetson with medium.en + flash attention. Automated startup via `systemctl enable --now`. Verified running post-install.
+- **Removed sentence truncation (Intelligent mode)** — Changed max_s: 4 → 99 (effectively unlimited). Token cap (150 tokens) is now the only response length constraint. Kept for Sport (2) and Sport Sharp (1) modes.
+- **Test coverage** — 19 new tests in test_tts_streaming.py (split_sentences validation, streaming path selection, latency verification). All 864 tests passing (845 baseline + 19 new).
+- **LED frame-skipping** — When streaming TTS starts mid-playback, skip already-elapsed frames to keep waveform display synchronized with audio playback.
+
+### Files Changed
+- `voice/tts_engine.py` — Added `split_sentences(text: str) -> list[str]` regex-based sentence splitter
+- `voice/voice_manager.py` — Refactored `_do_speak()` into router + `_speak_single()` + `_speak_streamed()`. Streaming opens pacat, pipes first PCM, iterates remaining sentences while first plays. Handles pacat fallback, barge-in, mic pause/resume, LED frame-skipping.
+- `voice/frontier_engine.py` — max_s change: Intelligent 4→99, Sport 2, Sport Sharp 1
+- `scripts/install_whisper_service.sh` — New idempotent service install script
+- `tests/test_tts_streaming.py` — New test file: 12 split_sentences tests + 7 streaming integration tests
+
+### Key Decisions
+- Streaming TTS decouples response length from perceived latency. Token cap is now primary constraint (not sentence count).
+- Single pacat process for all sentences avoids process spawn overhead and audio dropouts between sentences.
+- Sentence truncation safe to remove for Intelligent mode because streaming makes TTS latency ~1s regardless of response length.
+
+### Don't Repeat
+- Do NOT truncate sentences for Intelligent mode anymore — streaming makes longer responses free.
+- word-wrap commands in terminal = silent syntax breakage. Always write long commands to script file, commit/push, give one-line run command.
+
+### Learnings
+- Git rebase conflicts on Jetson auto-commit cron: detached HEAD after `git reset --hard`, stale rebase-merge state. Fix: `git fetch -q && git reset --hard origin/kisti-headless && git checkout kisti-headless`, then `git rebase --abort` if needed.
+
+---
+
 ## Session: 2026-03-31 (kisti-17 — Whisper Upgrade + Frontier-First Architecture)
 
 ### Completed
