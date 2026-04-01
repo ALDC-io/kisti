@@ -112,6 +112,13 @@ class IntelligentScreenWidget(QWidget):
         # Tell Qt we paint our entire rect every frame (compositorless X11)
         self.setAttribute(Qt.WA_OpaquePaintEvent)
 
+        # Force periodic repaint even without data (1 Hz)
+        from PySide6.QtCore import QTimer
+        self._repaint_timer = QTimer(self)
+        self._repaint_timer.setInterval(1000)
+        self._repaint_timer.timeout.connect(self.update)
+        self._repaint_timer.start()
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -137,6 +144,12 @@ class IntelligentScreenWidget(QWidget):
 
         # Full background
         p.fillRect(0, 0, w, h, QColor(BG_DARK))
+
+        # Mode label top-right
+        p.setPen(QColor(MODE_I_ACCENT))
+        p.setFont(QFont("Helvetica", 16, QFont.Bold))
+        p.drawText(QRectF(w - 200, 2, 190, 30), Qt.AlignRight | Qt.AlignVCenter,
+                   "INTELLIGENT")
 
         snap = self._snap
         stale_engine = snap is None or snap.is_engine_stale()
