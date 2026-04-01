@@ -2,153 +2,104 @@
 
 **Working dir**: `/home/aldc/repos/kisti/`
 **Jetson**: `192.168.22.131` (user `aldc`). SSH: `ssh aldc@192.168.22.131`
-**Test baseline**: 864 tests passing
+**Test baseline**: 879 tests passing (864 original + 15 new)
 **Branch**: `kisti-headless`
+**Latest commit**: `a56fa9c` pushed to origin
 
-## Section 1: What kisti-18/19 Did
+## Section 1: What Was Done (kisti-20 session)
 
-### Streaming TTS — DONE
-- Split multi-sentence responses, pipe PCM to single pacat process
-- First sentence plays in ~1s, rest synthesizes during playback
-- Perceived latency: 4s → 1s. Streaming pattern: "Streaming TTS: 1/5"
-- `split_sentences()` in `voice/tts_engine.py`, `_speak_streamed()` in `voice/voice_manager.py`
-- 19 new tests in `tests/test_tts_streaming.py`
+### Phase 1 Infrastructure — COMPLETE
+All files committed and pushed. 879 tests passing.
 
-### Frontier Cloud AI — WORKING
-- `ANTHROPIC_API_KEY` sourced from `~/.env` in `scripts/kisti-session`
-- Claude Haiku via WiFi, DuckDB cache for offline replay
-- Full pipeline: STT 1.8s + LLM 2.4s + TTS 0.9s = ~5s total
-- Comprehensive boxer engine knowledge in system prompt (flat-2 through flat-12)
+- **`ui/theme.py`**: Added `MODE_I_ACCENT=#00AAFF`, `MODE_S_ACCENT=#FF8800`, `MODE_SS_ACCENT=#FF0000`, `FONT_XLARGE=36`, `FONT_MEGA=48`
+- **`ui/softkey_bar.py`**: Rewritten with 4 dynamic buttons + mode-colored highlights. BUT softkey bar is now REMOVED from main_window.py — SI-Drive is the only mode selector, no on-screen navigation
+- **`modes/mode_manager.py`**: K6 reserved (no sub-pages), SI-Drive staleness fallback (5s → Intelligent), `subpage_changed` signal added but unused
+- **`ui/status_bar.py`**: SI-Drive badge (colored pill), warm-up state indicator, CAN status dot. Methods: `set_si_drive_mode(int)`, `set_warmup_state(int)`, `set_can_status(bool)`
+- **`ui/main_window.py`**: Flat 3-page QStackedWidget (no nesting, no softkey bar). Content area 800x440. Accepts `mode_manager` param. `_on_si_drive_changed(mode_int)` switches screens. `update_from_bridge(snap)` feeds DiffState to active screen
+- **`main.py`**: Passes `mode_manager=mode_mgr` to MainWindow. Wires `bridge.state_changed` → `window.update_from_bridge(snap)` at 20Hz
 
-### Wake Word — IMPROVED
-- Punctuation stripping before matching (`re.sub(r'[^\w\s]', '', text)`)
-- Added phonetic variants: keesti, keesty, keesey, keisty, casey
-- Quiet/resume commands expanded with same variants
-- Still using `hey_jarvis_v0.1` OWW model — custom ONNX model not yet trained
+### 3 New Screens — COMPLETE (code written, NOT yet visually verified)
 
-### Whisper-server — SYSTEMD
-- Installed as systemd service, `enable --now`, auto-restart on failure
-- medium.en + flash attention on GPU
+- **`ui/intelligent_screen.py`** — `IntelligentScreenWidget`: QPainter, blue accent. Gear/speed, boost bar, oil/coolant sparklines (deque 200), weather card, lambda bar, injector duty, GPS status, DCCD overview. 1Hz repaint timer for no-data state.
+- **`ui/sport_screen.py`** — `SportScreenWidget`: QPainter, amber accent. Gear/speed/RPM, boost arc gauge, oil/coolant sparklines, DCCD bar, brake pressure, G-force circle with 100-dot trail, wheel speed delta bars (FL/FR/RL/RR), slip delta.
+- **`ui/sharp_screen.py`** — `SportSharpScreenWidget`: QPainter, red accent. Delta bar (full-width), lap time 48px, predicted/best, sector splits, gear 120px, brake/throttle trace (400-sample scrolling strip), dim safety vitals that light up on warnings. Has `update_timing(timing_data: dict)` for TimingManager integration.
 
-### Sentence Truncation — REMOVED (Intelligent)
-- max_s: Intelligent 99, Sport 2, Sport Sharp 1
-- Token cap (150) is now the only constraint for Intelligent mode
+### Tests — 879 passing
+- `tests/test_modes.py`: 29 tests covering SI-Drive transitions, staleness fallback, status bar, MainWindow stack switching
 
-## Section 2: Primary TODO for kisti-20
+## Section 2: BLOCKER — Jetson Display Auth
 
-### Visual HMI Redesign — Multi-Display Synchronized Interface
+KiSTI won't show on the Excelon because SSH can't get X authorization for the GDM desktop session.
 
-This is a **major new feature**: redesign KiSTI's visual screens on the Kenwood Excelon (800x480 HDMI) to work as a synchronized companion to the Link MXG Strada 7" dash, with SI-Drive as the master mode selector.
+**The problem**: The Jetson runs GDM with auto-login. The X display is `:1025` (Xwayland), not `:0`. The Xauthority cookie is at `/run/user/1000/gdm/Xauthority` but SSH sessions can't use it (Authorization required error). The old `kisti-session` script assumed `DISPLAY=:0` which no longer exists.
 
-**Context**: KiSTI currently has 6 display modes (KiSTI/STREET/TRACK/DIFF/VIDEO/SETTINGS) but they were designed independently. The next phase designs them as part of a coherent multi-display system where:
-- **AiM MXG Strada 7"** = critical driver display (RPM, shift lights, alarms, core data)
-- **Kenwood Excelon** (KiSTI/Jetson) = secondary context display (trends, maps, AI, diagnostics)
-- **SI-Drive** = master mode selector controlling both displays simultaneously
+**What needs to happen** (one of these):
+1. **Fix kisti-session script** to auto-detect the display: `DISPLAY=$(ls /tmp/.X*-lock | tail -1 | sed 's|/tmp/.X||;s|-lock||')` and copy the Xauthority cookie
+2. **OR** from a terminal INSIDE the GDM session (not SSH), run: `DISPLAY=:1025 XAUTHORITY=/run/user/1000/gdm/Xauthority python3 main.py --fullscreen`
+3. **OR** configure GDM to use kisti-session as the X session (like it was before), which gives KiSTI its own X server at `:0`
+4. **OR** use `loginctl` to get the session's environment and inject it
 
-**The three modes and their intent**:
-- **INTELLIGENT** = calm / safety / diagnostic / street / bad weather. Useful, informative, not distracting. Rich context on Excelon (weather, trends, diagnostics, AI co-driver). MXG shows clean gauges.
-- **SPORT** = fast road / mountain road / spirited driving. Performance-focused. Excelon shows boost/oil/brake trends, corner data. MXG shows essential performance data, progressive shift lights.
-- **SPORT#** = track / attack / maximum repeatability. Minimal distraction, maximum signal. Excelon shows lap timing, delta, brake traces. MXG shows aggressive shift lights, alarms only.
+**Fastest path**: Update `scripts/kisti-session` to auto-detect display number and copy the auth cookie. Then it can be run from SSH.
 
-### Hardware Integration Context
+## Section 3: Remaining TODO
 
-**Already integrated / available signals**:
-- LinkECU G5 Neo 4 (central ECU, CAN master)
-- LinkECU Razor PDM (power distribution)
-- SI-Drive controller (reads as analog voltage on LinkECU)
-- RPM, MAP/boost, TPS, IAT, coolant temp, oil pressure, speed, gear
-- Flex fuel / ethanol %
-- DCCD center diff (CAN 0x6A0-0x6A3 already decoded in `can/can_config.py`)
-- AiM GPS09 Pro Open IMU/GPS (CAN 0x6A4-0x6A7 already decoded)
+### Immediate (to see the screens):
+- [ ] Fix Jetson display auth (see Section 2)
+- [ ] Verify all 3 screens render correctly on 800x480 Excelon
+- [ ] Adjust layout/sizing based on visual review
 
-**Planned / not yet installed**:
-- AP Racing front brakes (hardware ready)
-- Brake pressure sensor (1x front initially, 2x later)
-- AiM MXG Strada 7" dash (purchased, not yet installed)
+### Phase 5: Alert Engine Mode-Awareness
+- [ ] Add `set_si_drive_mode()` to `alerts/alert_engine.py`
+- [ ] Mode-aware suppression in `_fire()`: INFO suppressed in S/S#, ADVISORY suppressed in S#, CRITICAL always fires
+- [ ] `ui/widgets/critical_flash_overlay.py` — red flash overlay for S# critical alerts
+- [ ] Tests for mode suppression
 
-**CAN bus layout** (defined in `can/can_config.py`):
-- `0x6A0` DIFF @ 50Hz: DCCD command/dial %, surface state, flags, slip delta
-- `0x6A1` CONTEXT @ 20Hz: Gear, speed, throttle %
-- `0x6A2` WHEEL_SPEED @ 50Hz: FL/FR/RL/RR
-- `0x6A3` DYNAMICS @ 50Hz: Steering angle, yaw rate, lateral G, brake pressure
-- `0x6A4-0x6A7` GPS09 IMU: Position, speed, heading, 6-axis IMU
+### Phase 6: Integration & Polish
+- [ ] Final data routing verification
+- [ ] Integration tests
+- [ ] Update NEXT_SESSION_PROMPT.md and PROGRESS.md
 
-### Design Principles (CRITICAL)
-
-1. **SI-Drive is master** — factory controller selects mode, everything follows
-2. **MXG = critical driving display** — immediate data, alarms, shift lights
-3. **Excelon = secondary/context display** — trends, AI, maps, config, history
-4. **Minimal cognitive load** — information hierarchy > showing every signal
-5. **SPORT and SPORT# must feel genuinely different** — not just colors
-6. **INTELLIGENT must be useful** — calm diagnostic mode, not throwaway
-7. **Fail safe always** — graceful degradation if any device offline
-8. **Brake pressure is for driver development** — coaching value, not just display
-
-### Implementation Approach
-
-Use **plan mode** for this — it's a multi-file architectural redesign. The plan should cover:
-
-1. **System architecture** — signal flow between Link, MXG, Jetson/Excelon
-2. **Mode model** — full definition of I/S/S# as system-wide states
-3. **CAN routing** — what goes where, synchronization, heartbeat
-4. **Excelon page redesign** — new layouts for each mode (QPainter, 800x480)
-5. **Alarm/warning philosophy** — tiered (Info/Caution/Critical), mode-aware
-6. **SI-Drive synchronization** — reading the signal, debounce, mode enum, startup
-7. **State machine** — mode transitions, alarm overrides, offline handling
-8. **Phased implementation** — MVP first, then brake pressure, then advanced
-
-### Required Deliverables (in plan output)
-
-The plan MUST include these concrete artifacts:
-
-1. **CAN Message Map Draft** — complete table of every CAN frame ID, source device, destination(s), byte layout, update rate, and which SI-Drive mode uses it. Include existing frames (0x6A0-0x6A7) and any new frames needed (e.g., SI-Drive mode broadcast, alarm state, brake pressure raw).
-
-2. **Page-by-Page Widget List** — for each Excelon screen (Intelligent home, Sport home, Sport# home, diagnostics, track/performance, settings), list every widget with: position (x,y,w,h approximate), data source, update rate, visual style (gauge/sparkline/number/bar/text), and font size priority (large=glanceable / medium=secondary / small=detail).
-
-3. **Mode Transition Sequence Diagram** — step-by-step flow showing what happens when SI-Drive rotates from one mode to another: CAN signal read → debounce → mode enum update → MXG page switch → Excelon page switch → alarm profile change → shift light profile change → voice mode change → confirmation feedback. Include timing targets and failure handling at each step.
-
-### What NOT to do
-- Do NOT redesign MXG pages — those are configured in AiM RaceStudio3 software
-- Do NOT break existing voice pipeline — it stays as-is
-- Do NOT remove existing test coverage — 864 tests must stay green
-- Do NOT add Ollama/local LLM complexity — frontier is the AI path
-
-## Section 3: Key Files
+## Section 4: Key Files
 
 | File | What It Does |
 |------|-------------|
-| `ui/main_window.py` | QStackedWidget mode switching, display lifecycle |
-| `ui/kisti_mode.py` | Home screen with voice waveform, status, AI responses |
-| `ui/street_mode.py` | Map + corner temps + alerts |
-| `ui/track_mode.py` | Thermal quadrant, track map, session timing |
-| `ui/diff_mode.py` | DCCD torque silhouette, axle balance, sparklines |
-| `ui/softkey_bar.py` | Mode selection buttons |
-| `ui/settings_mode.py` | System info, sensor status |
-| `ui/theme.py` | Color palette, fonts, automotive dark theme |
-| `can/can_config.py` | CAN frame IDs, byte layouts, all constants |
-| `can/kisti_can.py` | CAN decode/encode, listener thread, mock generator |
-| `model/vehicle_state.py` | DiffState, DiffStateBridge, SurfaceState |
-| `data/models.py` | VehicleState, CornerData, GPSData, SessionData |
-| `voice/voice_manager.py` | Voice pipeline (don't touch for HMI work) |
-| `modes/mode_manager.py` | SI-Drive mode state machine |
+| `ui/main_window.py` | Flat 3-page QStackedWidget, SI-Drive switching, no softkey bar |
+| `ui/intelligent_screen.py` | **NEW** — Intelligent mode full QPainter screen |
+| `ui/sport_screen.py` | **NEW** — Sport mode full QPainter screen |
+| `ui/sharp_screen.py` | **NEW** — Sport Sharp mode full QPainter screen |
+| `ui/status_bar.py` | SI-Drive badge, warm-up, CAN dot |
+| `ui/theme.py` | Mode accent colors, font sizes |
+| `modes/mode_manager.py` | SI-Drive routing, staleness fallback |
+| `alerts/alert_engine.py` | Threshold alerts (needs mode-aware suppression) |
+| `main.py` | Signal wiring, screen data feed at 20Hz |
+| `scripts/kisti-session` | Jetson X session launcher (NEEDS display auto-detect fix) |
+| `tests/test_modes.py` | 29 tests for Phase 1 |
 
-## Section 4: Jetson State
+## Section 5: Architecture
 
-- **KiSTI**: Running fullscreen, Intelligent mode, Voice ON, Frontier ON, Zeus ON
-- **Whisper**: medium.en on GPU (systemd), ~1s STT latency
-- **Frontier**: Claude Haiku, WiFi "Heckler" connected
-- **RAM**: 3.6G / 7.4G (49%) — healthy
-- **GPU**: 3% idle, 59C
-- **Disk**: 191G free (root), 427G free (/data)
-- **Audio**: USB speaker @ 78%, USB mic @ 300% PA gain
-- **Tests**: 864 passing
+3 screens in a flat QStackedWidget. SI-Drive physical knob (CAN 0x6B0) is the ONLY mode selector. No softkey bar, no sub-pages. Content area is 800x440 (40px status bar above).
 
-## Section 5: Architecture Notes
+```
+QStackedWidget (3 pages)
+  [0] IntelligentScreenWidget  — calm/diagnostic (blue #00AAFF)
+  [1] SportScreenWidget        — performance (amber #FF8800)
+  [2] SportSharpScreenWidget   — track attack (red #FF0000)
+```
 
-The Kenwood Excelon is driven by the Jetson via HDMI at 800x480. All UI is QPainter-based PySide6 — no web rendering, no external APIs. The display must be readable at a glance while driving.
+Signal flow: CAN 0x6B0 → bridge.update_si_drive() → ModeManager.si_drive_changed → MainWindow._on_si_drive_changed() → stack.setCurrentIndex()
 
-The MXG Strada is a standalone dash that reads CAN directly from LinkECU. KiSTI doesn't control MXG pages — but KiSTI should be AWARE of what mode the MXG is showing (via the same SI-Drive CAN signal) so both displays are contextually aligned.
+Data flow: bridge.state_changed → window.update_from_bridge(snap) → active_widget.update_state(snap)
 
-SI-Drive mode is read by LinkECU as an analog voltage. LinkECU broadcasts it on CAN. KiSTI's `can/kisti_can.py` already decodes CAN frames. The mode manager (`modes/mode_manager.py`) already has mode state — it needs to be wired to the CAN SI-Drive signal and made to drive display selection.
+## Section 6: Zeus Memory
 
-The existing softkey bar (STREET/TRACK/DIFF etc.) becomes secondary navigation within a mode. SI-Drive selects the primary mode, softkeys allow sub-page navigation within that mode's context.
+Plan stored as ZMID `32b4a6f5-5936-461b-8b89-543edf509cd9` (management tenant) — but Zeus GET returns 404 despite POST succeeding. There's a persistence bug in Zeus Memory. The plan content is fully captured in this file instead.
+
+Architecture decision also stored by Cowork: ZMID `54e26e48` — "3 screens, no sub-pages, no softkey bar."
+
+## Section 7: Key Decisions
+
+- **3 screens only** — JK explicitly said "12 pages is too much, 1 per mode." No sub-pages, no settings in driving screens
+- **No softkey bar** — removed entirely. SI-Drive physical knob handles mode selection
+- **Content area 800x440** — reclaimed 60px from removed softkey bar
+- **QPainter only** — all screens are self-contained paintEvent rendering, no composite QWidget layouts
+- **Voice pipeline untouched** — already mode-aware, no changes needed
