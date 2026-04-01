@@ -187,3 +187,70 @@ class TestEngineNotRunning:
         engine._evaluate()
 
         assert len(alerts) == 0
+
+
+def _make_alert(alert_type: str, severity: AlertSeverity) -> Alert:
+    """Helper to create an Alert for mode suppression tests."""
+    return Alert(
+        alert_type=alert_type,
+        severity=severity,
+        message=f"Test {severity.label}",
+        short_message=severity.label,
+    )
+
+
+class TestModeAwareSuppression:
+    """Alert engine suppresses lower-severity alerts based on SI Drive mode."""
+
+    def test_intelligent_fires_all(self, engine, bridge):
+        """Intelligent mode: all severities fire."""
+        engine.set_si_drive_mode(SIDriveMode.INTELLIGENT)
+        alerts = []
+        engine.alert_fired.connect(lambda a: alerts.append(a))
+        for sev in AlertSeverity:
+            engine._fire(_make_alert(f"test_{sev.label}", sev))
+        assert len(alerts) == 4
+
+    def test_sport_suppresses_info(self, engine, bridge):
+        """Sport mode: INFO suppressed."""
+        engine.set_si_drive_mode(SIDriveMode.SPORT)
+        alerts = []
+        engine.alert_fired.connect(lambda a: alerts.append(a))
+        engine._fire(_make_alert("info_test", AlertSeverity.INFO))
+        assert len(alerts) == 0
+
+    def test_sport_fires_advisory_and_above(self, engine, bridge):
+        """Sport mode: ADVISORY, WARNING, CRITICAL all fire."""
+        engine.set_si_drive_mode(SIDriveMode.SPORT)
+        alerts = []
+        engine.alert_fired.connect(lambda a: alerts.append(a))
+        for sev in (AlertSeverity.ADVISORY, AlertSeverity.WARNING, AlertSeverity.CRITICAL):
+            engine._fire(_make_alert(f"test_{sev.label}", sev))
+        assert len(alerts) == 3
+
+    def test_sport_sharp_suppresses_info_and_advisory(self, engine, bridge):
+        """Sport Sharp: INFO and ADVISORY suppressed."""
+        engine.set_si_drive_mode(SIDriveMode.SPORT_SHARP)
+        alerts = []
+        engine.alert_fired.connect(lambda a: alerts.append(a))
+        for sev in (AlertSeverity.INFO, AlertSeverity.ADVISORY):
+            engine._fire(_make_alert(f"test_{sev.label}", sev))
+        assert len(alerts) == 0
+
+    def test_sport_sharp_fires_warning_and_critical(self, engine, bridge):
+        """Sport Sharp: WARNING and CRITICAL fire."""
+        engine.set_si_drive_mode(SIDriveMode.SPORT_SHARP)
+        alerts = []
+        engine.alert_fired.connect(lambda a: alerts.append(a))
+        for sev in (AlertSeverity.WARNING, AlertSeverity.CRITICAL):
+            engine._fire(_make_alert(f"test_{sev.label}", sev))
+        assert len(alerts) == 2
+
+    def test_critical_fires_in_all_modes(self, engine, bridge):
+        """CRITICAL fires regardless of mode."""
+        alerts = []
+        engine.alert_fired.connect(lambda a: alerts.append(a))
+        for mode in SIDriveMode:
+            engine.set_si_drive_mode(mode)
+            engine._fire(_make_alert(f"crit_{mode.label}", AlertSeverity.CRITICAL))
+        assert len(alerts) == 3

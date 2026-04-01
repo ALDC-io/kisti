@@ -30,6 +30,7 @@ from ui.diff_mode import DiffModeWidget
 from ui.video_mode import VideoModeWidget
 from ui.settings_mode import SettingsModeWidget
 from ui.splash_screen import SplashScreen
+from ui.widgets.critical_flash_overlay import CriticalFlashOverlay
 from can.kisti_can import create_can_source
 
 log = logging.getLogger("kisti.ui.main")
@@ -91,6 +92,11 @@ class MainWindow(QMainWindow):
         self._current_si_drive: int = 0
         self._stack.setCurrentIndex(0)
 
+        # Critical flash overlay (WARNING/CRITICAL visual feedback in S# mode)
+        self._flash_overlay = CriticalFlashOverlay(central)
+        self._flash_overlay.setGeometry(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
+        self._flash_overlay.raise_()
+
         # Wire mode manager signals if provided
         if self._mode_manager is not None:
             self._mode_manager.si_drive_changed.connect(self._on_si_drive_changed)
@@ -136,6 +142,11 @@ class MainWindow(QMainWindow):
     def _on_radar_updated(self, radar_state):
         """Store latest radar state for merging into vehicle data pipeline."""
         self._latest_radar = radar_state
+
+    def flash_alert(self, alert) -> None:
+        """Flash overlay for WARNING/CRITICAL alerts in Sport Sharp mode."""
+        if self._current_si_drive == SIDriveMode.SPORT_SHARP:
+            self._flash_overlay.flash(alert.severity, alert.short_message)
 
     def update_from_bridge(self, snap) -> None:
         """Feed DiffState snapshot to the active screen (called at 20Hz)."""

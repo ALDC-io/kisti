@@ -126,6 +126,9 @@ class AlertEngine(QObject):
         self._prev_ambient_humidity: float = 0.0
         self._ambient_baseline_set: bool = False
 
+        # SI Drive mode for alert suppression
+        self._si_drive_mode: SIDriveMode = SIDriveMode.INTELLIGENT
+
         # Check timer (2 Hz)
         self._timer = QTimer(self)
         self._timer.setInterval(500)
@@ -138,6 +141,20 @@ class AlertEngine(QObject):
 
     def stop(self) -> None:
         self._timer.stop()
+
+    def set_si_drive_mode(self, mode: int) -> None:
+        """Update SI Drive mode for alert suppression.
+
+        Suppression matrix:
+          Intelligent: all severities fire
+          Sport: INFO suppressed
+          Sport Sharp: INFO + ADVISORY suppressed
+        """
+        try:
+            self._si_drive_mode = SIDriveMode(mode)
+        except ValueError:
+            return
+        log.info("Alert engine mode: %s", self._si_drive_mode.label)
 
     def _evaluate(self) -> None:
         """Evaluate all alert thresholds against current telemetry."""
@@ -428,7 +445,15 @@ class AlertEngine(QObject):
             self._prev_ambient_humidity = state.ambient_humidity_pct
 
     def _fire(self, alert: Alert) -> None:
-        """Fire an alert if not debounced."""
+        """Fire an alert if not suppressed by mode and not debounced."""
+        # Mode-aware suppression
+        if self._si_drive_mode == SIDriveMode.SPORT_SHARP:
+            if alert.severity < AlertSeverity.WARNING:
+                return
+        elif self._si_drive_mode == SIDriveMode.SPORT:
+            if alert.severity == AlertSeverity.INFO:
+                return
+
         now = time.monotonic()
         last = self._last_alert.get(alert.alert_type, 0.0)
 

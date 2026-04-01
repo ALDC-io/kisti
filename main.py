@@ -153,6 +153,7 @@ def main():
     # Alert engine: deterministic Tier 1 threshold monitoring
     alert_eng = AlertEngine(bridge)
     alert_eng.start()
+    mode_mgr.si_drive_changed.connect(alert_eng.set_si_drive_mode)
 
     # Ambient weather sensor (Yoctopuce Yocto-Meteo-V2) or simulator
     ambient_source = None  # YoctopuceReader or AmbientSimulator — same signal interface
@@ -598,6 +599,9 @@ def main():
                     window._sharp_screen.update_timing(timing_mgr.get_timing_data())
 
         bridge.state_changed.connect(_update_screen)
+
+        # Visual flash overlay for WARNING/CRITICAL alerts in S# mode
+        alert_eng.alert_fired.connect(window.flash_alert)
 
         if timing_mgr and mode_mgr:
             mode_mgr.si_drive_changed.connect(

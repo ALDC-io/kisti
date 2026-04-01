@@ -22,7 +22,30 @@ if ! flock -n 9; then
 fi
 # Lock held for lifetime of this process (fd 9 stays open).
 
-export DISPLAY="${DISPLAY:-:0}"
+# Auto-detect X display when not set (SSH case).
+# When GDM launches this as the X session, it sets DISPLAY — skip detection.
+if [ -z "$DISPLAY" ]; then
+    _DETECTED=""
+    for _lock in /tmp/.X*-lock; do
+        [ -f "$_lock" ] || continue
+        _num=$(echo "$_lock" | sed 's|/tmp/.X||;s|-lock||')
+        # Verify the X server PID is actually running
+        _pid=$(cat "$_lock" 2>/dev/null | tr -d ' ')
+        if [ -n "$_pid" ] && kill -0 "$_pid" 2>/dev/null; then
+            _DETECTED=":$_num"
+        fi
+    done
+    export DISPLAY="${_DETECTED:-:0}"
+    echo "$(date) Auto-detected DISPLAY=$DISPLAY (SSH mode)" >> /tmp/kisti-session.log
+
+    # GDM stores the Xauthority cookie for the auto-login user here.
+    # SSH sessions need this to authenticate to the Xwayland server.
+    _GDM_XAUTH="/run/user/$(id -u)/gdm/Xauthority"
+    if [ -f "$_GDM_XAUTH" ]; then
+        export XAUTHORITY="$_GDM_XAUTH"
+        echo "$(date) Using GDM Xauthority: $XAUTHORITY" >> /tmp/kisti-session.log
+    fi
+fi
 export QT_QPA_PLATFORM=xcb
 export OLLAMA_MODELS=/data/ollama
 # Source API keys (ANTHROPIC_API_KEY, ZEUS_API_KEY, etc.)
@@ -44,6 +67,9 @@ pkill -9 -f 'python3 main.py' 2>/dev/null || true
 sleep 1
 
 echo "$(date) KiSTI session starting (PID $$)" > "$LOG"
+
+# Allow local connections (needed when launching from SSH into GDM's X server)
+xhost +local: 2>/dev/null || true
 
 # Black background, no screen blanking
 xsetroot -solid black 2>/dev/null || true
