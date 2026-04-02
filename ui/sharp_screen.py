@@ -211,6 +211,14 @@ class SportSharpScreenWidget(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         p.fillRect(0, 0, _W, _H, QColor(BG_DARK))
+
+        # Subtle full-screen tint from road surface FLIR
+        snap = self._snap
+        if snap is not None and snap.flir_available and not snap.is_flir_stale():
+            tint = QColor(_brake_heat_color(snap.brake_temp_fl))
+            tint.setAlpha(15)
+            p.fillRect(0, 0, _W, _H, tint)
+
         self._draw_delta_bar(p)
         self._draw_timing_panel(p)
         self._draw_g_force_circle(p)

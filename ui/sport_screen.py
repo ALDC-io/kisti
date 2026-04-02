@@ -133,6 +133,12 @@ class SportScreenWidget(QWidget):
         p.fillRect(0, 0, w, h, QColor(BG_DARK))
 
         snap = self._snap if self._snap is not None else DiffState()
+
+        # Subtle full-screen tint from road surface FLIR
+        if snap.flir_available and not snap.is_flir_stale():
+            tint = QColor(_brake_heat_color(snap.brake_temp_fl))
+            tint.setAlpha(15)
+            p.fillRect(0, 0, w, h, tint)
         diff_stale = True if self._snap is None else snap.is_diff_stale()
         dynamics_stale = True if self._snap is None else snap.is_dynamics_stale()
 
