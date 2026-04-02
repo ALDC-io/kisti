@@ -582,10 +582,10 @@ class SportSharpScreenWidget(QWidget):
         label_rect = QRectF(x, _VITALS_Y0 + 4, w, 20)
         p.drawText(label_rect, Qt.AlignCenter, label)
 
-        # Value — large, bold
+        # Value — large, bold, Helvetica to match rest of UI
         font_size = 32 if large else FONT_BIG  # 32pt warning, 26pt normal
         p.setPen(value_color)
-        p.setFont(QFont("Courier", font_size, QFont.Bold))
+        p.setFont(QFont("Helvetica", font_size, QFont.Bold))
         value_rect = QRectF(x, _VITALS_Y0 + 26, w, 44)
         p.drawText(value_rect, Qt.AlignCenter, value)
 
