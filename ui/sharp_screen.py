@@ -509,9 +509,6 @@ class SportSharpScreenWidget(QWidget):
         bg = QColor(heat_col)
         bg.setAlpha(35)
         p.fillRect(card, bg)
-        p.setPen(QPen(heat_col, 1))
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawRoundedRect(card, 6, 6)
 
         # Label — left
         p.setFont(QFont("Helvetica", 12, QFont.Bold))

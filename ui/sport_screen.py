@@ -257,9 +257,6 @@ class SportScreenWidget(QWidget):
             bg = QColor(heat_col)
             bg.setAlpha(40)
             p.fillRect(rect, bg)
-            p.setPen(QPen(heat_col, 1))
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawRoundedRect(rect, 6, 6)
 
             # Label
             p.setFont(QFont("Helvetica", 10, QFont.Weight.Bold))
@@ -292,9 +289,6 @@ class SportScreenWidget(QWidget):
             p.drawText(QRectF(720, 36, 60, 24), Qt.AlignmentFlag.AlignCenter, grip)
         else:
             p.fillRect(rect, QColor(BG_PANEL))
-            p.setPen(QPen(QColor(DIM), 1))
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawRoundedRect(rect, 6, 6)
             p.setFont(QFont("Helvetica", 12))
             p.setPen(QColor(DIM))
             p.drawText(rect, Qt.AlignmentFlag.AlignCenter, "ROAD ---")

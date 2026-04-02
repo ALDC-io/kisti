@@ -315,11 +315,6 @@ class IntelligentScreenWidget(QWidget):
         bg.setAlpha(40)
         p.fillRect(QRectF(card_x, card_y, card_w, card_h), bg)
 
-        # Border
-        p.setPen(QPen(heat_col, 1))
-        p.setBrush(Qt.NoBrush)
-        p.drawRoundedRect(QRectF(card_x, card_y, card_w, card_h), 8, 8)
-
         # Big temperature — left side
         p.setFont(_font(56, bold=True))
         p.setPen(QPen(heat_col))
