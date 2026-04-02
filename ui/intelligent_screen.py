@@ -166,8 +166,8 @@ class IntelligentScreenWidget(QWidget):
         snap = self._snap
         available = snap is not None and snap.ambient_available
 
-        # Card background
-        p.setPen(QPen(QColor(DIM), 1))
+        # Card background (no border — clean edge)
+        p.setPen(Qt.NoPen)
         p.setBrush(QColor(BG_ACCENT))
         p.drawRoundedRect(QRectF(6, 6, _W - 12, 148), 6, 6)
 
@@ -278,10 +278,6 @@ class IntelligentScreenWidget(QWidget):
 
         y0 = 160
         panel_h = 180  # y=160..340
-
-        # Divider line at top of section
-        p.setPen(QPen(QColor(DIM), 1))
-        p.drawLine(0, y0, _W, y0)
 
         # Section label
         p.setFont(_font(12, bold=True))
@@ -408,10 +404,6 @@ class IntelligentScreenWidget(QWidget):
 
         y0 = 340
         strip_h = 140  # y=340..480
-
-        # Divider at top
-        p.setPen(QPen(QColor(DIM), 1))
-        p.drawLine(0, y0, _W, y0)
 
         # Layout: Surface (left, primary) | SLIP (center) | DCCD (right, secondary)
         # Answers "What are the conditions?" — surface is #1 for Intelligent mode.
