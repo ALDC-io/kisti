@@ -1101,7 +1101,7 @@ class MockCanGenerator(QObject):
     def _dyn_tick(self) -> None:
         """Mock vehicle dynamics: steering, yaw, lateral G, brake pressure."""
         # Steering — sinusoidal canyon driving
-        self._steering += random.uniform(-15.0, 15.0)
+        self._steering += random.uniform(-3.0, 3.0)
         self._steering += 30.0 * math.sin(self._t * 0.3)  # slow sweeps
         self._steering *= 0.95  # decay toward center
         self._steering = max(-540.0, min(540.0, self._steering))

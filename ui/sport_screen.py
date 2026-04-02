@@ -553,11 +553,13 @@ class SportScreenWidget(QWidget):
         sample_w = strip_w / _TRACE_LEN
         center_y = strip_y + strip_h / 2.0
 
-        # Steering — cyan line trace from center
+        # Steering — cyan line trace from center (subsample every 4th point)
         if len(self._steering_trace) > 1:
-            p.setPen(QPen(QColor(CYAN), 2))
+            p.setPen(QPen(QColor(CYAN), 1))
+            step = 4
             prev_pt = None
-            for idx, steer in enumerate(self._steering_trace):
+            for idx in range(0, len(self._steering_trace), step):
+                steer = self._steering_trace[idx]
                 offset = _TRACE_LEN - len(self._steering_trace) + idx
                 x = strip_x + offset * sample_w
                 norm = max(-1.0, min(1.0, steer / _STEER_MAX))
