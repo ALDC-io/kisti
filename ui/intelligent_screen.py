@@ -391,53 +391,11 @@ class IntelligentScreenWidget(QWidget):
         p.setPen(QPen(QColor(DIM), 1))
         p.drawLine(0, y0, _W, y0)
 
-        # --- DCCD bar (left third, ~0..300) ---
-        dccd_x = 20
-        dccd_label_y = y0 + 10
-        dccd_bar_y = y0 + 36
-        dccd_bar_h = 28
-        dccd_bar_w = 220
+        # Layout: Surface (left, primary) | SLIP (center) | DCCD (right, secondary)
+        # Answers "What are the conditions?" — surface is #1 for Intelligent mode.
 
-        # Label
-        p.setFont(_font(12, bold=True))
-        p.setPen(QPen(QColor(MODE_I_ACCENT)))
-        p.drawText(QRectF(dccd_x, dccd_label_y, 80, 20),
-                   Qt.AlignLeft | Qt.AlignVCenter, "DCCD")
-
-        # Bar background
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor(BG_PANEL))
-        p.drawRoundedRect(QRectF(dccd_x, dccd_bar_y, dccd_bar_w, dccd_bar_h), 4, 4)
-
-        if not stale_diff and snap is not None:
-            lock_frac = min(snap.dccd_command_pct / 100.0, 1.0)
-            if lock_frac > 0.01:
-                lock_color = QColor(MODE_I_ACCENT)
-                if snap.dccd_command_pct > 80:
-                    lock_color = QColor(YELLOW)
-                p.setBrush(lock_color)
-                p.drawRoundedRect(
-                    QRectF(dccd_x, dccd_bar_y,
-                           dccd_bar_w * lock_frac, dccd_bar_h), 4, 4)
-            pct_text = f"{snap.dccd_command_pct:.0f}%"
-            pct_color = QColor(WHITE)
-        else:
-            pct_text = "---%"
-            pct_color = QColor(GRAY)
-
-        # Bar border
-        p.setPen(QPen(QColor(CHROME_DARK), 1))
-        p.setBrush(Qt.NoBrush)
-        p.drawRoundedRect(QRectF(dccd_x, dccd_bar_y, dccd_bar_w, dccd_bar_h), 4, 4)
-
-        # Percentage text
-        p.setFont(_font(20, bold=True))
-        p.setPen(QPen(pct_color))
-        p.drawText(QRectF(dccd_x + dccd_bar_w + 10, dccd_bar_y, 80, dccd_bar_h),
-                   Qt.AlignLeft | Qt.AlignVCenter, pct_text)
-
-        # --- Surface badge (center, ~300..520) ---
-        surface_x = 340
+        # --- Surface badge (left, ~0..280) — PRIMARY ---
+        surface_x = 20
         surface_y = y0 + 10
 
         p.setFont(_font(12, bold=True))
@@ -452,34 +410,34 @@ class IntelligentScreenWidget(QWidget):
             surface_label = "---"
             surface_color = QColor(GRAY)
 
-        # Large surface text
+        # Large surface pill
         badge_y = surface_y + 24
-        badge_h = 36
+        badge_h = 44
 
-        p.setFont(_font(14, bold=True))
-        badge_tw = p.fontMetrics().horizontalAdvance(surface_label) + 32
-        badge_tw = max(badge_tw, 100)
+        p.setFont(_font(18, bold=True))
+        badge_tw = p.fontMetrics().horizontalAdvance(surface_label) + 40
+        badge_tw = max(badge_tw, 140)
 
         # Pill background
         pill_bg = QColor(surface_color)
         pill_bg.setAlphaF(0.25)
         p.setPen(Qt.NoPen)
         p.setBrush(pill_bg)
-        p.drawRoundedRect(QRectF(surface_x, badge_y, badge_tw, badge_h), 18, 18)
+        p.drawRoundedRect(QRectF(surface_x, badge_y, badge_tw, badge_h), 22, 22)
 
         # Pill border
-        p.setPen(QPen(surface_color, 1))
+        p.setPen(QPen(surface_color, 2))
         p.setBrush(Qt.NoBrush)
-        p.drawRoundedRect(QRectF(surface_x, badge_y, badge_tw, badge_h), 18, 18)
+        p.drawRoundedRect(QRectF(surface_x, badge_y, badge_tw, badge_h), 22, 22)
 
         # Surface text
-        p.setFont(_font(16, bold=True))
+        p.setFont(_font(20, bold=True))
         p.setPen(QPen(surface_color))
         p.drawText(QRectF(surface_x, badge_y, badge_tw, badge_h),
                    Qt.AlignCenter, surface_label)
 
-        # --- Slip delta (right third, ~560..780) ---
-        slip_x = 580
+        # --- Slip delta (center, ~300..560) ---
+        slip_x = 320
         slip_label_y = y0 + 10
 
         p.setFont(_font(12, bold=True))
@@ -508,3 +466,48 @@ class IntelligentScreenWidget(QWidget):
             p.setPen(QPen(QColor(GRAY)))
             p.drawText(QRectF(slip_x, slip_val_y, 180, 56),
                        Qt.AlignLeft | Qt.AlignVCenter, "---")
+
+        # --- DCCD bar (right, ~580..780) — compact, secondary ---
+        dccd_x = 590
+        dccd_label_y = y0 + 10
+        dccd_bar_y = y0 + 34
+        dccd_bar_h = 20
+        dccd_bar_w = 160
+
+        # Label
+        p.setFont(_font(11, bold=True))
+        p.setPen(QPen(QColor(GRAY)))
+        p.drawText(QRectF(dccd_x, dccd_label_y, 80, 18),
+                   Qt.AlignLeft | Qt.AlignVCenter, "DCCD")
+
+        # Bar background
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(BG_PANEL))
+        p.drawRoundedRect(QRectF(dccd_x, dccd_bar_y, dccd_bar_w, dccd_bar_h), 4, 4)
+
+        if not stale_diff and snap is not None:
+            lock_frac = min(snap.dccd_command_pct / 100.0, 1.0)
+            if lock_frac > 0.01:
+                lock_color = QColor(MODE_I_ACCENT)
+                if snap.dccd_command_pct > 80:
+                    lock_color = QColor(YELLOW)
+                p.setBrush(lock_color)
+                p.drawRoundedRect(
+                    QRectF(dccd_x, dccd_bar_y,
+                           dccd_bar_w * lock_frac, dccd_bar_h), 4, 4)
+            pct_text = f"{snap.dccd_command_pct:.0f}%"
+            pct_color = QColor(WHITE)
+        else:
+            pct_text = "---%"
+            pct_color = QColor(GRAY)
+
+        # Bar border
+        p.setPen(QPen(QColor(CHROME_DARK), 1))
+        p.setBrush(Qt.NoBrush)
+        p.drawRoundedRect(QRectF(dccd_x, dccd_bar_y, dccd_bar_w, dccd_bar_h), 4, 4)
+
+        # Percentage text — below bar, compact
+        p.setFont(_font(14, bold=True))
+        p.setPen(QPen(pct_color))
+        p.drawText(QRectF(dccd_x, dccd_bar_y + dccd_bar_h + 4, dccd_bar_w, 22),
+                   Qt.AlignLeft | Qt.AlignVCenter, pct_text)

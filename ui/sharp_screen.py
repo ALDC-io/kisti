@@ -1,27 +1,31 @@
 """KiSTI - Sport Sharp Screen (SI-Drive=2)
 
-TRACK / ATTACK / MINIMAL — ultra-sparse, dark, high contrast numbers.
+TRACK / ATTACK / CANYON — timing + intensity feedback.
 100% QPainter in paintEvent. No composite QWidget layouts.
 
 MXG Strada handles: gear, speed, RPM, boost, lambda, oil, coolant.
 KiSTI Sport Sharp shows ONLY what the MXG cannot:
-  - Lap timing + delta + sectors
+  - Lap timing + delta + sectors (track)
+  - G-force circle (canyon intensity / cornering commitment)
   - Safety vitals (dim-until-warning)
 
-"Am I faster?" — pure timing focus. Nothing else.
+"Am I faster?" — timing for track, G-force for canyons. Dual-mode.
 
 Layout (800x480):
   y=0..90    Delta bar (full width, green=faster, red=slower)
-  y=90..280  Lap time (full width) — huge center number + lap count + best + theo
+  y=90..280  LEFT (0..480): Lap time + lap count + best + theo
+             RIGHT (480..800): G-force circle with trail
   y=280..380 Sector strip (colored blocks with times)
-  y=380..480 Safety vitals (dim until warning) — 5 zones
+  y=380..480 Safety vitals (dim until warning) — 4 zones
 """
 
 from __future__ import annotations
 
+import math
+from collections import deque
 from typing import Optional
 
-from PySide6.QtCore import Qt, QRectF
+from PySide6.QtCore import Qt, QRectF, QPointF
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
@@ -35,6 +39,7 @@ from ui.theme import (
     GREEN,
     YELLOW,
     RED,
+    CYAN,
     MODE_SS_ACCENT,
     FONT_BASE,
     FONT_HEADER,
@@ -66,6 +71,15 @@ _BAR_H = 70
 _BAR_Y = (_DELTA_Y1 - _BAR_H) // 2 + _DELTA_Y0
 _BAR_X = _BAR_MARGIN
 _BAR_W = _W - 2 * _BAR_MARGIN
+
+# Timing / G-force split in mid panel (y=90..280)
+_TIMING_W = 480       # Left side: timing data
+_G_PANEL_X = 480      # Right side: G-force circle
+_G_CENTER_X = 640     # Circle center X (midpoint of 480..800)
+_G_CENTER_Y = 185     # Circle center Y (midpoint of 90..280)
+_G_RADIUS = 80        # Outer ring = 1.0g
+_G_RING_05 = 40       # Inner ring = 0.5g
+_G_MAX = 1.5          # Clamp G values
 
 # FLIR brake temp thresholds (°C) — used by _brake_heat_color and safety vitals
 _FLIR_COLD = 150.0
@@ -149,7 +163,7 @@ def _coolant_color(temp: float) -> QColor:
 class SportSharpScreenWidget(QWidget):
     """Sport Sharp (S#) full-screen QPainter widget — 800x480.
 
-    "Am I faster?" — pure timing focus. Nothing else.
+    "Am I faster?" — timing for track, G-force for canyons.
     Ultra-sparse dark layout for maximum attack driving.
     Data fed via update_state(snap) at 20 Hz from DiffStateBridge.
     Timing data fed via update_timing(timing_data) from TimingManager.
@@ -163,6 +177,9 @@ class SportSharpScreenWidget(QWidget):
         self._snap: Optional[DiffState] = None
         self._timing: dict = {}
 
+        # G-force dot trail (canyon intensity feedback)
+        self._g_trail: deque[tuple[float, float]] = deque(maxlen=40)
+
         # Sector pulse animation
         self._paint_count: int = 0
 
@@ -173,6 +190,7 @@ class SportSharpScreenWidget(QWidget):
     def update_state(self, snap: DiffState) -> None:
         """Accept telemetry snapshot from DiffStateBridge (20 Hz)."""
         self._snap = snap
+        self._g_trail.append((snap.imu_accel_y, snap.imu_accel_x))
         self.update()
 
     def update_timing(self, timing_data: dict) -> None:
@@ -195,6 +213,7 @@ class SportSharpScreenWidget(QWidget):
         p.fillRect(0, 0, _W, _H, QColor(BG_DARK))
         self._draw_delta_bar(p)
         self._draw_timing_panel(p)
+        self._draw_g_force_circle(p)
         self._draw_sector_strip(p)
         self._draw_safety_vitals(p)
         p.end()
@@ -255,6 +274,7 @@ class SportSharpScreenWidget(QWidget):
     def _draw_timing_panel(self, p: QPainter) -> None:
         timing = self._timing
         panel_h = _MID_Y1 - _MID_Y0  # 190px
+        tw = _TIMING_W  # Left side only (480px)
 
         lap_count = timing.get("lap_count", 0)
         current_lap_ms = timing.get("current_lap_time_ms", 0)
@@ -272,37 +292,117 @@ class SportSharpScreenWidget(QWidget):
         if track_name:
             p.setPen(QColor(DIM))
             p.setFont(QFont("Helvetica", 12))
-            p.drawText(QRectF(150, _MID_Y0 + 4, 400, 24), Qt.AlignLeft | Qt.AlignVCenter, track_name)
+            p.drawText(QRectF(150, _MID_Y0 + 4, 300, 24), Qt.AlignLeft | Qt.AlignVCenter, track_name)
 
-        # --- Row 2: Current lap time — HUGE, centered ---
+        # --- Row 2: Current lap time — large, left-side centered ---
         lap_time_str = _fmt_time_ms(current_lap_ms)
         p.setPen(QColor(WHITE))
-        p.setFont(QFont("Courier", FONT_MEGA + 12, QFont.Bold))  # 60pt for max visibility
-        time_rect = QRectF(0, _MID_Y0 + 30, _W, 80)
+        p.setFont(QFont("Courier", FONT_MEGA, QFont.Bold))  # 48pt — still big, fits left panel
+        time_rect = QRectF(0, _MID_Y0 + 30, tw, 70)
         p.drawText(time_rect, Qt.AlignCenter, lap_time_str)
 
-        # --- Row 3: Predicted lap — medium, centered ---
+        # --- Row 3: Predicted lap — medium ---
         if predicted_ms > 0:
             pred_str = f"PRED  {_fmt_time_ms(predicted_ms)}"
             p.setPen(QColor(GRAY))
             p.setFont(QFont("Courier", FONT_BIG, QFont.Bold))
-            pred_rect = QRectF(0, _MID_Y0 + 112, _W, 32)
+            pred_rect = QRectF(0, _MID_Y0 + 102, tw, 28)
             p.drawText(pred_rect, Qt.AlignCenter, pred_str)
 
-        # --- Row 4: Best lap + Theoretical best — bottom, spread left/right ---
-        info_y = _MID_Y0 + panel_h - 32
+        # --- Row 4: Best lap + Theoretical best — stacked left ---
+        info_y = _MID_Y0 + panel_h - 42
 
         if best_ms > 0:
             best_str = f"BEST  {_fmt_time_ms(best_ms)}"
             p.setPen(QColor(DIM))
             p.setFont(QFont("Helvetica", FONT_BASE, QFont.Bold))
-            p.drawText(QRectF(20, info_y, 380, 24), Qt.AlignLeft | Qt.AlignVCenter, best_str)
+            p.drawText(QRectF(20, info_y, tw - 40, 20), Qt.AlignLeft | Qt.AlignVCenter, best_str)
 
         if theoretical_ms > 0:
             theo_str = f"THEO  {_fmt_time_ms(theoretical_ms)}"
             p.setPen(QColor(DIM))
             p.setFont(QFont("Helvetica", FONT_BASE, QFont.Bold))
-            p.drawText(QRectF(400, info_y, 380, 24), Qt.AlignRight | Qt.AlignVCenter, theo_str)
+            p.drawText(QRectF(20, info_y + 20, tw - 40, 20), Qt.AlignLeft | Qt.AlignVCenter, theo_str)
+
+    # ------------------------------------------------------------------
+    # G-force circle (right side of mid panel, 480..800, y=90..280)
+    # Canyon intensity feedback — smaller than Sport's but same data.
+    # ------------------------------------------------------------------
+
+    def _draw_g_force_circle(self, p: QPainter) -> None:
+        snap = self._snap
+        cx = _G_CENTER_X
+        cy = _G_CENTER_Y
+        r1 = _G_RADIUS
+        r05 = _G_RING_05
+
+        # Clear the right panel area
+        p.fillRect(_G_PANEL_X, _MID_Y0, _W - _G_PANEL_X, _MID_Y1 - _MID_Y0, QColor(BG_DARK))
+
+        # Concentric rings
+        p.setPen(QPen(QColor(DIM), 1))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawEllipse(QPointF(cx, cy), r05, r05)
+        p.drawEllipse(QPointF(cx, cy), r1, r1)
+
+        # Ring labels
+        p.setFont(QFont("Helvetica", 7))
+        p.setPen(QPen(QColor(GRAY)))
+        p.drawText(QRectF(cx + r05 + 2, cy - 10, 24, 12), Qt.AlignLeft, "0.5")
+        p.drawText(QRectF(cx + r1 + 2, cy - 10, 24, 12), Qt.AlignLeft, "1.0")
+
+        # Crosshair
+        p.setPen(QPen(QColor(DIM), 1, Qt.PenStyle.DotLine))
+        p.drawLine(QPointF(cx - r1, cy), QPointF(cx + r1, cy))
+        p.drawLine(QPointF(cx, cy - r1), QPointF(cx, cy + r1))
+
+        # Trail dots — fading
+        trail_len = len(self._g_trail)
+        if trail_len > 1:
+            for i, (lat_g, lon_g) in enumerate(self._g_trail):
+                if i == trail_len - 1:
+                    continue
+                alpha = int(30 + 180 * (i / trail_len))
+                dot_color = QColor(MODE_SS_ACCENT)
+                dot_color.setAlpha(alpha)
+                px, py = self._g_to_pixel(lat_g, lon_g, cx, cy, r1)
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(dot_color)
+                p.drawEllipse(QPointF(px, py), 2, 2)
+
+        # Current G dot
+        if snap is not None:
+            lat_g = snap.imu_accel_y
+            lon_g = snap.imu_accel_x
+        else:
+            lat_g, lon_g = 0.0, 0.0
+        px, py = self._g_to_pixel(lat_g, lon_g, cx, cy, r1)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(MODE_SS_ACCENT))
+        p.drawEllipse(QPointF(px, py), 4, 4)
+
+        # G magnitude below circle
+        g_mag = math.sqrt(lat_g ** 2 + lon_g ** 2)
+        p.setFont(QFont("Helvetica", 18, QFont.Bold))
+        p.setPen(QPen(QColor(WHITE)))
+        p.drawText(
+            QRectF(cx - 50, cy + r1 + 4, 100, 24),
+            Qt.AlignCenter, f"{g_mag:.2f}g",
+        )
+
+    @staticmethod
+    def _g_to_pixel(
+        lat_g: float, lon_g: float, cx: float, cy: float, r_px: float
+    ) -> tuple[float, float]:
+        """Convert G values to pixel coordinates, clamped to max radius."""
+        g_mag = math.sqrt(lat_g ** 2 + lon_g ** 2)
+        if g_mag > _G_MAX:
+            scale = _G_MAX / g_mag
+            lat_g *= scale
+            lon_g *= scale
+        px = cx + (lat_g / _G_MAX) * r_px
+        py = cy - (lon_g / _G_MAX) * r_px
+        return px, py
 
     # ------------------------------------------------------------------
     # Sector strip (y=280..380) — taller colored blocks with times
