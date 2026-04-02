@@ -83,9 +83,9 @@ _MID_SPLIT_X = 400
 
 # G-force micro circle
 _G_CX = 600
-_G_CY = 210
-_G_RADIUS = 55
-_G_RING_05 = 27
+_G_CY = 200
+_G_RADIUS = 40
+_G_RING_05 = 20
 _G_MAX = 1.5
 _G_TRAIL_LEN = 5
 
@@ -449,12 +449,12 @@ class SportSharpScreenWidget(QWidget):
         p.setBrush(QColor(CYAN))
         p.drawEllipse(QPointF(px, py), 4, 4)
 
-        # G magnitude
+        # G magnitude — below circle, above AWD strip
         g_mag = math.sqrt(lat_g ** 2 + lon_g ** 2)
-        p.setFont(QFont("Helvetica", 16, QFont.Bold))
+        p.setFont(QFont("Helvetica", 12, QFont.Bold))
         p.setPen(QColor(WHITE))
         p.drawText(
-            QRectF(cx - 40, cy + r1 + 4, 80, 20),
+            QRectF(cx - 30, cy + r1 + 2, 60, 16),
             Qt.AlignCenter,
             f"{g_mag:.2f}g",
         )
@@ -476,8 +476,8 @@ class SportSharpScreenWidget(QWidget):
     # --- AWD status strip (x=400..800, y=250..280) ---
 
     def _draw_awd_strip(self, p: QPainter, snap: Optional[DiffState]) -> None:
-        strip_y = 252
-        strip_h = 24
+        strip_y = 260
+        strip_h = 18
         stale = snap is None or snap.is_diff_stale()
 
         # DCCD label
