@@ -266,8 +266,8 @@ class IntelligentScreenWidget(QWidget):
             p.drawText(QRectF(0, 60, _W, 30), Qt.AlignCenter, "NO WEATHER SENSOR")
 
     # ==================================================================
-    # FLIR BRAKE TEMPS (y=160..340)
-    # Full-width 2x2 grid + warm-up state badge overlay.
+    # ROAD SURFACE (y=160..340)
+    # Forward-facing FLIR (grill-mounted) — road surface temp + warm-up.
     # ==================================================================
 
     def _draw_flir_panel(self, p: QPainter) -> None:
@@ -286,62 +286,85 @@ class IntelligentScreenWidget(QWidget):
         p.setFont(_font(12, bold=True))
         p.setPen(QPen(QColor(MODE_I_ACCENT)))
         p.drawText(QRectF(20, y0 + 4, 200, 20),
-                   Qt.AlignLeft | Qt.AlignVCenter, "BRAKE TEMPS")
+                   Qt.AlignLeft | Qt.AlignVCenter, "ROAD SURFACE")
+
+        # Warm-up badge (top-right, always shown)
+        self._draw_warmup_badge(p, y0)
 
         if not flir_ok:
             p.setFont(_font(16))
             p.setPen(QPen(QColor(GRAY)))
             p.drawText(QRectF(0, y0 + 60, _W, 40), Qt.AlignCenter,
                        "FLIR NOT CONNECTED")
-            # Still draw warm-up badge even without FLIR
-            self._draw_warmup_badge(p, y0)
             return
 
-        # --- 2x2 grid, full width ---
-        grid_x = 20
-        grid_y = y0 + 28
-        # Two columns spanning ~760px (800 - 2*20 margin)
-        cell_w = 370
-        cell_h = 68
-        h_gap = 20
-        v_gap = 10
+        # Road surface temp — single large reading from forward FLIR
+        # Uses brake_temp_fl as road surface proxy (single camera)
+        road_temp = snap.brake_temp_fl
+        heat_col = _brake_heat_color(road_temp)
 
-        corners = [
-            ("FL", snap.brake_temp_fl, grid_x, grid_y),
-            ("FR", snap.brake_temp_fr, grid_x + cell_w + h_gap, grid_y),
-            ("RL", snap.brake_temp_rl, grid_x, grid_y + cell_h + v_gap),
-            ("RR", snap.brake_temp_rr, grid_x + cell_w + h_gap, grid_y + cell_h + v_gap),
-        ]
+        # Large temperature card — centered
+        card_x = 20
+        card_y = y0 + 30
+        card_w = _W - 40
+        card_h = 130
 
-        for label, temp, cx, cy in corners:
-            rect = QRectF(cx, cy, cell_w, cell_h)
+        # Heat-colored background
+        bg = QColor(heat_col)
+        bg.setAlpha(40)
+        p.fillRect(QRectF(card_x, card_y, card_w, card_h), bg)
 
-            # Heat-colored background (inset to avoid border overlap)
-            heat_col = _brake_heat_color(temp)
-            bg = QColor(heat_col)
-            bg.setAlpha(50)
-            inner = QRectF(cx + 3, cy + 3, cell_w - 6, cell_h - 6)
-            p.fillRect(inner, bg)
+        # Border
+        p.setPen(QPen(heat_col, 1))
+        p.setBrush(Qt.NoBrush)
+        p.drawRoundedRect(QRectF(card_x, card_y, card_w, card_h), 8, 8)
 
-            # Border — thin, outside the content area
-            p.setPen(QPen(heat_col, 1))
-            p.setBrush(Qt.NoBrush)
-            p.drawRoundedRect(rect, 6, 6)
+        # Big temperature — left side
+        p.setFont(_font(56, bold=True))
+        p.setPen(QPen(heat_col))
+        p.drawText(QRectF(card_x + 40, card_y + 10, 300, 80),
+                   Qt.AlignLeft | Qt.AlignVCenter, f"{road_temp:.0f}\u00b0C")
 
-            # Corner label — offset well inside border, with dark backing
-            label_rect = QRectF(cx + 8, cy + 6, 36, 18)
-            p.fillRect(label_rect, QColor(BG_DARK))
-            p.setFont(_font(13, bold=True))
-            p.setPen(QPen(QColor(GRAY)))
-            p.drawText(label_rect, Qt.AlignCenter, label)
+        # "ROAD TEMP" sublabel
+        p.setFont(_font(14))
+        p.setPen(QPen(QColor(GRAY)))
+        p.drawText(QRectF(card_x + 40, card_y + 90, 200, 24),
+                   Qt.AlignLeft | Qt.AlignVCenter, "ROAD TEMPERATURE")
 
-            # Temperature — large centered
-            p.setFont(_font(36, bold=True))
-            p.setPen(QPen(heat_col))
-            p.drawText(rect, Qt.AlignCenter, f"{temp:.0f}\u00b0")
+        # Grip context — right side
+        if road_temp < 5:
+            grip_text = "ICE RISK"
+            grip_color = QColor(RED)
+        elif road_temp < 15:
+            grip_text = "COLD"
+            grip_color = QColor(80, 180, 255)
+        elif road_temp < 40:
+            grip_text = "OPTIMAL"
+            grip_color = QColor(GREEN)
+        else:
+            grip_text = "HOT"
+            grip_color = QColor(YELLOW)
 
-        # Warm-up badge overlay
-        self._draw_warmup_badge(p, y0)
+        # Grip pill — right side of card
+        pill_w = 160
+        pill_h = 40
+        pill_x = card_x + card_w - pill_w - 30
+        pill_y = card_y + (card_h - pill_h) // 2
+
+        pill_bg = QColor(grip_color)
+        pill_bg.setAlphaF(0.25)
+        p.setPen(Qt.NoPen)
+        p.setBrush(pill_bg)
+        p.drawRoundedRect(QRectF(pill_x, pill_y, pill_w, pill_h), 20, 20)
+
+        p.setPen(QPen(grip_color, 2))
+        p.setBrush(Qt.NoBrush)
+        p.drawRoundedRect(QRectF(pill_x, pill_y, pill_w, pill_h), 20, 20)
+
+        p.setFont(_font(18, bold=True))
+        p.setPen(QPen(grip_color))
+        p.drawText(QRectF(pill_x, pill_y, pill_w, pill_h),
+                   Qt.AlignCenter, grip_text)
 
     def _draw_warmup_badge(self, p: QPainter, y0: int) -> None:
         """Draw warm-up state badge (COLD / WARMING / READY) overlaid on FLIR panel."""

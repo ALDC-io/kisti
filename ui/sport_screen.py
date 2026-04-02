@@ -242,45 +242,61 @@ class SportScreenWidget(QWidget):
             p.drawText(80, int(ind_y) + 4, "VDC")
 
     # ------------------------------------------------------------------
-    # Top band: FLIR 2x2 summary (right, 500..800)
+    # Top band: Road surface temp (right, 510..790) — forward FLIR
     # ------------------------------------------------------------------
 
     def _paint_flir_summary(self, p: QPainter, snap: DiffState) -> None:
         flir_ok = snap.flir_available and not snap.is_flir_stale()
 
-        cells = [
-            ("FL", 510, 6, snap.brake_temp_fl),
-            ("FR", 658, 6, snap.brake_temp_fr),
-            ("RL", 510, 52, snap.brake_temp_rl),
-            ("RR", 658, 52, snap.brake_temp_rr),
-        ]
-        cell_w = 140
-        cell_h = 40
+        rect = QRectF(510, 6, 280, 86)
 
-        for label, cx, cy, temp in cells:
-            rect = QRectF(cx, cy, cell_w, cell_h)
-            if flir_ok:
-                heat_col = _brake_heat_color(temp)
-                bg = QColor(heat_col)
-                bg.setAlpha(50)
-                p.fillRect(rect, bg)
-                p.setPen(QPen(heat_col, 1))
-                p.drawRect(rect)
+        if flir_ok:
+            road_temp = snap.brake_temp_fl  # Forward FLIR = road surface
+            heat_col = _brake_heat_color(road_temp)
+            bg = QColor(heat_col)
+            bg.setAlpha(40)
+            p.fillRect(rect, bg)
+            p.setPen(QPen(heat_col, 1))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawRoundedRect(rect, 6, 6)
 
-                p.setFont(QFont("Courier", 18, QFont.Weight.Bold))
-                p.setPen(heat_col)
-                p.drawText(rect, Qt.AlignmentFlag.AlignCenter, f"{temp:.0f}\u00b0")
+            # Label
+            p.setFont(QFont("Helvetica", 10, QFont.Weight.Bold))
+            p.setPen(QColor(GRAY))
+            p.drawText(QRectF(520, 10, 100, 16), Qt.AlignmentFlag.AlignLeft, "ROAD")
 
-                p.setFont(QFont("Helvetica", 8))
-                p.setPen(QColor(GRAY))
-                p.drawText(int(cx) + 4, int(cy) + 12, label)
+            # Temperature — large
+            p.setFont(QFont("Helvetica", 36, QFont.Weight.Bold))
+            p.setPen(heat_col)
+            p.drawText(QRectF(520, 24, 200, 50),
+                       Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                       f"{road_temp:.0f}\u00b0C")
+
+            # Grip hint — right side
+            if road_temp < 5:
+                grip = "ICE"
+                gc = QColor(RED)
+            elif road_temp < 15:
+                grip = "COLD"
+                gc = QColor(80, 180, 255)
+            elif road_temp < 40:
+                grip = "OK"
+                gc = QColor(GREEN)
             else:
-                p.fillRect(rect, QColor(BG_PANEL))
-                p.setPen(QPen(QColor(DIM), 1))
-                p.drawRect(rect)
-                p.setFont(QFont("Helvetica", 10))
-                p.setPen(QColor(DIM))
-                p.drawText(rect, Qt.AlignmentFlag.AlignCenter, f"{label} ---")
+                grip = "HOT"
+                gc = QColor(YELLOW)
+
+            p.setFont(QFont("Helvetica", 14, QFont.Weight.Bold))
+            p.setPen(gc)
+            p.drawText(QRectF(720, 36, 60, 24), Qt.AlignmentFlag.AlignCenter, grip)
+        else:
+            p.fillRect(rect, QColor(BG_PANEL))
+            p.setPen(QPen(QColor(DIM), 1))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawRoundedRect(rect, 6, 6)
+            p.setFont(QFont("Helvetica", 12))
+            p.setPen(QColor(DIM))
+            p.drawText(rect, Qt.AlignmentFlag.AlignCenter, "ROAD ---")
 
     # ------------------------------------------------------------------
     # Middle band: Performance bars (left, 0..350)

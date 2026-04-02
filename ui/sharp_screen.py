@@ -487,57 +487,69 @@ class SportSharpScreenWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _draw_flir_strip(self, p: QPainter) -> None:
-        """4 brake temps in a horizontal strip — fills sector area when no timing."""
+        """Road surface temp strip — fills sector area when no timing active."""
         snap = self._snap
         flir_ok = snap is not None and snap.flir_available and not snap.is_flir_stale()
 
         y0 = _SECTOR_Y0
         strip_h = _SECTOR_Y1 - _SECTOR_Y0
-        cell_w = (_W - 40) / 4  # 4 cells with margins
-        cell_h = strip_h - 16
-        gap = 8
-
-        # Section label
-        p.setFont(QFont("Helvetica", 11, QFont.Bold))
-        p.setPen(QColor(GRAY))
-        p.drawText(QRectF(20, y0 + 2, 200, 16), Qt.AlignLeft | Qt.AlignVCenter, "BRAKE TEMPS")
 
         if not flir_ok:
+            p.fillRect(QRectF(10, y0, _W - 20, strip_h), QColor(BG_PANEL))
             p.setFont(QFont("Helvetica", 14))
             p.setPen(QColor(GRAY))
             p.drawText(QRectF(0, y0 + 30, _W, 40), Qt.AlignCenter, "FLIR NOT CONNECTED")
             return
 
-        corners = [
-            ("FL", snap.brake_temp_fl),
-            ("FR", snap.brake_temp_fr),
-            ("RL", snap.brake_temp_rl),
-            ("RR", snap.brake_temp_rr),
-        ]
+        road_temp = snap.brake_temp_fl  # Forward FLIR = road surface
+        heat_col = _brake_heat_color(road_temp)
 
-        for i, (label, temp) in enumerate(corners):
-            cx = 20 + i * (cell_w + gap)
-            cy = y0 + 20
-            rect = QRectF(cx, cy, cell_w, cell_h)
+        # Full-width road temp card
+        card = QRectF(10, y0 + 4, _W - 20, strip_h - 8)
+        bg = QColor(heat_col)
+        bg.setAlpha(35)
+        p.fillRect(card, bg)
+        p.setPen(QPen(heat_col, 1))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawRoundedRect(card, 6, 6)
 
-            heat_col = _brake_heat_color(temp)
-            bg = QColor(heat_col)
-            bg.setAlpha(40)
-            p.fillRect(rect, bg)
+        # Label — left
+        p.setFont(QFont("Helvetica", 12, QFont.Bold))
+        p.setPen(QColor(GRAY))
+        p.drawText(QRectF(24, y0 + 8, 120, 18), Qt.AlignLeft | Qt.AlignVCenter, "ROAD SURFACE")
 
-            p.setPen(QPen(heat_col, 1))
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawRoundedRect(rect, 4, 4)
+        # Temperature — large, left
+        p.setFont(QFont("Helvetica", 40, QFont.Bold))
+        p.setPen(QColor(WHITE))
+        p.drawText(QRectF(24, y0 + 28, 250, 56),
+                   Qt.AlignLeft | Qt.AlignVCenter, f"{road_temp:.0f}\u00b0C")
 
-            # Corner label
-            p.setFont(QFont("Helvetica", 10))
-            p.setPen(QColor(GRAY))
-            p.drawText(QRectF(cx + 6, cy + 4, 30, 14), Qt.AlignLeft, label)
+        # Grip context — right
+        if road_temp < 5:
+            grip, gc = "ICE RISK", QColor(RED)
+        elif road_temp < 15:
+            grip, gc = "COLD", QColor(80, 180, 255)
+        elif road_temp < 40:
+            grip, gc = "OPTIMAL", QColor(GREEN)
+        else:
+            grip, gc = "HOT", QColor(YELLOW)
 
-            # Temperature
-            p.setFont(QFont("Helvetica", 28, QFont.Bold))
-            p.setPen(heat_col)
-            p.drawText(rect, Qt.AlignCenter, f"{temp:.0f}\u00b0")
+        pill_w = 140
+        pill_h = 36
+        pill_x = _W - pill_w - 30
+        pill_y = y0 + (strip_h - pill_h) // 2
+
+        pill_bg = QColor(gc)
+        pill_bg.setAlphaF(0.25)
+        p.setPen(Qt.NoPen)
+        p.setBrush(pill_bg)
+        p.drawRoundedRect(QRectF(pill_x, pill_y, pill_w, pill_h), 18, 18)
+        p.setPen(QPen(gc, 1))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawRoundedRect(QRectF(pill_x, pill_y, pill_w, pill_h), 18, 18)
+        p.setFont(QFont("Helvetica", 16, QFont.Bold))
+        p.setPen(gc)
+        p.drawText(QRectF(pill_x, pill_y, pill_w, pill_h), Qt.AlignCenter, grip)
 
     # ------------------------------------------------------------------
     # Safety vitals (y=380..480) — 5 zones, DIM until warning
@@ -555,18 +567,11 @@ class SportSharpScreenWidget(QWidget):
         oil_temp = snap.oil_temp_c if snap else 0.0
         stale = snap.is_engine_stale() if snap else True
 
-        # FLIR hottest corner
+        # Road surface from forward FLIR
         flir_ok = snap is not None and snap.flir_available and not snap.is_flir_stale()
-        if flir_ok:
-            corners = [
-                ("FL", snap.brake_temp_fl), ("FR", snap.brake_temp_fr),
-                ("RL", snap.brake_temp_rl), ("RR", snap.brake_temp_rr),
-            ]
-            hottest_label, hottest_temp = max(corners, key=lambda c: c[1])
-        else:
-            hottest_label, hottest_temp = "---", 0.0
+        road_temp = snap.brake_temp_fl if flir_ok else 0.0
 
-        # 4 safety zones (DCCD shown on Sport screen)
+        # 4 safety zones: OIL | COOL | OIL T | ROAD
         zone_w = _W / 4
 
         # --- OIL PSI ---
@@ -605,18 +610,15 @@ class SportSharpScreenWidget(QWidget):
         self._draw_vital(p, zone_w * 2, zone_w, "OIL T", f"{oil_temp:.0f}", "\u00b0C",
                          lc, vc if not stale else QColor(GRAY), large=oil_t_warn)
 
-        # --- BRAKE TEMP (hottest corner) ---
-        brk_warn = hottest_temp > _BRKT_WARN and flir_ok
-        brk_crit = hottest_temp > _BRKT_CRIT and flir_ok
-        if brk_crit:
+        # --- ROAD SURFACE (forward FLIR) ---
+        road_warn = road_temp < 5 and flir_ok  # Ice risk
+        if road_warn:
             lc, vc = QColor(RED), QColor(RED)
-        elif brk_warn:
-            lc, vc = QColor(YELLOW), QColor(YELLOW)
         else:
             lc, vc = QColor(GRAY), QColor(WHITE)
-        brk_val = f"{hottest_label} {hottest_temp:.0f}" if flir_ok else "---"
-        self._draw_vital(p, zone_w * 3, zone_w, "BRK T", brk_val, "\u00b0C",
-                         lc, vc if flir_ok else QColor(GRAY), large=brk_warn)
+        road_val = f"{road_temp:.0f}" if flir_ok else "---"
+        self._draw_vital(p, zone_w * 3, zone_w, "ROAD", road_val, "\u00b0C",
+                         lc, vc if flir_ok else QColor(GRAY), large=road_warn)
 
     def _draw_vital(
         self,
