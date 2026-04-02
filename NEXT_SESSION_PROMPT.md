@@ -1,34 +1,50 @@
-# KiSTI — Next Session Prompt (kisti-22: Visual Verify + FLIR Hardware + Boost Barn Prep)
+# KiSTI — Next Session Prompt (kisti-23: Screen Redesign Polish + Icon Overlap Fix)
 
 **Working dir**: `/home/aldc/repos/kisti/`
 **Jetson**: `192.168.22.131` (user `aldc`). SSH: `ssh aldc@192.168.22.131`
-**Test baseline**: 895 tests, all passing
-**Branch**: `kisti-headless`
-**Latest commit**: `b1efc19` pushed to origin, deployed to Jetson (running as PID 75796)
+**Test baseline**: 804+ tests, all passing
+**Branch**: current session work not yet committed
+**Last deployed**: earlier version on Jetson (needs refresh with redesign)
 
-## Section 1: What Was Done (kisti-21 session)
+## Section 1: What Was Done (kisti-22 session — Screen Redesign)
 
-### Screen Redesign — Zero MXG Overlap
-All 3 screens stripped of everything the AiM MXG Strada 7" already shows (gear, speed, RPM, boost, lambda, oil, coolant, throttle, IDC, battery, fuel, IAT, MAP, TPS, ethanol). Now shows ONLY what the MXG cannot.
+### "Less Is More" Redesign — Simplify for Arm's Length Readability
+Applied "one question per screen" principle to 800x480 Excelon at arm's length. Stripped accumulated clutter. User confirmed Sport is perfect; Sport# and Intelligent need simplification.
 
-**Sport Sharp** (`ui/sharp_screen.py`):
-- Delta bar (top) + Timing with theoretical best (left)
-- FLIR 4-corner brake temps in heat-colored 2x2 grid (right, y=80..170)
-- G-force micro circle 55px with 5-frame trail (right, y=170..250)
-- AWD status strip: DCCD bar + surface badge + ABS/VDC dots (right, y=250..280)
-- Sector strip (y=280..320)
-- Brake + STEERING trace replacing throttle — trail-brake analysis (y=320..380)
-- 5-zone safety vitals: OIL | COOL | OIL T | BRK T (new) | DCCD — dim-until-warning (y=380..440)
+**Sport** (`ui/sport_screen.py`) — "How am I driving?" ✓ LOCKED
+- User confirmed perfect — no changes
+- G-force circle: r=140, centered (575, 270), fills y=100..440
+- Performance bars: LAT G, BRAKE, STEER, YAW (bar_h=28px, spacing=70px, font=13pt)
+- DCCD bar + FLIR temps (top-left, 2x2 grid)
+- ✓ Removed dead code: `_paint_wheel_speeds()` + `_paint_brake_steering_trace()` (~111 lines)
+- 462 lines, 804+ tests passing
 
-**Sport** (`ui/sport_screen.py`):
-- DCCD bar + surface + slip + FLIR 2x2 summary (top)
-- DCCD/brake/steering/yaw performance bars + G-force circle with 100-dot trail (middle)
-- Wheel speed deltas + brake/steering trace (bottom)
+**Sport#** (`ui/sharp_screen.py`) — "Am I faster?" → TIMING-FOCUSED (awaiting canyon feedback)
+- 4 clean sections: delta bar (y=0..90), lap time (y=90..280), sectors (y=280..380), safety vitals (y=380..480)
+- Delta bar: green=faster, red=slower, ±seconds format
+- Lap time: huge 60pt Courier, best lap + lap count
+- Sectors: 4 blocks, 100px tall, green/red coloring
+- Safety vitals: 4 zones (OIL PSI, COOLANT, OIL TEMP, BRK TEMP) — removed DCCD zone
+- ⚠ **User feedback**: "sport sharp... just a big lap time? remember we'll be driving canyons as well right?" — **needs G-force circle redesign**
+- 457 lines, 804+ tests passing
 
-**Intelligent** (`ui/intelligent_screen.py`):
-- Expanded weather card (Yoctopuce) + warm-up + DCCD + GPS fix (top)
-- FLIR 4-corner brake temps + vehicle health overview (middle)
-- Brake temp sparklines + wheel speed delta bars (bottom)
+**Intelligent** (`ui/intelligent_screen.py`) — "What are the conditions?" ✓ MOSTLY DONE
+- 3 sections: weather (y=0..160), FLIR (y=160..340), status strip (y=340..480)
+- Weather: huge temp 56pt bold (left), humidity/pressure 36pt bold (right)
+- FLIR: full-width 2x2 grid, 370px cells, heat-color backgrounds, warm-up badge overlay (COLD/WARMING/READY)
+- Status strip: DCCD bar + surface badge + SLIP delta 40pt
+- ✓ Removed: sparklines, wheel deltas, health panel, density altitude, dew point
+- ⚠ **Icon overlaps remain** (see Pending below)
+- 525 lines, 804+ tests passing
+
+### Main Window Fixes
+- Removed TopStatusBar instantiation (was creating ghost text)
+- Hidden legacy mode widgets: KistiModeWidget, DiffModeWidget, TrackModeWidget (z-order battles)
+
+### Mock Data Optimization
+- Reduced update rates: 50Hz→20Hz dynamics, 20Hz→10Hz context, 9Hz→5Hz FLIR (eliminate jitter)
+- Reduced steering noise: ±15°→±3° per tick
+- SI-Drive rotation: 15s cycle (show all 3 screens in 45s)
 
 ### DiffState FLIR Fields
 `model/vehicle_state.py`: `brake_temp_fl/fr/rl/rr`, `flir_available`, `flir_frame_ts`, `update_flir()`, `is_flir_stale(timeout=2.0)`
@@ -44,53 +60,78 @@ All 3 screens stripped of everything the AiM MXG Strada 7" already shows (gear, 
 - Added 10 FLIR tests: field defaults, staleness, snapshot copy, heat colors, all 3 screens accept data
 - 885 → 895 tests, all passing
 
-## Section 2: Prioritized TODO
+## Section 2: Prioritized TODO (kisti-23)
 
-### 1. Visual verification on Jetson
-- KiSTI is already running on the Excelon (PID 75796)
-- Rotate SI-Drive knob to each mode, check layout spacing, font readability, color contrast on 800x480
-- All FLIR cells show "FLIR NOT CONNECTED" or "--- " (expected)
-- Verify G-force circle renders, brake/steering trace scrolls, weather card populates
-- Note any layout tweaks needed (font too small, elements overlapping, etc.)
+### Priority 1: Fix Icon Overlaps ⚠️ CRITICAL BEFORE DEPLOY
+**Files**: `ui/intelligent_screen.py` (status strip), `ui/sport_screen.py` (DCCD/FLIR top bar)
 
-### 2. Wire FLIR Lepton hardware
-- Confirm camera model (FLIR Lepton 3.x with PureThermal breakout)
-- Install opencv-python on Jetson: `pip3 install opencv-python-headless`
-- Add udev rule for PureThermal USB: `SUBSYSTEM=="usb", ATTRS{idVendor}=="1e4e", ATTRS{idProduct}=="0100", MODE="0666"`
-- Wire in main.py: instantiate `FLIRLeptonReader`, connect `temps_updated` signal to `bridge.update_flir()`
-- Calibrate ROI rectangles for camera mounting position (which pixels = which brake disc)
-- This is the hardest part — ROI depends on physical camera placement
+**User reported**:
+- "there is still something top left that is over top of some other numbers?"
+- "sport still has...dccd in orange and something behind it? not sure"
+- Intelligent & Sport both have text/badge positioning issues
 
-### 3. RS3 shift light config at Boost Barn
-- Bring laptop with Race Studio 3
-- Follow `rs3/shift_led_investigation.md` pre-tune checklist
-- Key: define SI_Drive_Mode CAN channel (0x6B0 byte 0 uint8), create ShiftPoint/ShiftWarning math channels
-- Verify CAN byte order (BE vs LE) with live data before configuring RS3
-- Save RS3 config backup before and after
+**Likely culprits**:
+1. **Intelligent status strip** (y=340..480): DCCD bar (orange pill) overlapping surface badge or SLIP delta label
+2. **Sport top-left**: DCCD bar text overlapping FLIR zone labels
 
-### 4. Mock CAN data for screens
-- The mock CAN generator may need updates to populate the new fields screens expect
-- Check `data/mock_generator.py` — does it generate DCCD, wheel speeds, IMU, steering, brake pressure?
-- If not, update it so screens render properly without real CAN hardware
+**Action**:
+- Deploy to Jetson, take closeup screenshots (zoom in on top-left areas)
+- Measure exact x,y bounding boxes of overlapping elements
+- Adjust padding/sizing to prevent overlap (shrink DCCD pill? shift surface badge right?)
+- Re-test and screenshot both screens
 
-### 5. FLIR ROI calibration tool
-- Future: build a simple calibration UI that shows the thermal image with draggable ROI rectangles
-- Or: manual calibration by pointing camera at known hot spots, adjusting ROI in config
+**Acceptance**: Cleap, readable text at arm's length with zero overlap.
 
-## Section 3: Key Files
+### Priority 2: Sport# Must Be Canyon-Capable, Not Just Timing ⚠️ DESIGN DECISION
+**File**: `ui/sharp_screen.py`
 
-| File | What It Does |
-|------|-------------|
-| `ui/sharp_screen.py` | Sport Sharp — timing, FLIR, G-micro, AWD, traces (803 lines) |
-| `ui/sport_screen.py` | Sport — DCCD, FLIR, G-force circle, steering/yaw, traces (591 lines) |
-| `ui/intelligent_screen.py` | Intelligent — weather, FLIR, health, sparklines, wheel deltas (952 lines) |
-| `model/vehicle_state.py` | DiffState + DiffStateBridge — all telemetry fields + FLIR |
-| `sensors/flir_lepton_reader.py` | FLIR Lepton PureThermal USB reader (214 lines) |
-| `sensors/yoctopuce_reader.py` | Yoctopuce weather sensor (pattern reference) |
-| `rs3/shift_led_investigation.md` | RS3 shift light config guide |
-| `scripts/deploy-to-jetson.sh` | SSH pull + relaunch |
-| `~/k` | One-command deploy wrapper (commit + push + deploy) |
-| `tests/test_modes.py` | 39 tests: modes, status bar, FLIR fields |
+**User feedback**: "sport sharp... just a big lap time? remember we'll be driving canyons as well right?"
+
+**Current state**: Sport# is timing-focused (lap time, delta, sectors) — great for track but doesn't help during canyon driving.
+
+**Options**:
+- **Option A**: Add G-force circle back to Sport# (smaller than Sport's r=140, maybe r=90)
+  - Where? Replace sector strip (y=280..380) with G-force circle?
+  - Or split lap time panel horizontally (G-force left, timing right)?
+  
+- **Option B**: Keep timing-focused, but confirm "lap time" includes canyon segment tracking (not just track times)
+  
+- **Option C**: Hybrid — add small G-force circle to corner of safety vitals for intensity feedback
+
+**Decision deferred**: Review screenshots tomorrow, decide with user. If adding G-force, redesign layout to fit 4 sections + circle.
+
+### Priority 3: Deprioritize DCCD if Overlapping
+**User feedback**: "i think we may be focusing too much on dccd lock up — it's not that primary is it?"
+
+**Current placement**: 
+- Sport: DCCD bar top-left (orange pill)
+- Intelligent: DCCD bar in status strip (left side)
+- Sport#: removed entirely
+
+**Action**: If DCCD is causing overlaps (Priority 1), consider:
+- Making DCCD bar narrower/smaller text
+- Moving it lower on Sport (below FLIR grid instead of above)
+- Removing it entirely from Intelligent status strip if it's just repeating Sport
+
+### Priority 4: Deploy & Verify
+- Commit redesign changes (files already modified)
+- Push to origin
+- Deploy to Jetson: `~/k` or manual SSH pull + relaunch
+- Cycle through all 3 screens (use SI-Drive knob or 1/2/3 keyboard keys)
+- Verify: readable fonts, no overlaps, colors clear on Excelon
+- Check all 804+ tests still pass: `python3 -m pytest tests/ -x -q`
+
+## Section 3: Key Files (Changed in kisti-23)
+
+| File | What It Does | Changes |
+|------|-------------|---------|
+| `ui/sharp_screen.py` | Sport# — timing-focused (delta, lap time, sectors, vitals) | 457 lines, redesigned 4-section layout, removed DCCD zone from safety vitals |
+| `ui/sport_screen.py` | Sport — G-force circle, performance bars, DCCD/FLIR top bar | 462 lines, removed dead methods `_paint_wheel_speeds()` + `_paint_brake_steering_trace()` |
+| `ui/intelligent_screen.py` | Intelligent — weather, FLIR 2x2 grid, status strip | 525 lines, 3-section redesign, removed sparklines/wheel deltas/health panel |
+| `ui/main_window.py` | Main app window, stacked widget manager | Fixed: removed TopStatusBar, hid legacy mode widgets |
+| `data/mock_generator.py` | Mock CAN data generator | Reduced update rates (50Hz→20Hz, etc.), reduced steering noise, 15s SI-Drive rotation |
+| `model/vehicle_state.py` | DiffState + DiffStateBridge — all telemetry | No changes this session |
+| `tests/test_modes.py` | 39 tests: modes, FLIR, data flow | All 804+ tests passing |
 
 ## Section 4: Architecture
 
@@ -118,10 +159,15 @@ flir.temps_updated.connect(lambda t: bridge.update_flir(t.fl, t.fr, t.rl, t.rr))
 flir.start()
 ```
 
-## Section 5: Don't Repeat
+## Section 5: Don't Repeat (kisti-22/23)
+- **Widget z-order battle**: TopStatusBar + legacy widgets (KistiModeWidget, etc.) created with parent=self cause ghost text even if hide(). Remove entirely, don't just hide.
+- **Pycache race condition**: Deploy scripts must remove `__pycache__` AFTER git pull (old .pyc files compiled before new code lands). Add: `find . -name "__pycache__" -type d -exec rm -rf {} +`
+- **Icon overlap debugging**: closeup screenshots needed (zoom in on top-left areas). Measure exact bounding boxes before repositioning.
+- **Sport# canyon vs track**: User drives both — needs G-force circle feedback for canyon intensity, lap timing for track. Design must serve both modes.
+- **DCCD not primary**: User said "i think we may be focusing too much on dccd lock up". Deprioritize via size/positioning if it's causing overlaps.
+- **Arm's length readability**: Min font ~13pt for performance bars, ~40pt for large numbers. Excelon 800x480 at ~1m requires big, clear fonts.
 - AiM MXG shift LEDs are NOT CAN-addressable — RS3 math channels only
 - SI-Drive OEM values (1/2/3) differ from Link remapped values (0/1/2) — RS3 uses remapped
 - `_heat_color` pattern: blue (<150) → green (<300) → yellow (<450) → red (>500) for brakes
-- Worktree agents may apply changes via hooks — verify file state before writing
 - Stack default index = 1 (Sport), not 0 (Intelligent) — tests updated to match
 - Never give multi-step SSH commands — use `~/k` for deploy
