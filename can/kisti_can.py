@@ -123,6 +123,7 @@ from can.can_config import (
     MOCK_DIFF_HZ,
     MOCK_DYNAMICS_HZ,
     MOCK_ENABLED,
+    MOCK_FLIR_HZ,
     MOCK_GENERIC_DASH_HZ,
     MOCK_GPS_HZ,
     MOCK_IMU_HZ,
@@ -909,6 +910,12 @@ class MockCanGenerator(QObject):
         self._imu_gz = 0.0
         self._prev_heading = 135.0
 
+        # FLIR brake temp state (°C)
+        self._flir_fl = 180.0
+        self._flir_fr = 175.0
+        self._flir_rl = 160.0
+        self._flir_rr = 155.0
+
         # SI Drive state
         self._si_drive = 0  # Intelligent
         self._si_drive_timer = 0.0
@@ -951,6 +958,10 @@ class MockCanGenerator(QObject):
         self._imu_timer.setInterval(1000 // MOCK_IMU_HZ)
         self._imu_timer.timeout.connect(self._imu_tick)
 
+        self._flir_timer = QTimer(self)
+        self._flir_timer.setInterval(1000 // MOCK_FLIR_HZ)
+        self._flir_timer.timeout.connect(self._flir_tick)
+
     def start(self) -> None:
         self._diff_timer.start()
         self._ctx_timer.start()
@@ -962,6 +973,7 @@ class MockCanGenerator(QObject):
             self._sens_timer.start()
             self._gps_timer.start()
             self._imu_timer.start()
+        self._flir_timer.start()
         log.info("Mock CAN generator started (ECU: %s)", ACTIVE_ECU)
 
     def stop(self) -> None:
@@ -974,6 +986,7 @@ class MockCanGenerator(QObject):
         self._sens_timer.stop()
         self._gps_timer.stop()
         self._imu_timer.stop()
+        self._flir_timer.stop()
 
     def _diff_tick(self) -> None:
         self._t += 0.02  # 50 Hz
@@ -1312,6 +1325,30 @@ class MockCanGenerator(QObject):
             gyro_x=self._imu_gx,
             gyro_y=self._imu_gy,
             gyro_z=self._imu_gz,
+        )
+
+    def _flir_tick(self) -> None:
+        """Mock FLIR Lepton — brake disc temps correlated with braking."""
+        # Braking heats up front more than rear (60/40 bias)
+        heat_rate = self._brake_press / 80.0 * 8.0  # max ~8°C/tick at 80 bar
+        cool_rate = 0.3  # radiative cooling per tick
+
+        self._flir_fl += heat_rate * 0.35 - cool_rate + random.uniform(-1.0, 1.0)
+        self._flir_fr += heat_rate * 0.35 - cool_rate + random.uniform(-1.0, 1.0)
+        self._flir_rl += heat_rate * 0.15 - cool_rate + random.uniform(-0.8, 0.8)
+        self._flir_rr += heat_rate * 0.15 - cool_rate + random.uniform(-0.8, 0.8)
+
+        # Clamp to plausible brake disc range (50–650°C)
+        self._flir_fl = max(50.0, min(650.0, self._flir_fl))
+        self._flir_fr = max(50.0, min(650.0, self._flir_fr))
+        self._flir_rl = max(50.0, min(650.0, self._flir_rl))
+        self._flir_rr = max(50.0, min(650.0, self._flir_rr))
+
+        self._bridge.update_flir(
+            fl=self._flir_fl,
+            fr=self._flir_fr,
+            rl=self._flir_rl,
+            rr=self._flir_rr,
         )
 
 

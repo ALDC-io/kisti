@@ -435,3 +435,4 @@ MOCK_SI_DRIVE_HZ: int = 10    # Mock SI Drive rate
 MOCK_SENSOR_HZ: int = 20      # Mock extended sensor rate
 MOCK_GPS_HZ: int = 10         # Mock GPS frame rate (GPS09 Pro)
 MOCK_IMU_HZ: int = 50         # Mock IMU frame rate (GPS09 Pro)
+MOCK_FLIR_HZ: int = 9         # Mock FLIR Lepton frame rate
