@@ -62,10 +62,8 @@ _DELTA_Y1 = 80
 _MID_Y0 = 80
 _MID_Y1 = 280
 _SECTOR_Y0 = 280
-_SECTOR_Y1 = 320
-_BRAKE_Y0 = 320
-_BRAKE_Y1 = 380
-_VITALS_Y0 = 380
+_SECTOR_Y1 = 340
+_VITALS_Y0 = 340
 _VITALS_Y1 = 440
 
 # Delta bar geometry
@@ -237,7 +235,6 @@ class SportSharpScreenWidget(QWidget):
         self._draw_timing_panel(p)
         self._draw_dynamics_panel(p)
         self._draw_sector_strip(p)
-        self._draw_brake_steering_trace(p)
         self._draw_safety_vitals(p)
 
         p.end()
