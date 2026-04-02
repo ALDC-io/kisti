@@ -519,9 +519,9 @@ class SportSharpScreenWidget(QWidget):
         elif oil_warn:
             lc, vc = QColor(YELLOW), QColor(YELLOW)
         else:
-            lc, vc = QColor(DIM), QColor(DIM)
+            lc, vc = QColor(GRAY), QColor(GRAY)
         self._draw_vital(p, 0, zone_w, "OIL", f"{oil_psi:.0f}", "PSI",
-                         lc, vc if not stale else QColor(DIM), large=oil_warn)
+                         lc, vc if not stale else QColor(GRAY), large=oil_warn)
 
         # --- COOLANT ---
         cool_warn = coolant >= _COOL_WARN and not stale
@@ -531,9 +531,9 @@ class SportSharpScreenWidget(QWidget):
         elif cool_warn:
             lc, vc = QColor(YELLOW), QColor(YELLOW)
         else:
-            lc, vc = QColor(DIM), QColor(DIM)
+            lc, vc = QColor(GRAY), QColor(GRAY)
         self._draw_vital(p, zone_w, zone_w, "COOL", f"{coolant:.0f}", "\u00b0C",
-                         lc, vc if not stale else QColor(DIM), large=cool_warn)
+                         lc, vc if not stale else QColor(GRAY), large=cool_warn)
 
         # --- OIL TEMP ---
         oil_t_warn = oil_temp > _OILT_WARN and not stale
@@ -543,9 +543,9 @@ class SportSharpScreenWidget(QWidget):
         elif oil_t_warn:
             lc, vc = QColor(YELLOW), QColor(YELLOW)
         else:
-            lc, vc = QColor(DIM), QColor(DIM)
+            lc, vc = QColor(GRAY), QColor(GRAY)
         self._draw_vital(p, zone_w * 2, zone_w, "OIL T", f"{oil_temp:.0f}", "\u00b0C",
-                         lc, vc if not stale else QColor(DIM), large=oil_t_warn)
+                         lc, vc if not stale else QColor(GRAY), large=oil_t_warn)
 
         # --- BRAKE TEMP (hottest corner) ---
         brk_warn = hottest_temp > _BRKT_WARN and flir_ok
@@ -555,10 +555,10 @@ class SportSharpScreenWidget(QWidget):
         elif brk_warn:
             lc, vc = QColor(YELLOW), QColor(YELLOW)
         else:
-            lc, vc = QColor(DIM), QColor(DIM)
+            lc, vc = QColor(GRAY), QColor(GRAY)
         brk_val = f"{hottest_label} {hottest_temp:.0f}" if flir_ok else "---"
         self._draw_vital(p, zone_w * 3, zone_w, "BRK T", brk_val, "\u00b0C",
-                         lc, vc if flir_ok else QColor(DIM), large=brk_warn)
+                         lc, vc if flir_ok else QColor(GRAY), large=brk_warn)
 
     def _draw_vital(
         self,

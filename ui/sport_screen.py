@@ -428,7 +428,7 @@ class SportScreenWidget(QWidget):
         # Current G magnitude below circle
         g_mag = math.sqrt(lat_g ** 2 + lon_g ** 2)
         p.setFont(QFont("Helvetica", 22, QFont.Weight.Bold))
-        p.setPen(QPen(QColor(WHITE)))
+        p.setPen(QPen(QColor(GRAY)))
         p.drawText(
             QRectF(cx - 60, cy + r1 + 8, 120, 30),
             Qt.AlignmentFlag.AlignCenter, f"{g_mag:.2f}g",
