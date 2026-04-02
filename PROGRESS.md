@@ -1,6 +1,6 @@
 # KiSTI - Progress
 
-## Session: 2026-04-01 (kisti-21 — Screen Redesign: Remove MXG Overlap)
+## Session: 2026-04-01 (kisti-21/22 — Screen Redesign + FLIR + Tests + Deploy)
 
 ### Status: COMPLETE
 
@@ -9,34 +9,45 @@
 - **Sport redesigned** — Removed gear/speed/RPM/boost arc/oil/coolant/lambda/IDC. New: DCCD bar + FLIR summary (top), steering + yaw bars + G-force circle (middle), wheel deltas + brake/steering trace (bottom). G-force 100-dot trail preserved exactly.
 - **Intelligent redesigned** — Removed gear/speed/boost/RPM/THR/MAP/TPS/oil/coolant/IAT/battery/lambda/IDC. New: expanded weather card + warm-up + DCCD + GPS (top), FLIR 4-corner + vehicle health (middle), brake temp sparklines + wheel deltas (bottom).
 - **DiffState FLIR fields** — Added brake_temp_fl/fr/rl/rr, flir_available, flir_frame_ts, update_flir() bridge method, is_flir_stale(timeout=2.0).
-- **RS3 shift LED investigation** — AiM MXG shift LEDs not CAN-addressable. Solution: RS3 math channels read SI-Drive (0x6B0) for mode-aware shift thresholds.
-- **885 tests passing** — no regressions (2 pre-existing stack index failures).
+- **FLIR Lepton reader** — sensors/flir_lepton_reader.py, PureThermal USB, auto-detect 160x120, ROI-based brake temp extraction, radiometric centi-Kelvin conversion. Not yet wired to main.py.
+- **RS3 shift LED investigation** — rs3/shift_led_investigation.md. AiM shift LEDs not CAN-addressable. RS3 math channels reading SI-Drive 0x6B0 for mode-aware thresholds.
+- **Test fixes** — Fixed 2 pre-existing failures (stack default = Sport index 1). Added 10 FLIR tests.
+- **895 tests passing** — all green.
+- **Deployed to Jetson** — KiSTI running on Excelon (PID 75796).
 
 ### Files Changed
 - `model/vehicle_state.py` — FLIR fields on DiffState + DiffStateBridge.update_flir()
-- `ui/sharp_screen.py` — Full redesign: FLIR, G-force micro, AWD strip, steering trace, 5-zone vitals
-- `ui/sport_screen.py` — Full redesign: DCCD, FLIR, steering/yaw bars, G-force circle, trace
-- `ui/intelligent_screen.py` — Full redesign: weather, FLIR, vehicle health, brake sparklines, wheel deltas
-- `rs3/shift_led_investigation.md` — RS3 configuration guide for mode-aware shift lights
-- `rs3/README.md` — RS3 directory index
+- `ui/sharp_screen.py` — Full redesign
+- `ui/sport_screen.py` — Full redesign
+- `ui/intelligent_screen.py` — Full redesign
+- `sensors/flir_lepton_reader.py` — NEW FLIR Lepton reader
+- `tests/test_modes.py` — Fix 2 failures, add 10 FLIR tests
+- `rs3/shift_led_investigation.md`, `rs3/README.md` — RS3 docs
+- `NEXT_SESSION_PROMPT.md` — kisti-22 handoff
 
 ### Key Decisions
-- **MXG = critical, KiSTI = context** — All 3 screens now show ONLY data the MXG cannot: FLIR thermal, G-forces, DCCD/AWD, wheel deltas, timing, weather, steering/yaw, brake pressure, surface state
-- **Safety vitals exception** — Oil PSI, coolant, oil temp remain as dim-until-warning on Sport Sharp. FLIR hottest brake corner added as 5th vital zone
-- **Steering replaces throttle** — In brake traces, steering angle + brake pressure = trail-braking analysis tool. MXG shows throttle
+- **MXG = critical, KiSTI = context** — All 3 screens show ONLY data MXG cannot: FLIR thermal, G-forces, DCCD/AWD, wheel deltas, timing, weather, steering/yaw, brake pressure, surface state
+- **Safety vitals exception** — Oil PSI, coolant, oil temp stay dim-until-warning on Sport Sharp. FLIR hottest corner added as 5th zone
+- **Steering replaces throttle in traces** — brake+steering = trail-brake analysis. MXG shows throttle.
+
+### Learnings Captured
+- ✅ cce_success_log: Full screen redesign + FLIR + tests + deploy (ZM: dbe6223f)
+- ✅ cce_decision_log: AiM MXG shift LED RS3 math channel approach (ZM: 4a86e2eb)
+- ✅ cce_decision_log: MXG=critical/KiSTI=context display philosophy (ZM: fe08250f)
+- ✅ cce_failed_approach: Worktree agents apply changes via hooks (ZM: c66b52f1)
 
 ### Don't Repeat
-- AiM MXG shift LEDs are NOT CAN-addressable — must configure in RS3 via math channels
-- SI-Drive OEM CAN values (1/2/3) differ from Link remapped values (0/1/2) — RS3 must use remapped
-- Worktree agents' file changes can apply to main repo via hooks — verify file state before writing
-- _heat_color pattern: blue (<150) → green (<300) → yellow (<450) → red (>500) for brakes
+- AiM MXG shift LEDs are NOT CAN-addressable — RS3 math channels only
+- SI-Drive OEM CAN values (1/2/3) differ from Link remapped (0/1/2) — RS3 uses remapped
+- Worktree agents may write to main repo via hooks — always Read before Write
+- _heat_color pattern for brakes: blue (<150) → green (<300) → yellow (<450) → red (>500)
+- Stack default = Sport (index 1), not Intelligent (index 0)
 
 ### Next Session (kisti-22)
-1. Deploy to Jetson (`~/k`) and visually verify all 3 screens on 800x480 Excelon
-2. FLIR Lepton integration — create `sensors/flir_lepton_reader.py` (PureThermal USB, follow Yoctopuce pattern)
-3. Fix 2 pre-existing test failures (stack default index = 1 vs test expecting 0)
-4. FLIR-specific tests in test_modes.py
-5. Deploy to Aaron @ Boost Barn for tune session + RS3 shift light config
+1. Visual verify all 3 screens on 800x480 Excelon (KiSTI already running)
+2. Wire FLIR reader into main.py (connect temps_updated → bridge.update_flir)
+3. Update mock_generator.py to populate FLIR/DCCD/IMU/steering/brake fields for demo mode
+4. RS3 shift light config at Boost Barn with Aaron
 
 ---
 

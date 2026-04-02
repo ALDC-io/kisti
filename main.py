@@ -184,6 +184,23 @@ def main():
             )
         )
 
+    # FLIR Lepton thermal camera (brake disc temps)
+    flir_reader = None
+    try:
+        from sensors.flir_lepton_reader import FLIRLeptonReader
+        flir_reader = FLIRLeptonReader()
+        if flir_reader.start():
+            flir_reader.temps_updated.connect(
+                lambda t: bridge.update_flir(t.fl, t.fr, t.rl, t.rr)
+            )
+            log.info("FLIR Lepton online: brake disc thermal imaging")
+        else:
+            log.info("No FLIR Lepton found — brake temps unavailable")
+            flir_reader = None
+    except Exception as exc:
+        log.info("FLIR Lepton unavailable: %s", exc)
+        flir_reader = None
+
     # Voice pipeline (optional)
     voice_mgr = None
     if not args.no_voice:
@@ -750,6 +767,8 @@ def main():
         if session_id:
             db_store.end_session(session_id)
         db_store.close()
+    if flir_reader:
+        flir_reader.stop()
     if ambient_source:
         ambient_source.stop()
     mode_mgr.stop()
