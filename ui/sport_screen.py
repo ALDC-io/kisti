@@ -553,19 +553,19 @@ class SportScreenWidget(QWidget):
         sample_w = strip_w / _TRACE_LEN
         center_y = strip_y + strip_h / 2.0
 
-        # Steering — cyan fill from center
-        p.setPen(Qt.PenStyle.NoPen)
-        for idx, steer in enumerate(self._steering_trace):
-            offset = _TRACE_LEN - len(self._steering_trace) + idx
-            x = strip_x + offset * sample_w
-            norm = max(-1.0, min(1.0, steer / _STEER_MAX))
-            steer_h = abs(norm) * (strip_h / 2.0)
-            steer_color = QColor(CYAN)
-            steer_color.setAlpha(30)
-            if norm >= 0:
-                p.fillRect(QRectF(x, center_y - steer_h, max(sample_w, 1.0), steer_h), steer_color)
-            else:
-                p.fillRect(QRectF(x, center_y, max(sample_w, 1.0), steer_h), steer_color)
+        # Steering — cyan line trace from center
+        if len(self._steering_trace) > 1:
+            p.setPen(QPen(QColor(CYAN), 2))
+            prev_pt = None
+            for idx, steer in enumerate(self._steering_trace):
+                offset = _TRACE_LEN - len(self._steering_trace) + idx
+                x = strip_x + offset * sample_w
+                norm = max(-1.0, min(1.0, steer / _STEER_MAX))
+                y = center_y - norm * (strip_h / 2.0 - 2)
+                pt = QPointF(x, y)
+                if prev_pt is not None:
+                    p.drawLine(prev_pt, pt)
+                prev_pt = pt
 
         # Center line
         p.setPen(QPen(QColor(DIM), 1, Qt.PenStyle.DotLine))
