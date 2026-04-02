@@ -83,9 +83,9 @@ _MID_SPLIT_X = 400
 
 # G-force micro circle
 _G_CX = 600
-_G_CY = 200
-_G_RADIUS = 40
-_G_RING_05 = 20
+_G_CY = 205
+_G_RADIUS = 32
+_G_RING_05 = 16
 _G_MAX = 1.5
 _G_TRAIL_LEN = 5
 
@@ -360,21 +360,23 @@ class SportSharpScreenWidget(QWidget):
     def _draw_flir_temps(self, p: QPainter, snap: Optional[DiffState]) -> None:
         flir_ok = snap is not None and snap.flir_available and not snap.is_flir_stale()
 
-        # Header label — above the grid
+        # Header label
         p.setFont(QFont("Helvetica", 9, QFont.Bold))
         p.setPen(QColor(MODE_SS_ACCENT) if flir_ok else QColor(DIM))
-        p.drawText(QRectF(410, _MID_Y0 - 14, 380, 14), Qt.AlignCenter,
+        p.drawText(QRectF(410, _MID_Y0, 380, 14), Qt.AlignCenter,
                    "BRAKE TEMPS" if flir_ok else "FLIR NOT CONNECTED")
 
         # 2x2 grid: FL/FR top row, RL/RR bottom row
+        grid_y = _MID_Y0 + 16
+        cell_h = 34
+        cell_gap = 4
         cells = [
-            ("FL", 410, _MID_Y0 + 2, snap.brake_temp_fl if snap else 0.0),
-            ("FR", 602, _MID_Y0 + 2, snap.brake_temp_fr if snap else 0.0),
-            ("RL", 410, _MID_Y0 + 46, snap.brake_temp_rl if snap else 0.0),
-            ("RR", 602, _MID_Y0 + 46, snap.brake_temp_rr if snap else 0.0),
+            ("FL", 410, grid_y, snap.brake_temp_fl if snap else 0.0),
+            ("FR", 602, grid_y, snap.brake_temp_fr if snap else 0.0),
+            ("RL", 410, grid_y + cell_h + cell_gap, snap.brake_temp_rl if snap else 0.0),
+            ("RR", 602, grid_y + cell_h + cell_gap, snap.brake_temp_rr if snap else 0.0),
         ]
         cell_w = 186
-        cell_h = 40
 
         for label, cx, cy, temp in cells:
             rect = QRectF(cx, cy, cell_w, cell_h)
@@ -504,14 +506,14 @@ class SportSharpScreenWidget(QWidget):
                 fill_col = QColor(GREEN)
             p.fillRect(QRectF(bar_x, bar_y, fill_w, bar_h), fill_col)
 
-        # DCCD percentage
+        # DCCD percentage — inside the bar
         dccd_str = f"{dccd:.0f}%" if not stale else "---%"
-        p.setFont(QFont("Helvetica", 11, QFont.Bold))
-        p.setPen(QColor(WHITE) if not stale and dccd > 50 else QColor(DIM))
-        p.drawText(QRectF(bar_x + bar_w + 4, bar_y - 2, 50, 18),
-                   Qt.AlignLeft | Qt.AlignVCenter, dccd_str)
+        p.setFont(QFont("Helvetica", 10, QFont.Bold))
+        p.setPen(QColor(WHITE) if not stale and dccd > 30 else QColor(DIM))
+        p.drawText(QRectF(bar_x, bar_y, bar_w, bar_h),
+                   Qt.AlignCenter | Qt.AlignVCenter, dccd_str)
 
-        # Surface state badge
+        # Surface state badge — right-aligned
         if snap and not stale:
             surface_label = snap.surface_state.label
             surface_color = QColor(snap.surface_state.color)
@@ -521,7 +523,7 @@ class SportSharpScreenWidget(QWidget):
 
         p.setFont(QFont("Helvetica", 9, QFont.Bold))
         badge_tw = p.fontMetrics().horizontalAdvance(surface_label) + 12
-        badge_x = 750 - badge_tw
+        badge_x = 790 - badge_tw
         badge_y = bar_y
         pill_bg = QColor(surface_color)
         pill_bg.setAlpha(60)

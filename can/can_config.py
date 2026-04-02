@@ -426,13 +426,13 @@ UI_REFRESH_MS: int = 1000 // UI_REFRESH_HZ  # 50 ms
 # ---------------------------------------------------------------------------
 
 MOCK_ENABLED: bool = True      # Mock data for demo/development (set False for real CAN)
-MOCK_DIFF_HZ: int = 50        # Mock DIFF frame rate
-MOCK_CONTEXT_HZ: int = 20     # Mock CONTEXT frame rate
-MOCK_WHEEL_HZ: int = 50       # Mock wheel speed frame rate
-MOCK_DYNAMICS_HZ: int = 50    # Mock dynamics frame rate
-MOCK_GENERIC_DASH_HZ: int = 50  # Mock Generic Dash rate
+MOCK_DIFF_HZ: int = 20        # Mock DIFF frame rate
+MOCK_CONTEXT_HZ: int = 10     # Mock CONTEXT frame rate
+MOCK_WHEEL_HZ: int = 20       # Mock wheel speed frame rate
+MOCK_DYNAMICS_HZ: int = 20    # Mock dynamics frame rate
+MOCK_GENERIC_DASH_HZ: int = 20  # Mock Generic Dash rate
 MOCK_SI_DRIVE_HZ: int = 10    # Mock SI Drive rate
-MOCK_SENSOR_HZ: int = 20      # Mock extended sensor rate
+MOCK_SENSOR_HZ: int = 10      # Mock extended sensor rate
 MOCK_GPS_HZ: int = 10         # Mock GPS frame rate (GPS09 Pro)
-MOCK_IMU_HZ: int = 50         # Mock IMU frame rate (GPS09 Pro)
-MOCK_FLIR_HZ: int = 9         # Mock FLIR Lepton frame rate
+MOCK_IMU_HZ: int = 20         # Mock IMU frame rate (GPS09 Pro)
+MOCK_FLIR_HZ: int = 5         # Mock FLIR Lepton frame rate
