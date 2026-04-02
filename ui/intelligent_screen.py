@@ -311,52 +311,17 @@ class IntelligentScreenWidget(QWidget):
         bg.setAlpha(40)
         p.fillRect(QRectF(card_x, card_y, card_w, card_h), bg)
 
-        # Big temperature — left side
+        # Big temperature — left-aligned to match weather text above
         p.setFont(_font(56, bold=True))
         p.setPen(QPen(heat_col))
-        p.drawText(QRectF(card_x + 40, card_y + 10, 300, 80),
+        p.drawText(QRectF(20, card_y + 10, 300, 80),
                    Qt.AlignLeft | Qt.AlignVCenter, f"{road_temp:.0f}\u00b0C")
 
         # "ROAD TEMP" sublabel
         p.setFont(_font(14))
         p.setPen(QPen(QColor(GRAY)))
-        p.drawText(QRectF(card_x + 40, card_y + 90, 200, 24),
+        p.drawText(QRectF(20, card_y + 90, 200, 24),
                    Qt.AlignLeft | Qt.AlignVCenter, "ROAD TEMPERATURE")
-
-        # Grip context — right side
-        if road_temp < 5:
-            grip_text = "ICE RISK"
-            grip_color = QColor(RED)
-        elif road_temp < 15:
-            grip_text = "COLD"
-            grip_color = QColor(80, 180, 255)
-        elif road_temp < 40:
-            grip_text = "OPTIMAL"
-            grip_color = QColor(GREEN)
-        else:
-            grip_text = "HOT"
-            grip_color = QColor(YELLOW)
-
-        # Grip pill — right side of card
-        pill_w = 160
-        pill_h = 40
-        pill_x = card_x + card_w - pill_w - 30
-        pill_y = card_y + (card_h - pill_h) // 2
-
-        pill_bg = QColor(grip_color)
-        pill_bg.setAlphaF(0.25)
-        p.setPen(Qt.NoPen)
-        p.setBrush(pill_bg)
-        p.drawRoundedRect(QRectF(pill_x, pill_y, pill_w, pill_h), 20, 20)
-
-        p.setPen(QPen(grip_color, 2))
-        p.setBrush(Qt.NoBrush)
-        p.drawRoundedRect(QRectF(pill_x, pill_y, pill_w, pill_h), 20, 20)
-
-        p.setFont(_font(18, bold=True))
-        p.setPen(QPen(grip_color))
-        p.drawText(QRectF(pill_x, pill_y, pill_w, pill_h),
-                   Qt.AlignCenter, grip_text)
 
     def _draw_warmup_badge(self, p: QPainter, y0: int) -> None:
         """Draw warm-up state badge (COLD / WARMING / READY) overlaid on FLIR panel."""
