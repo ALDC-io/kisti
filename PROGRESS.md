@@ -1,5 +1,51 @@
 # KiSTI - Progress
 
+## Session: 2026-04-02 (kisti-25 — Screen Redesign Polish + FLIR Clarification)
+
+### Status: COMPLETE
+
+### Completed
+- **FLIR fundamental clarification** — User corrected: forward-facing road surface camera (in grill), not 4 brake temps. Redesigned all 3 screens to show single large road surface card instead of 2x2 grids. Updated heat color model (-20..60°C not 150-500°C).
+- **Sport# canyon-capable redesign** — Added G-force circle (r=80, 40-dot trail) on right side for intensity feedback. Left side timing (48pt Courier lap time). Dual-mode: track times + canyon commitment.
+- **Intelligent status strip reordered** — Surface badge PRIMARY (44px pill, 20pt bold, left) → SLIP center → DCCD compact (160px, right). User: "focusing too much on dccd lock up — not that primary".
+- **Widget z-order ghost text fixed** — TopStatusBar + legacy widgets created with parent=self but never in layout, rendering at (0,0) over content. Removed TopStatusBar entirely, hid legacy widgets. Zero overlaps confirmed via SSH screenshot.
+- **Visual readability improvements** — Sport# vitals white text on dark (18pt→26pt normal, 32pt warning). Removed all borders from FLIR cards. Removed weather card border cutting through pressure display on Intelligent.
+- **Mock data realistic** — FLIR changed 180°C brake baseline → 18°C road surface with ±5°C drift model. Clamped to -20..60°C range.
+- **Deployed to Jetson + verified** — All 3 screens screenshotted via SSH xdotool + import. 800x480 readability confirmed. 895 tests passing.
+
+### Files Changed
+- `ui/sharp_screen.py` — G-force circle + timing split, trail deque, _g_to_pixel(), removed ACCEL label
+- `ui/sport_screen.py` — Single road surface card (FLIR), G-magnitude GRAY, removed borders
+- `ui/intelligent_screen.py` — Status strip reordered, Surface primary, DCCD compact, removed borders + section dividers
+- `can/kisti_can.py` — FLIR init 180°C→18°C, _flir_tick() rewritten for road drift model
+- `tests/test_modes.py` — FLIR heat color tests updated (100°C→0°C, 250°C→10°C, 520°C→60°C)
+
+### Key Decisions
+- **Sport# = timing + G-force** — Not purely timing. Answers "Am I faster?" for both track (lap times) and canyons (cornering intensity via G-force circle).
+- **FLIR single forward-facing road camera** — User clarified hardware plan: grill-mounted, road surface only, no 4-brake grids.
+- **Surface badge primary on Intelligent** — "What are the conditions?" answered best by surface state (DRY/WET/ICE), not DCCD lock %. Moved to large pill on left.
+
+### Don't Repeat
+- Widget with parent=self but not in layout = will paint at (0,0) overlaying everything. Remove instead of hide.
+- Always clear __pycache__ before restarting Python processes on hardware (Jetson .pyc staleness).
+- X11 auth file regenerates on Jetson reboot (serverauth.* filename changes dynamically).
+
+### Learnings Captured
+- ✅ cce_success_log: Screen redesign complete with FLIR clarification (ZM: 0b8e3bf7)
+- ✅ cce_decision_log: Sport# timing + G-force dual-mode (ZM: d42bfb7a)
+- ✅ cce_decision_log: FLIR single forward-facing road camera (ZM: 2e9ca6ec)
+- ✅ cce_decision_log: Intelligent surface primary, DCCD compact (ZM: 69264a9f)
+- ✅ cce_failed_approach: Widget z-order TopStatusBar ghost text (ZM: ab3a1ba0)
+- ✅ cce_failed_approach: Pycache race condition on deploy (ZM: 95809e39)
+
+### Next Session (kisti-26)
+1. Test on actual 800x480 Excelon (current verification on 1920x1080 DP-1)
+2. Consider: proper `road_surface_temp` field in DiffState (replace brake_temp_fl proxy)
+3. Wire TimingManager to populate Sport# with real sector/lap timing
+4. On-track validation with real driving data (Aaron @ Boost Barn)
+
+---
+
 ## Session: 2026-04-02 (kisti-24 — Screen Redesign Complete + Visual Verification)
 
 ### Status: COMPLETE
