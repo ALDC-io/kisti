@@ -413,7 +413,8 @@ class SportSharpScreenWidget(QWidget):
         strip_h = _SECTOR_Y1 - _SECTOR_Y0
 
         if sector_count <= 0:
-            p.fillRect(QRectF(_BAR_X, _SECTOR_Y0, _BAR_W, strip_h), QColor(BG_PANEL))
+            # No timing — show FLIR brake temps instead of empty strip
+            self._draw_flir_strip(p)
             return
 
         self._paint_count += 1
@@ -480,6 +481,63 @@ class SportSharpScreenWidget(QWidget):
                 p.setPen(QColor(DIM))
                 p.setFont(QFont("Helvetica", 10))
                 p.drawText(rect, Qt.AlignCenter, f"S{i + 1}")
+
+    # ------------------------------------------------------------------
+    # FLIR brake temp strip (y=280..380) — shown when no sector data
+    # ------------------------------------------------------------------
+
+    def _draw_flir_strip(self, p: QPainter) -> None:
+        """4 brake temps in a horizontal strip — fills sector area when no timing."""
+        snap = self._snap
+        flir_ok = snap is not None and snap.flir_available and not snap.is_flir_stale()
+
+        y0 = _SECTOR_Y0
+        strip_h = _SECTOR_Y1 - _SECTOR_Y0
+        cell_w = (_W - 40) / 4  # 4 cells with margins
+        cell_h = strip_h - 16
+        gap = 8
+
+        # Section label
+        p.setFont(QFont("Helvetica", 11, QFont.Bold))
+        p.setPen(QColor(GRAY))
+        p.drawText(QRectF(20, y0 + 2, 200, 16), Qt.AlignLeft | Qt.AlignVCenter, "BRAKE TEMPS")
+
+        if not flir_ok:
+            p.setFont(QFont("Helvetica", 14))
+            p.setPen(QColor(GRAY))
+            p.drawText(QRectF(0, y0 + 30, _W, 40), Qt.AlignCenter, "FLIR NOT CONNECTED")
+            return
+
+        corners = [
+            ("FL", snap.brake_temp_fl),
+            ("FR", snap.brake_temp_fr),
+            ("RL", snap.brake_temp_rl),
+            ("RR", snap.brake_temp_rr),
+        ]
+
+        for i, (label, temp) in enumerate(corners):
+            cx = 20 + i * (cell_w + gap)
+            cy = y0 + 20
+            rect = QRectF(cx, cy, cell_w, cell_h)
+
+            heat_col = _brake_heat_color(temp)
+            bg = QColor(heat_col)
+            bg.setAlpha(40)
+            p.fillRect(rect, bg)
+
+            p.setPen(QPen(heat_col, 1))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawRoundedRect(rect, 4, 4)
+
+            # Corner label
+            p.setFont(QFont("Helvetica", 10))
+            p.setPen(QColor(GRAY))
+            p.drawText(QRectF(cx + 6, cy + 4, 30, 14), Qt.AlignLeft, label)
+
+            # Temperature
+            p.setFont(QFont("Helvetica", 28, QFont.Bold))
+            p.setPen(heat_col)
+            p.drawText(rect, Qt.AlignCenter, f"{temp:.0f}\u00b0")
 
     # ------------------------------------------------------------------
     # Safety vitals (y=380..480) — 5 zones, DIM until warning
