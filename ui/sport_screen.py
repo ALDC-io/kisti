@@ -395,11 +395,10 @@ class SportScreenWidget(QWidget):
         p.drawLine(QPointF(cx - r1, cy), QPointF(cx + r1, cy))
         p.drawLine(QPointF(cx, cy - r1), QPointF(cx, cy + r1))
 
-        # Axis labels
+        # Axis labels (ACCEL omitted — G magnitude number sits there instead)
         p.setFont(QFont("Helvetica", 9, QFont.Weight.Bold))
         p.setPen(QPen(QColor(GRAY)))
         p.drawText(QRectF(cx - 20, cy - r1 - 16, 40, 14), Qt.AlignmentFlag.AlignCenter, "BRAKE")
-        p.drawText(QRectF(cx - 20, cy + r1 + 4, 40, 14), Qt.AlignmentFlag.AlignCenter, "ACCEL")
         p.drawText(QRectF(cx - r1 - 14, cy - 7, 14, 14), Qt.AlignmentFlag.AlignCenter, "L")
         p.drawText(QRectF(cx + r1 + 2, cy - 7, 14, 14), Qt.AlignmentFlag.AlignCenter, "R")
 
