@@ -316,21 +316,24 @@ class IntelligentScreenWidget(QWidget):
         for label, temp, cx, cy in corners:
             rect = QRectF(cx, cy, cell_w, cell_h)
 
-            # Heat-colored background
+            # Heat-colored background (inset to avoid border overlap)
             heat_col = _brake_heat_color(temp)
             bg = QColor(heat_col)
             bg.setAlpha(50)
-            p.fillRect(rect, bg)
+            inner = QRectF(cx + 3, cy + 3, cell_w - 6, cell_h - 6)
+            p.fillRect(inner, bg)
 
-            # Border
-            p.setPen(QPen(heat_col, 2))
+            # Border — thin, outside the content area
+            p.setPen(QPen(heat_col, 1))
             p.setBrush(Qt.NoBrush)
             p.drawRoundedRect(rect, 6, 6)
 
-            # Corner label — top-left
-            p.setFont(_font(12, bold=True))
+            # Corner label — offset well inside border, with dark backing
+            label_rect = QRectF(cx + 8, cy + 6, 36, 18)
+            p.fillRect(label_rect, QColor(BG_DARK))
+            p.setFont(_font(13, bold=True))
             p.setPen(QPen(QColor(GRAY)))
-            p.drawText(int(cx) + 10, int(cy) + 20, label)
+            p.drawText(label_rect, Qt.AlignCenter, label)
 
             # Temperature — large centered
             p.setFont(_font(36, bold=True))

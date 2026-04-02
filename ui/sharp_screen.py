@@ -572,16 +572,25 @@ class SportSharpScreenWidget(QWidget):
         value_color: QColor,
         large: bool = False,
     ) -> None:
-        """Draw a single safety vital — label above, value + unit below."""
-        # Label
+        """Draw a single safety vital — label above, value + unit below.
+
+        Uses full 100px strip height for legibility at arm's length.
+        """
+        # Label — 13pt min for readability
         p.setPen(label_color)
-        p.setFont(QFont("Helvetica", 10))
-        label_rect = QRectF(x, _VITALS_Y0 + 2, w, 14)
+        p.setFont(QFont("Helvetica", 13, QFont.Bold))
+        label_rect = QRectF(x, _VITALS_Y0 + 4, w, 20)
         p.drawText(label_rect, Qt.AlignCenter, label)
 
-        # Value
-        font_size = FONT_BIG if large else FONT_HEADER
+        # Value — large, bold
+        font_size = 32 if large else FONT_BIG  # 32pt warning, 26pt normal
         p.setPen(value_color)
         p.setFont(QFont("Courier", font_size, QFont.Bold))
-        value_rect = QRectF(x, _VITALS_Y0 + 18, w, 30)
-        p.drawText(value_rect, Qt.AlignCenter, f"{value}{unit}")
+        value_rect = QRectF(x, _VITALS_Y0 + 26, w, 44)
+        p.drawText(value_rect, Qt.AlignCenter, value)
+
+        # Unit — smaller, below value
+        p.setPen(label_color)
+        p.setFont(QFont("Helvetica", 12))
+        unit_rect = QRectF(x, _VITALS_Y0 + 72, w, 18)
+        p.drawText(unit_rect, Qt.AlignCenter, unit)
