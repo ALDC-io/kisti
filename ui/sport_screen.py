@@ -541,11 +541,13 @@ class SportScreenWidget(QWidget):
 
         p.fillRect(QRectF(strip_x, strip_y, strip_w, strip_h), QColor(BG_PANEL))
 
+        # Header label
+        p.setFont(QFont("Helvetica", 8, QFont.Weight.Bold))
+        p.setPen(QPen(QColor(GRAY)))
+        p.drawText(QRectF(strip_x + 4, strip_y + 2, 100, 12),
+                   Qt.AlignmentFlag.AlignLeft, "BRAKE / STEER")
+
         if len(self._brake_trace) == 0:
-            p.setPen(QColor(DIM))
-            p.setFont(QFont("Helvetica", 9))
-            p.drawText(QRectF(strip_x, strip_y, strip_w, strip_h),
-                       Qt.AlignmentFlag.AlignCenter, "BRAKE / STEER")
             return
 
         sample_w = strip_w / _TRACE_LEN
@@ -559,7 +561,7 @@ class SportScreenWidget(QWidget):
             norm = max(-1.0, min(1.0, steer / _STEER_MAX))
             steer_h = abs(norm) * (strip_h / 2.0)
             steer_color = QColor(CYAN)
-            steer_color.setAlpha(50)
+            steer_color.setAlpha(30)
             if norm >= 0:
                 p.fillRect(QRectF(x, center_y - steer_h, max(sample_w, 1.0), steer_h), steer_color)
             else:
