@@ -562,6 +562,7 @@ class SportScreenWidget(QWidget):
             brk_color.setAlpha(180)
             p.fillRect(QRectF(x, brk_y, max(sample_w, 1.0), brk_h), brk_color)
 
+        p.setBrush(Qt.BrushStyle.NoBrush)
         p.setPen(QPen(QColor(DIM), 1))
         p.drawRect(QRectF(strip_x, strip_y, strip_w, strip_h))
 
