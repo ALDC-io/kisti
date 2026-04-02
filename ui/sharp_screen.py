@@ -395,7 +395,6 @@ class SportSharpScreenWidget(QWidget):
         oil_psi = snap.oil_psi if snap else 0.0
         coolant = snap.coolant_temp if snap else 0.0
         oil_temp = snap.oil_temp_c if snap else 0.0
-        dccd = snap.dccd_command_pct if snap else 0.0
         stale = snap.is_engine_stale() if snap else True
 
         # FLIR hottest corner
@@ -409,8 +408,8 @@ class SportSharpScreenWidget(QWidget):
         else:
             hottest_label, hottest_temp = "---", 0.0
 
-        # 5 zones
-        zone_w = _W / 5
+        # 4 safety zones (DCCD shown on Sport screen)
+        zone_w = _W / 4
 
         # --- OIL PSI ---
         oil_warn = oil_psi <= _OIL_WARN_LOW and not stale
@@ -460,39 +459,6 @@ class SportSharpScreenWidget(QWidget):
         brk_val = f"{hottest_label} {hottest_temp:.0f}" if flir_ok else "---"
         self._draw_vital(p, zone_w * 3, zone_w, "BRK T", brk_val, "\u00b0C",
                          lc, vc if flir_ok else QColor(DIM), large=brk_warn)
-
-        # --- DCCD (compact bar) ---
-        dccd_x = zone_w * 4
-        dccd_w = zone_w - 20
-        stale_diff = snap is None or snap.is_diff_stale()
-
-        p.setPen(QColor(DIM))
-        p.setFont(QFont("Helvetica", 10))
-        p.drawText(int(dccd_x) + 10, strip_y + 18, "DCCD")
-
-        bar_x = int(dccd_x) + 10
-        bar_y = strip_y + 22
-        bar_w = int(dccd_w) - 10
-        bar_h = 10
-
-        p.fillRect(QRectF(bar_x, bar_y, bar_w, bar_h), QColor(DIM))
-
-        if not stale_diff:
-            fill_w = (dccd / 100.0) * bar_w
-            if dccd > 70:
-                fill_col = QColor(MODE_SS_ACCENT)
-            elif dccd > 40:
-                fill_col = QColor(YELLOW)
-            else:
-                fill_col = QColor(GREEN)
-            p.fillRect(QRectF(bar_x, bar_y, fill_w, bar_h), fill_col)
-
-        dccd_col = QColor(DIM) if dccd < 50 else QColor(WHITE)
-        if stale_diff:
-            dccd_col = QColor(DIM)
-        p.setPen(dccd_col)
-        p.setFont(QFont("Helvetica", 12, QFont.Bold))
-        p.drawText(QRectF(bar_x, bar_y + bar_h + 2, bar_w, 18), Qt.AlignCenter, f"{dccd:.0f}%")
 
     def _draw_vital(
         self,
