@@ -6,27 +6,22 @@ TRACK / ATTACK / MINIMAL — ultra-sparse, dark, high contrast numbers.
 MXG Strada handles: gear, speed, RPM, boost, lambda, oil, coolant.
 KiSTI Sport Sharp shows ONLY what the MXG cannot:
   - Lap timing + delta + sectors
-  - FLIR brake temps (4-corner)
-  - G-force micro circle (IMU)
-  - AWD status (DCCD + surface + ABS/VDC)
-  - Brake + steering trace (trail-brake analysis)
   - Safety vitals (dim-until-warning)
 
-Layout (800x440):
-  y=0..80    Delta bar (full width, green=faster, red=slower)
-  y=80..280  Lap time (left 400px) + Dynamics panel (right 400px)
-  y=280..320 Sector strip (colored blocks)
-  y=320..380 Brake/steering trace (scrolling strip chart)
-  y=380..440 Safety vitals (dim until warning) — 5 zones
+"Am I faster?" — pure timing focus. Nothing else.
+
+Layout (800x480):
+  y=0..90    Delta bar (full width, green=faster, red=slower)
+  y=90..280  Lap time (full width) — huge center number + lap count + best + theo
+  y=280..380 Sector strip (colored blocks with times)
+  y=380..480 Safety vitals (dim until warning) — 5 zones
 """
 
 from __future__ import annotations
 
-import math
-from collections import deque
 from typing import Optional
 
-from PySide6.QtCore import Qt, QRectF, QPointF
+from PySide6.QtCore import Qt, QRectF
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
@@ -40,7 +35,6 @@ from ui.theme import (
     GREEN,
     YELLOW,
     RED,
-    CYAN,
     MODE_SS_ACCENT,
     FONT_BASE,
     FONT_HEADER,
@@ -58,36 +52,22 @@ _H = 480
 
 # Section Y boundaries
 _DELTA_Y0 = 0
-_DELTA_Y1 = 80
-_MID_Y0 = 80
+_DELTA_Y1 = 90
+_MID_Y0 = 90
 _MID_Y1 = 280
 _SECTOR_Y0 = 280
-_SECTOR_Y1 = 340
-_VITALS_Y0 = 340
+_SECTOR_Y1 = 380
+_VITALS_Y0 = 380
 _VITALS_Y1 = 480
 
 # Delta bar geometry
 _BAR_MARGIN = 10
-_BAR_H = 60
+_BAR_H = 70
 _BAR_Y = (_DELTA_Y1 - _BAR_H) // 2 + _DELTA_Y0
 _BAR_X = _BAR_MARGIN
 _BAR_W = _W - 2 * _BAR_MARGIN
 
-# Brake/steering trace ring buffer size (20s at 20Hz)
-_TRACE_LEN = 400
-
-# Mid-section split
-_MID_SPLIT_X = 400
-
-# G-force micro circle
-_G_CX = 600
-_G_CY = 205
-_G_RADIUS = 32
-_G_RING_05 = 16
-_G_MAX = 1.5
-_G_TRAIL_LEN = 5
-
-# FLIR brake temp thresholds (°C)
+# FLIR brake temp thresholds (°C) — used by _brake_heat_color and safety vitals
 _FLIR_COLD = 150.0
 _FLIR_GREEN = 300.0
 _FLIR_YELLOW = 450.0
@@ -102,9 +82,6 @@ _OILT_WARN = 130.0      # Celsius
 _OILT_CRIT = 140.0      # Celsius
 _BRKT_WARN = 450.0      # Celsius
 _BRKT_CRIT = 500.0      # Celsius
-
-# Steering range for trace
-_STEER_MAX = 450.0      # degrees, full lock
 
 
 def _fmt_time_ms(ms: int) -> str:
@@ -170,10 +147,10 @@ def _coolant_color(temp: float) -> QColor:
 # ---------------------------------------------------------------------------
 
 class SportSharpScreenWidget(QWidget):
-    """Sport Sharp (S#) full-screen QPainter widget — 800x440.
+    """Sport Sharp (S#) full-screen QPainter widget — 800x480.
 
+    "Am I faster?" — pure timing focus. Nothing else.
     Ultra-sparse dark layout for maximum attack driving.
-    Shows ONLY data the MXG Strada cannot: timing, FLIR, G-force, AWD, traces.
     Data fed via update_state(snap) at 20 Hz from DiffStateBridge.
     Timing data fed via update_timing(timing_data) from TimingManager.
     """
@@ -186,13 +163,6 @@ class SportSharpScreenWidget(QWidget):
         self._snap: Optional[DiffState] = None
         self._timing: dict = {}
 
-        # Ring buffers for brake/steering trace (20s at 20Hz)
-        self._brake_history: deque[float] = deque(maxlen=_TRACE_LEN)
-        self._steering_history: deque[float] = deque(maxlen=_TRACE_LEN)
-
-        # G-force mini trail
-        self._g_trail: deque[tuple[float, float]] = deque(maxlen=_G_TRAIL_LEN)
-
         # Sector pulse animation
         self._paint_count: int = 0
 
@@ -203,9 +173,6 @@ class SportSharpScreenWidget(QWidget):
     def update_state(self, snap: DiffState) -> None:
         """Accept telemetry snapshot from DiffStateBridge (20 Hz)."""
         self._snap = snap
-        self._brake_history.append(snap.brake_pressure)
-        self._steering_history.append(snap.steering_angle)
-        self._g_trail.append((snap.imu_accel_y, snap.imu_accel_x))
         self.update()
 
     def update_timing(self, timing_data: dict) -> None:
@@ -225,22 +192,15 @@ class SportSharpScreenWidget(QWidget):
     def paintEvent(self, event) -> None:  # noqa: N802
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-
-        # Full black background
         p.fillRect(0, 0, _W, _H, QColor(BG_DARK))
-
-        self._paint_count += 1
-
         self._draw_delta_bar(p)
         self._draw_timing_panel(p)
-        self._draw_dynamics_panel(p)
         self._draw_sector_strip(p)
         self._draw_safety_vitals(p)
-
         p.end()
 
     # ------------------------------------------------------------------
-    # Delta bar (y=0..80) — UNCHANGED
+    # Delta bar (y=0..90) — full width, big delta text
     # ------------------------------------------------------------------
 
     def _draw_delta_bar(self, p: QPainter) -> None:
@@ -289,11 +249,12 @@ class SportSharpScreenWidget(QWidget):
         p.drawText(bar_rect, Qt.AlignCenter, delta_text)
 
     # ------------------------------------------------------------------
-    # Timing panel (left half, x=0..400, y=80..280)
+    # Timing panel (full width, y=90..280) — huge center lap time
     # ------------------------------------------------------------------
 
     def _draw_timing_panel(self, p: QPainter) -> None:
         timing = self._timing
+        panel_h = _MID_Y1 - _MID_Y0  # 190px
 
         lap_count = timing.get("lap_count", 0)
         current_lap_ms = timing.get("current_lap_time_ms", 0)
@@ -301,277 +262,72 @@ class SportSharpScreenWidget(QWidget):
         best_ms = timing.get("best_lap_ms", 0)
         theoretical_ms = timing.get("theoretical_best_ms", 0)
 
-        # "LAP X" label
+        # --- Row 1: LAP label + track name (top) ---
         lap_label = f"LAP {lap_count}" if lap_count > 0 else "LAP --"
         p.setPen(QColor(GRAY))
-        p.setFont(QFont("Helvetica", 12))
-        p.drawText(20, _MID_Y0 + 28, lap_label)
+        p.setFont(QFont("Helvetica", 14, QFont.Bold))
+        p.drawText(QRectF(20, _MID_Y0 + 4, 120, 24), Qt.AlignLeft | Qt.AlignVCenter, lap_label)
 
-        # Track name
         track_name = timing.get("track_name", "")
         if track_name:
             p.setPen(QColor(DIM))
-            p.setFont(QFont("Helvetica", 10))
-            p.drawText(120, _MID_Y0 + 28, track_name)
+            p.setFont(QFont("Helvetica", 12))
+            p.drawText(QRectF(150, _MID_Y0 + 4, 400, 24), Qt.AlignLeft | Qt.AlignVCenter, track_name)
 
-        # Current lap time — large
+        # --- Row 2: Current lap time — HUGE, centered ---
         lap_time_str = _fmt_time_ms(current_lap_ms)
         p.setPen(QColor(WHITE))
-        p.setFont(QFont("Courier", FONT_MEGA, QFont.Bold))
-        p.drawText(16, _MID_Y0 + 90, lap_time_str)
+        p.setFont(QFont("Courier", FONT_MEGA + 12, QFont.Bold))  # 60pt for max visibility
+        time_rect = QRectF(0, _MID_Y0 + 30, _W, 80)
+        p.drawText(time_rect, Qt.AlignCenter, lap_time_str)
 
-        # Predicted lap
+        # --- Row 3: Predicted lap — medium, centered ---
         if predicted_ms > 0:
-            pred_str = f"PRED {_fmt_time_ms(predicted_ms)}"
+            pred_str = f"PRED  {_fmt_time_ms(predicted_ms)}"
             p.setPen(QColor(GRAY))
-            p.setFont(QFont("Courier", 30, QFont.Bold))
-            p.drawText(20, _MID_Y0 + 138, pred_str)
+            p.setFont(QFont("Courier", FONT_BIG, QFont.Bold))
+            pred_rect = QRectF(0, _MID_Y0 + 112, _W, 32)
+            p.drawText(pred_rect, Qt.AlignCenter, pred_str)
 
-        # Best lap reference
+        # --- Row 4: Best lap + Theoretical best — bottom, spread left/right ---
+        info_y = _MID_Y0 + panel_h - 32
+
         if best_ms > 0:
-            best_str = f"BEST {_fmt_time_ms(best_ms)}"
+            best_str = f"BEST  {_fmt_time_ms(best_ms)}"
             p.setPen(QColor(DIM))
-            p.setFont(QFont("Helvetica", FONT_BASE))
-            p.drawText(24, _MID_Y0 + 170, best_str)
+            p.setFont(QFont("Helvetica", FONT_BASE, QFont.Bold))
+            p.drawText(QRectF(20, info_y, 380, 24), Qt.AlignLeft | Qt.AlignVCenter, best_str)
 
-        # Theoretical best — NEW
         if theoretical_ms > 0:
-            theo_str = f"THEO {_fmt_time_ms(theoretical_ms)}"
+            theo_str = f"THEO  {_fmt_time_ms(theoretical_ms)}"
             p.setPen(QColor(DIM))
-            p.setFont(QFont("Helvetica", FONT_BASE))
-            p.drawText(24, _MID_Y0 + 192, theo_str)
+            p.setFont(QFont("Helvetica", FONT_BASE, QFont.Bold))
+            p.drawText(QRectF(400, info_y, 380, 24), Qt.AlignRight | Qt.AlignVCenter, theo_str)
 
     # ------------------------------------------------------------------
-    # Dynamics panel (right half, x=400..800, y=80..280)
-    # Replaces gear/speed/RPM — shows FLIR, G-force micro, AWD strip
-    # ------------------------------------------------------------------
-
-    def _draw_dynamics_panel(self, p: QPainter) -> None:
-        snap = self._snap
-        self._draw_flir_temps(p, snap)
-        self._draw_g_force_micro(p, snap)
-        self._draw_awd_strip(p, snap)
-
-    # --- FLIR 4-corner brake temps (x=400..800, y=80..170) ---
-
-    def _draw_flir_temps(self, p: QPainter, snap: Optional[DiffState]) -> None:
-        flir_ok = snap is not None and snap.flir_available and not snap.is_flir_stale()
-
-        # Header label
-        p.setFont(QFont("Helvetica", 9, QFont.Bold))
-        p.setPen(QColor(MODE_SS_ACCENT) if flir_ok else QColor(DIM))
-        p.drawText(QRectF(410, _MID_Y0, 380, 14), Qt.AlignCenter,
-                   "BRAKE TEMPS" if flir_ok else "FLIR NOT CONNECTED")
-
-        # 2x2 grid: FL/FR top row, RL/RR bottom row
-        grid_y = _MID_Y0 + 16
-        cell_h = 34
-        cell_gap = 4
-        cells = [
-            ("FL", 410, grid_y, snap.brake_temp_fl if snap else 0.0),
-            ("FR", 602, grid_y, snap.brake_temp_fr if snap else 0.0),
-            ("RL", 410, grid_y + cell_h + cell_gap, snap.brake_temp_rl if snap else 0.0),
-            ("RR", 602, grid_y + cell_h + cell_gap, snap.brake_temp_rr if snap else 0.0),
-        ]
-        cell_w = 186
-
-        for label, cx, cy, temp in cells:
-            rect = QRectF(cx, cy, cell_w, cell_h)
-
-            if flir_ok:
-                # Heat-colored background fill
-                heat_col = _brake_heat_color(temp)
-                heat_col.setAlpha(60)
-                p.fillRect(rect, heat_col)
-
-                # Border matches heat color
-                border_col = _brake_heat_color(temp)
-                p.setPen(QPen(border_col, 1))
-                p.drawRect(rect)
-
-                # Temperature value — large
-                p.setFont(QFont("Courier", 22, QFont.Bold))
-                p.setPen(_brake_heat_color(temp))
-                p.drawText(rect, Qt.AlignCenter, f"{temp:.0f}\u00b0")
-
-                # Corner label — tiny top-left
-                p.setFont(QFont("Helvetica", 8))
-                p.setPen(QColor(GRAY))
-                p.drawText(int(cx) + 4, int(cy) + 12, label)
-            else:
-                # No FLIR
-                p.fillRect(rect, QColor(BG_PANEL))
-                p.setPen(QPen(QColor(DIM), 1))
-                p.drawRect(rect)
-                p.setFont(QFont("Helvetica", 10))
-                p.setPen(QColor(DIM))
-                p.drawText(rect, Qt.AlignCenter, f"{label} ---")
-
-    # --- G-force micro circle (x=500..700, y=170..250) ---
-
-    def _draw_g_force_micro(self, p: QPainter, snap: Optional[DiffState]) -> None:
-        cx = _G_CX
-        cy = _G_CY
-        r1 = _G_RADIUS
-        r05 = _G_RING_05
-
-        # Concentric rings
-        p.setPen(QPen(QColor(DIM), 1))
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawEllipse(QPointF(cx, cy), r05, r05)
-        p.drawEllipse(QPointF(cx, cy), r1, r1)
-
-        # Crosshair
-        p.setPen(QPen(QColor(DIM), 1, Qt.PenStyle.DotLine))
-        p.drawLine(QPointF(cx - r1, cy), QPointF(cx + r1, cy))
-        p.drawLine(QPointF(cx, cy - r1), QPointF(cx, cy + r1))
-
-        # Trail dots
-        trail_len = len(self._g_trail)
-        if trail_len > 1:
-            for i, (lat_g, lon_g) in enumerate(self._g_trail):
-                if i == trail_len - 1:
-                    continue
-                alpha = int(60 + 150 * (i / trail_len))
-                dot_color = QColor(CYAN)
-                dot_color.setAlpha(alpha)
-                px, py = self._g_to_pixel(lat_g, lon_g, cx, cy, r1)
-                p.setPen(Qt.PenStyle.NoPen)
-                p.setBrush(dot_color)
-                p.drawEllipse(QPointF(px, py), 2, 2)
-
-        # Current G dot
-        lat_g = snap.imu_accel_y if snap else 0.0
-        lon_g = snap.imu_accel_x if snap else 0.0
-        px, py = self._g_to_pixel(lat_g, lon_g, cx, cy, r1)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor(CYAN))
-        p.drawEllipse(QPointF(px, py), 4, 4)
-
-        # G magnitude — below circle, above AWD strip
-        g_mag = math.sqrt(lat_g ** 2 + lon_g ** 2)
-        p.setFont(QFont("Helvetica", 12, QFont.Bold))
-        p.setPen(QColor(WHITE))
-        p.drawText(
-            QRectF(cx - 30, cy + r1 + 2, 60, 16),
-            Qt.AlignCenter,
-            f"{g_mag:.2f}g",
-        )
-
-    @staticmethod
-    def _g_to_pixel(
-        lat_g: float, lon_g: float, cx: float, cy: float, r_px: float
-    ) -> tuple[float, float]:
-        """Convert G values to pixel coordinates, clamped to max radius."""
-        g_mag = math.sqrt(lat_g ** 2 + lon_g ** 2)
-        if g_mag > _G_MAX:
-            scale = _G_MAX / g_mag
-            lat_g *= scale
-            lon_g *= scale
-        px = cx + (lat_g / _G_MAX) * r_px
-        py = cy - (lon_g / _G_MAX) * r_px
-        return px, py
-
-    # --- AWD status strip (x=400..800, y=250..280) ---
-
-    def _draw_awd_strip(self, p: QPainter, snap: Optional[DiffState]) -> None:
-        strip_y = 260
-        strip_h = 18
-        stale = snap is None or snap.is_diff_stale()
-
-        # DCCD label
-        p.setFont(QFont("Helvetica", 9, QFont.Bold))
-        p.setPen(QColor(GRAY))
-        p.drawText(412, strip_y + 14, "DCCD")
-
-        # DCCD bar
-        bar_x = 450
-        bar_w = 240
-        bar_h = 14
-        bar_y = strip_y + 4
-
-        p.fillRect(QRectF(bar_x, bar_y, bar_w, bar_h), QColor(BG_PANEL))
-
-        dccd = snap.dccd_command_pct if snap and not stale else 0.0
-        if not stale and dccd > 0.01:
-            fill_w = (dccd / 100.0) * bar_w
-            if dccd > 70:
-                fill_col = QColor(MODE_SS_ACCENT)
-            elif dccd > 40:
-                fill_col = QColor(YELLOW)
-            else:
-                fill_col = QColor(GREEN)
-            p.fillRect(QRectF(bar_x, bar_y, fill_w, bar_h), fill_col)
-
-        # DCCD percentage — inside the bar
-        dccd_str = f"{dccd:.0f}%" if not stale else "---%"
-        p.setFont(QFont("Helvetica", 10, QFont.Bold))
-        p.setPen(QColor(WHITE) if not stale and dccd > 30 else QColor(DIM))
-        p.drawText(QRectF(bar_x, bar_y, bar_w, bar_h),
-                   Qt.AlignCenter | Qt.AlignVCenter, dccd_str)
-
-        # Surface state badge — right-aligned
-        if snap and not stale:
-            surface_label = snap.surface_state.label
-            surface_color = QColor(snap.surface_state.color)
-        else:
-            surface_label = "---"
-            surface_color = QColor(DIM)
-
-        p.setFont(QFont("Helvetica", 9, QFont.Bold))
-        badge_tw = p.fontMetrics().horizontalAdvance(surface_label) + 12
-        badge_x = 790 - badge_tw
-        badge_y = bar_y
-        pill_bg = QColor(surface_color)
-        pill_bg.setAlpha(60)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(pill_bg)
-        p.drawRoundedRect(QRectF(badge_x, badge_y, badge_tw, bar_h), 4, 4)
-        p.setPen(surface_color)
-        p.drawText(QRectF(badge_x, badge_y, badge_tw, bar_h), Qt.AlignCenter, surface_label)
-
-        # ABS/VDC indicator dots
-        dot_y = strip_y + strip_h - 6
-        if snap and not stale:
-            if snap.abs_active:
-                p.setPen(Qt.PenStyle.NoPen)
-                p.setBrush(QColor(RED))
-                p.drawEllipse(QPointF(748, dot_y), 4, 4)
-                p.setFont(QFont("Helvetica", 7))
-                p.setPen(QColor(RED))
-                p.drawText(QRectF(756, dot_y - 5, 38, 12),
-                           Qt.AlignLeft | Qt.AlignVCenter, "ABS")
-
-            if snap.vdc_tc:
-                p.setPen(Qt.PenStyle.NoPen)
-                p.setBrush(QColor(YELLOW))
-                p.drawEllipse(QPointF(748, dot_y - 14), 4, 4)
-                p.setFont(QFont("Helvetica", 7))
-                p.setPen(QColor(YELLOW))
-                p.drawText(QRectF(756, dot_y - 19, 38, 12),
-                           Qt.AlignLeft | Qt.AlignVCenter, "VDC")
-
-    # ------------------------------------------------------------------
-    # Sector strip (y=280..320) — UNCHANGED
+    # Sector strip (y=280..380) — taller colored blocks with times
     # ------------------------------------------------------------------
 
     def _draw_sector_strip(self, p: QPainter) -> None:
         sector_count = self._timing.get("sector_count", 0)
+        strip_h = _SECTOR_Y1 - _SECTOR_Y0
+
         if sector_count <= 0:
-            p.fillRect(QRectF(_BAR_X, _SECTOR_Y0, _BAR_W, _SECTOR_Y1 - _SECTOR_Y0), QColor(BG_PANEL))
+            p.fillRect(QRectF(_BAR_X, _SECTOR_Y0, _BAR_W, strip_h), QColor(BG_PANEL))
             return
+
+        self._paint_count += 1
 
         current_sector = self._timing.get("current_sector", 0)
         sector_times = self._timing.get("sector_times", [])
         best_sector_times = self._timing.get("best_sector_times", [])
 
         sector_w = _BAR_W / sector_count
-        strip_h = _SECTOR_Y1 - _SECTOR_Y0
-        gap = 2
+        gap = 3
 
         for i in range(sector_count):
             sx = _BAR_X + i * sector_w
-            rect = QRectF(sx + gap / 2, _SECTOR_Y0 + 2, sector_w - gap, strip_h - 4)
+            rect = QRectF(sx + gap / 2, _SECTOR_Y0 + 3, sector_w - gap, strip_h - 6)
 
             if i < len(sector_times) and sector_times[i] is not None:
                 sector_ms = sector_times[i]
@@ -584,88 +340,49 @@ class SportSharpScreenWidget(QWidget):
 
                 p.fillRect(rect, fill_color)
 
+                # Sector time — large and readable
                 time_str = f"{sector_ms / 1000.0:.1f}"
                 p.setPen(QColor(WHITE))
-                p.setFont(QFont("Helvetica", FONT_BASE, QFont.Bold))
+                p.setFont(QFont("Helvetica", FONT_HEADER, QFont.Bold))
                 p.drawText(rect, Qt.AlignCenter, time_str)
 
+                # Delta vs best — smaller, below the time
+                if best_ms is not None:
+                    diff_ms = sector_ms - best_ms
+                    diff_str = _fmt_delta_ms(diff_ms)
+                    diff_color = QColor(WHITE)
+                    diff_color.setAlpha(200)
+                    p.setPen(diff_color)
+                    p.setFont(QFont("Helvetica", 10))
+                    diff_rect = QRectF(rect.x(), rect.y() + rect.height() - 22, rect.width(), 18)
+                    p.drawText(diff_rect, Qt.AlignCenter, diff_str)
+
             elif i == current_sector:
+                # Active sector — pulsing border
                 p.fillRect(rect, QColor(BG_PANEL))
                 pulse_alpha = 120 + int(80 * (1.0 if self._paint_count % 20 < 10 else 0.4))
                 pen_color = QColor(YELLOW)
                 pen_color.setAlpha(pulse_alpha)
                 p.setPen(QPen(pen_color, 2))
                 p.drawRect(rect)
+
+                # Sector number label
+                p.setPen(QColor(DIM))
+                p.setFont(QFont("Helvetica", 12))
+                p.drawText(rect, Qt.AlignCenter, f"S{i + 1}")
             else:
+                # Future sector — dim
                 p.fillRect(rect, QColor(BG_PANEL))
                 p.setPen(QPen(QColor(DIM), 1))
                 p.drawRect(rect)
 
-    # ------------------------------------------------------------------
-    # Brake/steering trace (y=320..380) — steering replaces throttle
-    # ------------------------------------------------------------------
-
-    def _draw_brake_steering_trace(self, p: QPainter) -> None:
-        strip_x = _BAR_X
-        strip_w = _BAR_W
-        strip_y = _BRAKE_Y0
-        strip_h = _BRAKE_Y1 - _BRAKE_Y0
-
-        p.fillRect(QRectF(strip_x, strip_y, strip_w, strip_h), QColor(BG_PANEL))
-
-        brake_count = len(self._brake_history)
-
-        if brake_count == 0:
-            p.setPen(QColor(DIM))
-            p.setFont(QFont("Helvetica", 10))
-            p.drawText(QRectF(strip_x, strip_y, strip_w, strip_h),
-                       Qt.AlignCenter, "BRAKE / STEERING TRACE")
-            return
-
-        sample_w = strip_w / _TRACE_LEN
-        max_brake = 80.0
-        center_y = strip_y + strip_h / 2.0
-
-        # Draw steering first (behind brake) — blue fill from center line
-        # Steering: 0 = straight, positive = left, negative = right
-        # Map to half-height from center: full lock = fills to edge
-        p.setPen(Qt.NoPen)
-        for idx, steer in enumerate(self._steering_history):
-            offset = _TRACE_LEN - len(self._steering_history) + idx
-            x = strip_x + offset * sample_w
-            # Normalize: -1..+1 range
-            norm = max(-1.0, min(1.0, steer / _STEER_MAX))
-            steer_h = abs(norm) * (strip_h / 2.0)
-            steer_color = QColor(CYAN)
-            steer_color.setAlpha(50)
-
-            if norm >= 0:
-                # Left turn — fill upward from center
-                p.fillRect(QRectF(x, center_y - steer_h, max(sample_w, 1.0), steer_h), steer_color)
-            else:
-                # Right turn — fill downward from center
-                p.fillRect(QRectF(x, center_y, max(sample_w, 1.0), steer_h), steer_color)
-
-        # Center line for steering
-        p.setPen(QPen(QColor(DIM), 1, Qt.PenStyle.DotLine))
-        p.drawLine(QPointF(strip_x, center_y), QPointF(strip_x + strip_w, center_y))
-
-        # Draw brake — solid red fill from bottom
-        for idx, brk in enumerate(self._brake_history):
-            offset = _TRACE_LEN - brake_count + idx
-            x = strip_x + offset * sample_w
-            brk_h = (min(brk, max_brake) / max_brake) * strip_h
-            brk_y = strip_y + strip_h - brk_h
-            brk_color = QColor(RED)
-            brk_color.setAlpha(180)
-            p.fillRect(QRectF(x, brk_y, max(sample_w, 1.0), brk_h), brk_color)
-
-        # Subtle border
-        p.setPen(QPen(QColor(DIM), 1))
-        p.drawRect(QRectF(strip_x, strip_y, strip_w, strip_h))
+                # Sector number label
+                p.setPen(QColor(DIM))
+                p.setFont(QFont("Helvetica", 10))
+                p.drawText(rect, Qt.AlignCenter, f"S{i + 1}")
 
     # ------------------------------------------------------------------
-    # Safety vitals (y=380..440) — 5 zones, DIM until warning
+    # Safety vitals (y=380..480) — 5 zones, DIM until warning
     # ------------------------------------------------------------------
 
     def _draw_safety_vitals(self, p: QPainter) -> None:

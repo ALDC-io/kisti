@@ -8,14 +8,12 @@ KiSTI Sport shows ONLY what the MXG cannot:
   - G-force circle with trail (IMU)
   - Steering angle + yaw rate bars
   - Brake pressure bar
-  - Wheel speed deltas + brake/steering trace
 
 800x440 content area, 100% QPainter — no composite QWidget layouts.
 
 Layout:
   y=0..100   DCCD bar + surface + slip (left) | FLIR 2x2 (right)
-  y=100..320 Performance bars (left 350px) | G-force circle (right)
-  y=320..440 Wheel speed deltas (left 500px) | Brake+steering trace (right)
+  y=100..440 Performance bars (left 350px) | G-force circle (right)
 """
 
 from __future__ import annotations
@@ -39,7 +37,6 @@ from ui.theme import (
     BG_PANEL,
     BG_ACCENT,
     WHITE,
-    SILVER,
     GRAY,
     DIM,
     GREEN,
@@ -48,7 +45,6 @@ from ui.theme import (
     CYAN,
     CHROME_DARK,
     MODE_S_ACCENT,
-    FONT_BIG,
 )
 
 
@@ -85,9 +81,6 @@ _FLIR_GREEN = 300.0
 _FLIR_YELLOW = 450.0
 _FLIR_RED = 500.0
 
-# Trace buffer
-_TRACE_LEN = 200
-
 
 def _brake_heat_color(temp_c: float) -> QColor:
     """Blue → green → yellow → red for brake temps."""
@@ -114,10 +107,6 @@ class SportScreenWidget(QWidget):
         # G-force dot trail
         self._g_trail: deque[tuple[float, float]] = deque(maxlen=100)
 
-        # Brake/steering trace buffers (10s at 20Hz)
-        self._brake_trace: deque[float] = deque(maxlen=_TRACE_LEN)
-        self._steering_trace: deque[float] = deque(maxlen=_TRACE_LEN)
-
         self.setMinimumSize(800, 440)
 
     # ------------------------------------------------------------------
@@ -128,8 +117,6 @@ class SportScreenWidget(QWidget):
         """Called at 20 Hz from main timer with a DiffState snapshot."""
         self._snap = snap
         self._g_trail.append((snap.imu_accel_y, snap.imu_accel_x))
-        self._brake_trace.append(snap.brake_pressure)
-        self._steering_trace.append(snap.steering_angle)
         self.update()
 
     # ------------------------------------------------------------------
@@ -460,104 +447,6 @@ class SportScreenWidget(QWidget):
         px = cx + (lat_g / _G_MAX) * r_px
         py = cy - (lon_g / _G_MAX) * r_px
         return px, py
-
-    # ------------------------------------------------------------------
-    # Bottom band: Wheel speed deltas (left, 0..500)
-    # ------------------------------------------------------------------
-
-    def _paint_wheel_speeds(self, p: QPainter, snap: DiffState) -> None:
-        y0 = 330
-        bar_h = 20
-        row_gap = 6
-        center_x = 180
-        bar_half_w = 130
-        label_x = 8
-        val_x = center_x + bar_half_w + 10
-        val_w = 60
-        vehicle_speed = snap.speed_kph
-
-        wheels = [
-            ("FL", snap.wheel_speed_fl),
-            ("FR", snap.wheel_speed_fr),
-            ("RL", snap.wheel_speed_rl),
-            ("RR", snap.wheel_speed_rr),
-        ]
-
-        wheel_stale = snap.is_wheel_stale()
-
-        for i, (name, ws) in enumerate(wheels):
-            y = y0 + i * (bar_h + row_gap)
-            delta = ws - vehicle_speed if not wheel_stale else 0.0
-
-            p.setFont(QFont("Helvetica", 11, QFont.Weight.Bold))
-            p.setPen(QPen(QColor(SILVER)))
-            p.drawText(QRectF(label_x, y, 30, bar_h),
-                       Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, name)
-
-            p.fillRect(int(center_x - bar_half_w), int(y + 2),
-                       int(bar_half_w * 2), int(bar_h - 4), QColor(BG_ACCENT))
-
-            p.setPen(QPen(QColor(GRAY), 1))
-            p.drawLine(int(center_x), int(y + 2), int(center_x), int(y + bar_h - 2))
-
-            if not wheel_stale:
-                color = self._wheel_delta_color(abs(delta))
-                max_delta = 10.0
-                frac = min(1.0, abs(delta) / max_delta)
-                bar_px = int(bar_half_w * frac)
-
-                if delta >= 0:
-                    p.fillRect(int(center_x), int(y + 2), bar_px, int(bar_h - 4), QColor(color))
-                else:
-                    p.fillRect(int(center_x - bar_px), int(y + 2), bar_px, int(bar_h - 4), QColor(color))
-
-                sign = "+" if delta >= 0 else ""
-                val_str = f"{sign}{delta:.1f}"
-            else:
-                val_str = "---"
-
-            p.setFont(QFont("Helvetica", 10, QFont.Weight.Bold))
-            val_color = QColor(self._wheel_delta_color(abs(delta))) if not wheel_stale else QColor(GRAY)
-            p.setPen(QPen(val_color))
-            p.drawText(QRectF(val_x, y, val_w, bar_h),
-                       Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, val_str)
-
-    # ------------------------------------------------------------------
-    # Bottom band: Brake + steering trace (right, 500..800)
-    # ------------------------------------------------------------------
-
-    def _paint_brake_steering_trace(self, p: QPainter) -> None:
-        strip_x = 510
-        strip_w = 280
-        strip_y = 325
-        strip_h = 110
-
-        p.fillRect(QRectF(strip_x, strip_y, strip_w, strip_h), QColor(BG_PANEL))
-
-        # Header label
-        p.setFont(QFont("Helvetica", 8, QFont.Weight.Bold))
-        p.setPen(QPen(QColor(GRAY)))
-        p.drawText(QRectF(strip_x + 4, strip_y + 2, 100, 12),
-                   Qt.AlignmentFlag.AlignLeft, "BRAKE TRACE")
-
-        if len(self._brake_trace) == 0:
-            return
-
-        sample_w = strip_w / _TRACE_LEN
-
-        # Brake — red fill from bottom
-        for idx, brk in enumerate(self._brake_trace):
-            offset = _TRACE_LEN - len(self._brake_trace) + idx
-            x = strip_x + offset * sample_w
-            brk_h = (min(brk, _BRAKE_MAX_BAR) / _BRAKE_MAX_BAR) * strip_h
-            brk_y = strip_y + strip_h - brk_h
-            brk_color = QColor(RED)
-            brk_color.setAlpha(180)
-            p.fillRect(QRectF(x, brk_y, max(sample_w, 1.0), brk_h), brk_color)
-
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.setPen(QPen(QColor(DIM), 1))
-        p.drawRect(QRectF(strip_x, strip_y, strip_w, strip_h))
 
     # ------------------------------------------------------------------
     # Color helpers
