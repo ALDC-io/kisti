@@ -70,6 +70,9 @@ _WS_SEVERE = 5.0
 # Brake bar max
 _BRAKE_MAX_BAR = 80.0
 
+# Lateral G range for bar
+_G_MAX_BAR = 1.5
+
 # Steering range
 _STEER_MAX = 450.0
 
@@ -316,12 +319,12 @@ class SportScreenWidget(QWidget):
 
         bars = []
 
-        # DCCD
-        if diff_stale:
-            bars.append(("DCCD", 0, 100, None, CYAN, "---"))
+        # Lateral G — centered bar
+        if dynamics_stale:
+            bars.append(("LAT G", 0, _G_MAX_BAR, None, CYAN, "---"))
         else:
-            frac = snap.dccd_command_pct / 100.0
-            bars.append(("DCCD", snap.dccd_command_pct, 100, frac, CYAN, f"{snap.dccd_command_pct:.0f}%"))
+            norm = max(-1.0, min(1.0, snap.imu_accel_y / _G_MAX_BAR))
+            bars.append(("LAT G", snap.imu_accel_y, _G_MAX_BAR, norm, CYAN, f"{snap.imu_accel_y:+.2f}g"))
 
         # Brake pressure
         if dynamics_stale:

@@ -360,6 +360,12 @@ class SportSharpScreenWidget(QWidget):
     def _draw_flir_temps(self, p: QPainter, snap: Optional[DiffState]) -> None:
         flir_ok = snap is not None and snap.flir_available and not snap.is_flir_stale()
 
+        # Header label — above the grid
+        p.setFont(QFont("Helvetica", 9, QFont.Bold))
+        p.setPen(QColor(MODE_SS_ACCENT) if flir_ok else QColor(DIM))
+        p.drawText(QRectF(410, _MID_Y0 - 14, 380, 14), Qt.AlignCenter,
+                   "BRAKE TEMPS" if flir_ok else "FLIR NOT CONNECTED")
+
         # 2x2 grid: FL/FR top row, RL/RR bottom row
         cells = [
             ("FL", 410, _MID_Y0 + 2, snap.brake_temp_fl if snap else 0.0),
@@ -401,12 +407,6 @@ class SportSharpScreenWidget(QWidget):
                 p.setFont(QFont("Helvetica", 10))
                 p.setPen(QColor(DIM))
                 p.drawText(rect, Qt.AlignCenter, f"{label} ---")
-
-        # "BRAKE TEMPS" label
-        p.setFont(QFont("Helvetica", 9, QFont.Bold))
-        p.setPen(QColor(MODE_SS_ACCENT) if flir_ok else QColor(DIM))
-        p.drawText(QRectF(410, _MID_Y0 + 88, 380, 14), Qt.AlignCenter,
-                   "BRAKE TEMPS" if flir_ok else "FLIR NOT CONNECTED")
 
     # --- G-force micro circle (x=500..700, y=170..250) ---
 
