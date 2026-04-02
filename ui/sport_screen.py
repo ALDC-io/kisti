@@ -215,6 +215,7 @@ class SportScreenWidget(QWidget):
         badge_tw = p.fontMetrics().horizontalAdvance(surface_label) + 14
         badge_x = 8
         badge_y = 40
+        row2_h = 22  # shared height for badge + slip on this row
         pill_bg = QColor(surface_color)
         pill_bg.setAlpha(60)
         p.setPen(Qt.PenStyle.NoPen)
@@ -223,19 +224,19 @@ class SportScreenWidget(QWidget):
         p.setPen(QPen(surface_color))
         p.drawText(QRectF(badge_x, badge_y, badge_tw, 18), Qt.AlignmentFlag.AlignCenter, surface_label)
 
-        # Slip delta
+        # Slip delta — same row as badge, vertically aligned
         slip_x = badge_x + badge_tw + 16
         if snap.slip_delta is not None and not stale:
             slip_color = self._wheel_delta_color(abs(snap.slip_delta))
             p.setFont(QFont("Helvetica", 14, QFont.Weight.Bold))
             p.setPen(QPen(QColor(slip_color)))
-            p.drawText(QRectF(slip_x, 38, 160, 22),
+            p.drawText(QRectF(slip_x, badge_y - 2, 160, row2_h),
                        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                        f"SLIP \u0394 {snap.slip_delta:+.1f} km/h")
         else:
             p.setFont(QFont("Helvetica", 12))
             p.setPen(QPen(QColor(GRAY)))
-            p.drawText(QRectF(slip_x, 38, 120, 22),
+            p.drawText(QRectF(slip_x, badge_y - 2, 120, row2_h),
                        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                        "SLIP \u0394 ---")
 

@@ -537,18 +537,20 @@ class SportSharpScreenWidget(QWidget):
             if snap.abs_active:
                 p.setPen(Qt.PenStyle.NoPen)
                 p.setBrush(QColor(RED))
-                p.drawEllipse(QPointF(762, dot_y), 4, 4)
+                p.drawEllipse(QPointF(748, dot_y), 4, 4)
                 p.setFont(QFont("Helvetica", 7))
                 p.setPen(QColor(RED))
-                p.drawText(770, int(dot_y) + 3, "ABS")
+                p.drawText(QRectF(756, dot_y - 5, 38, 12),
+                           Qt.AlignLeft | Qt.AlignVCenter, "ABS")
 
             if snap.vdc_tc:
                 p.setPen(Qt.PenStyle.NoPen)
                 p.setBrush(QColor(YELLOW))
-                p.drawEllipse(QPointF(762, dot_y - 12), 4, 4)
+                p.drawEllipse(QPointF(748, dot_y - 14), 4, 4)
                 p.setFont(QFont("Helvetica", 7))
                 p.setPen(QColor(YELLOW))
-                p.drawText(770, int(dot_y) - 9, "VDC")
+                p.drawText(QRectF(756, dot_y - 19, 38, 12),
+                           Qt.AlignLeft | Qt.AlignVCenter, "VDC")
 
     # ------------------------------------------------------------------
     # Sector strip (y=280..320) — UNCHANGED
@@ -792,12 +794,12 @@ class SportSharpScreenWidget(QWidget):
         # Label
         p.setPen(label_color)
         p.setFont(QFont("Helvetica", 10))
-        label_rect = QRectF(x, _VITALS_Y0 + 4, w, 16)
+        label_rect = QRectF(x, _VITALS_Y0 + 2, w, 14)
         p.drawText(label_rect, Qt.AlignCenter, label)
 
         # Value
         font_size = FONT_BIG if large else FONT_HEADER
         p.setPen(value_color)
         p.setFont(QFont("Courier", font_size, QFont.Bold))
-        value_rect = QRectF(x, _VITALS_Y0 + 18, w, 28)
+        value_rect = QRectF(x, _VITALS_Y0 + 18, w, 30)
         p.drawText(value_rect, Qt.AlignCenter, f"{value}{unit}")

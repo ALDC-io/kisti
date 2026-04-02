@@ -810,8 +810,8 @@ class IntelligentScreenWidget(QWidget):
             p.drawText(QRectF(val_x, ry, val_w, bar_h),
                        Qt.AlignLeft | Qt.AlignVCenter, val_str)
 
-        # Slip delta — prominent below bars
-        slip_y = bar_y0 + 4 * (bar_h + row_gap) + 2
+        # Slip delta — below bars, within content area (y<=440)
+        slip_y = bar_y0 + 4 * (bar_h + row_gap) - 6
         p.setFont(_font(11, bold=True))
         p.setPen(QPen(QColor(MODE_I_ACCENT)))
         p.drawText(QRectF(label_x, slip_y, 60, 18),
