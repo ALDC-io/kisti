@@ -275,7 +275,7 @@ class TestSafetyFastPath:
 
     def test_sport_sharp_truncation(self):
         """Sport Sharp truncates safety fast-path to 5 words."""
-        result = _match_safety_fast_path("How are the brakes?", "Sport Sharp")
+        result = _match_safety_fast_path("How are the brakes?", "Sport #")
         assert result is not None
         assert len(result.split()) <= 6  # 5 words + period
 
@@ -392,15 +392,15 @@ class TestLLMTokenCaps:
         """All SI Drive modes have token caps."""
         assert "Intelligent" in MODE_TOKEN_CAPS
         assert "Sport" in MODE_TOKEN_CAPS
-        assert "Sport Sharp" in MODE_TOKEN_CAPS
+        assert "Sport #" in MODE_TOKEN_CAPS
 
     def test_sport_sharp_is_tightest(self):
         """Sport Sharp has the lowest token cap."""
-        assert MODE_TOKEN_CAPS["Sport Sharp"] < MODE_TOKEN_CAPS["Sport"]
+        assert MODE_TOKEN_CAPS["Sport #"] < MODE_TOKEN_CAPS["Sport"]
         assert MODE_TOKEN_CAPS["Sport"] < MODE_TOKEN_CAPS["Intelligent"]
 
     def test_sport_sharp_cap(self):
-        assert MODE_TOKEN_CAPS["Sport Sharp"] == 20
+        assert MODE_TOKEN_CAPS["Sport #"] == 20
 
     def test_sport_cap(self):
         assert MODE_TOKEN_CAPS["Sport"] == 64
@@ -410,7 +410,7 @@ class TestLLMTokenCaps:
 
     def test_temperature_decreases_with_urgency(self):
         """More aggressive modes use lower temperature."""
-        assert MODE_TEMPERATURE["Sport Sharp"] < MODE_TEMPERATURE["Sport"]
+        assert MODE_TEMPERATURE["Sport #"] < MODE_TEMPERATURE["Sport"]
         assert MODE_TEMPERATURE["Sport"] < MODE_TEMPERATURE["Intelligent"]
 
     def test_query_uses_mode_cap(self):
@@ -418,7 +418,7 @@ class TestLLMTokenCaps:
         engine = LLMEngine()
         engine.start()
         # Without Ollama, falls back to persona — just verify it doesn't crash
-        response = engine.query("How's the oil?", si_drive_mode="Sport Sharp")
+        response = engine.query("How's the oil?", si_drive_mode="Sport #")
         assert isinstance(response, LLMResponse)
         engine.stop()
 
@@ -669,15 +669,15 @@ class TestModeAwarePersona:
 
     def test_sport_sharp_blocks_fun(self):
         """Sport Sharp blocks fun responses."""
-        assert _match_persona("Tell me a joke", "Sport Sharp") is None
+        assert _match_persona("Tell me a joke", "Sport #") is None
 
     def test_sport_sharp_blocks_tech(self):
         """Sport Sharp blocks tech responses."""
-        assert _match_persona("How's the boost?", "Sport Sharp") is None
+        assert _match_persona("How's the boost?", "Sport #") is None
 
     def test_sport_sharp_allows_safety(self):
         """Sport Sharp allows safety responses."""
-        result = _match_persona("How are the brakes?", "Sport Sharp")
+        result = _match_persona("How are the brakes?", "Sport #")
         assert result is not None
 
     def test_sport_truncates_to_first_sentence(self):
@@ -690,7 +690,7 @@ class TestModeAwarePersona:
 
     def test_sport_sharp_truncates_to_five_words(self):
         """Sport Sharp truncates to 5 words max."""
-        result = _match_persona("How are the brakes?", "Sport Sharp")
+        result = _match_persona("How are the brakes?", "Sport #")
         assert result is not None
         words = result.rstrip(".").split()
         assert len(words) <= 5
@@ -701,13 +701,13 @@ class TestModeAwarePersona:
 
     def test_roast_blocked_in_sport_sharp(self):
         """Roast battle is fun-only, blocked in Sport Sharp."""
-        assert _match_persona("Roast me!", "Sport Sharp") is None
+        assert _match_persona("Roast me!", "Sport #") is None
 
     def test_mode_categories_complete(self):
         """All three modes are defined in _MODE_ALLOWED_CATEGORIES."""
         assert "Intelligent" in _MODE_ALLOWED_CATEGORIES
         assert "Sport" in _MODE_ALLOWED_CATEGORIES
-        assert "Sport Sharp" in _MODE_ALLOWED_CATEGORIES
+        assert "Sport #" in _MODE_ALLOWED_CATEGORIES
 
     def test_unknown_mode_defaults_to_all(self):
         """Unknown mode name defaults to all categories."""
@@ -1120,7 +1120,7 @@ class TestGoldenPersona:
 
     def test_safety_queries_all_modes(self):
         for q in self._SAFETY_QUERIES:
-            for mode in ("Intelligent", "Sport", "Sport Sharp"):
+            for mode in ("Intelligent", "Sport", "Sport #"):
                 result = _match_persona(q, mode)
                 assert result is not None, f"'{q}' returned None in {mode}"
 
@@ -1137,7 +1137,7 @@ class TestGoldenPersona:
 
     def test_tech_queries_blocked_sport_sharp(self):
         for q in self._TECH_QUERIES_SELF_REF:
-            result = _match_persona(q, "Sport Sharp")
+            result = _match_persona(q, "Sport #")
             assert result is None, f"'{q}' should be None in Sport Sharp"
 
 
@@ -1223,11 +1223,11 @@ class TestTier1PersonaExpansion:
 
     def test_knock_available_all_modes(self):
         """Safety responses must be available in ALL SI Drive modes."""
-        for mode in ("Intelligent", "Sport", "Sport Sharp"):
+        for mode in ("Intelligent", "Sport", "Sport #"):
             assert _match_persona("I hear pinging", mode) is not None
 
     def test_fuel_quality_available_all_modes(self):
-        for mode in ("Intelligent", "Sport", "Sport Sharp"):
+        for mode in ("Intelligent", "Sport", "Sport #"):
             assert _match_persona("What about cheap fuel?", mode) is not None
 
 
@@ -1267,7 +1267,7 @@ class TestTier2DrivingTechnique:
 
     def test_emergency_responses_all_modes(self):
         """Overheat and blowout are safety — available in ALL modes."""
-        for mode in ("Intelligent", "Sport", "Sport Sharp"):
+        for mode in ("Intelligent", "Sport", "Sport #"):
             assert _match_persona("Engine overheating", mode) is not None
             assert _match_persona("Tire blowout!", mode) is not None
 
@@ -1306,7 +1306,7 @@ class TestTier3ComponentSpecs:
 
     def test_tier3_blocked_in_sport_sharp(self):
         """TIER 3 blocked in Sport Sharp too."""
-        assert _match_persona("What's the AiM dash?", "Sport Sharp") is None
+        assert _match_persona("What's the AiM dash?", "Sport #") is None
 
 
 class TestTemperatureRouting:

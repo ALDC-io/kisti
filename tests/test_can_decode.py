@@ -891,7 +891,7 @@ class TestSIDriveMode:
     def test_labels(self):
         assert SIDriveMode.INTELLIGENT.label == "Intelligent"
         assert SIDriveMode.SPORT.label == "Sport"
-        assert SIDriveMode.SPORT_SHARP.label == "Sport Sharp"
+        assert SIDriveMode.SPORT_SHARP.label == "Sport #"
 
     def test_short_labels(self):
         assert SIDriveMode.INTELLIGENT.short_label == "I"

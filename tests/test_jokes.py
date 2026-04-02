@@ -63,7 +63,7 @@ class TestCarJokes:
         assert result is None
 
     def test_jokes_not_available_in_sport_sharp_mode(self):
-        result = _match_persona("tell me a joke", "Sport Sharp")
+        result = _match_persona("tell me a joke", "Sport #")
         assert result is None
 
     def test_sentinel_not_returned_directly(self):

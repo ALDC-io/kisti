@@ -73,7 +73,7 @@ class SIDriveMode(IntEnum):
 _SI_DRIVE_LABELS = {
     SIDriveMode.INTELLIGENT: "Intelligent",
     SIDriveMode.SPORT: "Sport",
-    SIDriveMode.SPORT_SHARP: "Sport Sharp",
+    SIDriveMode.SPORT_SHARP: "Sport #",
 }
 
 _SI_DRIVE_SHORT_LABELS = {

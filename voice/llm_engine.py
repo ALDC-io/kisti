@@ -83,12 +83,12 @@ Current telemetry:
 MODE_TOKEN_CAPS = {
     "Intelligent": 256,
     "Sport": 64,
-    "Sport Sharp": 20,
+    "Sport #": 20,
 }
 MODE_TEMPERATURE = {
     "Intelligent": 0.6,
     "Sport": 0.4,
-    "Sport Sharp": 0.3,
+    "Sport #": 0.3,
 }
 
 # Persona response categories — control which responses are available per SI Drive mode.
@@ -516,7 +516,7 @@ def _match_safety_fast_path(query: str, si_drive_mode: str = "Intelligent") -> O
             if idx > 0:
                 best_response = best_response[:idx + 1]
                 break
-    elif si_drive_mode == "Sport Sharp":
+    elif si_drive_mode == "Sport #":
         words = best_response.split()[:5]
         best_response = " ".join(words)
         if not best_response.endswith("."):
@@ -529,7 +529,7 @@ def _match_safety_fast_path(query: str, si_drive_mode: str = "Intelligent") -> O
 _MODE_ALLOWED_CATEGORIES: dict[str, set[str]] = {
     "Intelligent": {"safety", "tech", "fun"},
     "Sport": {"safety", "tech"},
-    "Sport Sharp": {"safety"},
+    "Sport #": {"safety"},
 }
 
 
@@ -593,7 +593,7 @@ def _match_persona(query: str, si_drive_mode: str = "Intelligent") -> Optional[s
             if idx > 0:
                 best_response = best_response[:idx + 1]
                 break
-    elif si_drive_mode == "Sport Sharp":
+    elif si_drive_mode == "Sport #":
         # 5 words max
         words = best_response.split()[:5]
         best_response = " ".join(words)
@@ -757,13 +757,13 @@ class LLMEngine:
         )
 
         # Inject memory context (skip in Sport Sharp — every token counts)
-        if memory_context and si_drive_mode != "Sport Sharp":
+        if memory_context and si_drive_mode != "Sport #":
             system_prompt += f"\n\nRelevant memories:\n{memory_context}"
 
         # Mode-specific prompt reinforcement (kept minimal — prompt tokens cost time)
         if si_drive_mode == "Sport":
             system_prompt += "\n\nSPORT MODE: One sentence max. Numbers and status only."
-        elif si_drive_mode == "Sport Sharp":
+        elif si_drive_mode == "Sport #":
             system_prompt += "\n\nSPORT SHARP: Critical safety only. 5 words max. Silence otherwise."
 
         temperature = MODE_TEMPERATURE.get(si_drive_mode, 0.6)

@@ -128,10 +128,12 @@ class TopStatusBar(QWidget):
     def _update_mode_badge(self, mode: SIDriveMode) -> None:
         """Update SI-Drive badge appearance."""
         color = _MODE_COLORS.get(mode, MODE_I_ACCENT)
-        self._mode_badge.setText(mode.label.upper())
+        text = mode.label.upper()
+        font_size = 10 if len(text) > 8 else 13
+        self._mode_badge.setText(text)
         self._mode_badge.setStyleSheet(
             f"background-color: {color}; color: {WHITE}; "
-            f"font-size: 13px; font-weight: 900; "
+            f"font-size: {font_size}px; font-weight: 900; "
             f"padding: 2px 10px; border-radius: 10px;"
         )
 
