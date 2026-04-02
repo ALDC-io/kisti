@@ -65,9 +65,7 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # Status bar — hidden, SI-Drive knob is the mode selector
-        self._status_bar = TopStatusBar(self)
-        self._status_bar.hide()
+        # No status bar — SI-Drive knob is the only mode selector
 
         # Content area (full 480px — no status bar, no softkey bar)
         self._stack = QStackedWidget(self)
@@ -103,7 +101,7 @@ class MainWindow(QMainWindow):
         # Wire mode manager signals if provided
         if self._mode_manager is not None:
             self._mode_manager.si_drive_changed.connect(self._on_si_drive_changed)
-            self._mode_manager.warmup_changed.connect(self._status_bar.set_warmup_state)
+            # warmup_changed — no status bar to update
 
         # F11 fullscreen toggle
         shortcut = QShortcut(QKeySequence(Qt.Key_F11), self)
@@ -144,7 +142,7 @@ class MainWindow(QMainWindow):
         if 0 <= mode_int < self._stack.count():
             self._current_si_drive = mode_int
             self._stack.setCurrentIndex(mode_int)
-            self._status_bar.set_si_drive_mode(mode_int)
+            # No status bar to update
             log.info("Display: SI-Drive %d (%s)",
                      mode_int, SIDriveMode(mode_int).label)
 
