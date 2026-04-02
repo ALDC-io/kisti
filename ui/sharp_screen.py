@@ -54,7 +54,7 @@ from ui.theme import (
 # ---------------------------------------------------------------------------
 
 _W = 800
-_H = 440
+_H = 480
 
 # Section Y boundaries
 _DELTA_Y0 = 0
@@ -64,7 +64,7 @@ _MID_Y1 = 280
 _SECTOR_Y0 = 280
 _SECTOR_Y1 = 340
 _VITALS_Y0 = 340
-_VITALS_Y1 = 440
+_VITALS_Y1 = 480
 
 # Delta bar geometry
 _BAR_MARGIN = 10

@@ -65,11 +65,11 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # Status bar (40px)
+        # Status bar — hidden, SI-Drive knob is the mode selector
         self._status_bar = TopStatusBar(self)
-        main_layout.addWidget(self._status_bar)
+        self._status_bar.hide()
 
-        # Content area (440px — no softkey bar, SI-Drive handles mode selection)
+        # Content area (full 480px — no status bar, no softkey bar)
         self._stack = QStackedWidget(self)
         main_layout.addWidget(self._stack, stretch=1)
 
