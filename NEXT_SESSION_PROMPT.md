@@ -1,10 +1,10 @@
-# KiSTI — Next Session Prompt (kisti-23: Screen Redesign Polish + Icon Overlap Fix)
+# KiSTI — Next Session Prompt (kisti-25: Post-Redesign Polish)
 
 **Working dir**: `/home/aldc/repos/kisti/`
 **Jetson**: `192.168.22.131` (user `aldc`). SSH: `ssh aldc@192.168.22.131`
-**Test baseline**: 804+ tests, all passing
-**Branch**: current session work not yet committed
-**Last deployed**: earlier version on Jetson (needs refresh with redesign)
+**Test baseline**: 895 tests, all passing
+**Branch**: `kisti-headless` (all changes committed and pushed)
+**Last deployed**: 2026-04-02, all 3 screens running on Jetson. X auth note: after relaunch, serverauth file changes — check /tmp/serverauth.* for current cookie
 
 ## Section 1: What Was Done (kisti-22 session — Screen Redesign)
 

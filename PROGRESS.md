@@ -1,53 +1,35 @@
 # KiSTI - Progress
 
-## Session: 2026-04-01 (kisti-23 — "Less Is More" Screen Redesign)
+## Session: 2026-04-02 (kisti-24 — Screen Redesign Complete + Visual Verification)
 
-### Status: 85% COMPLETE — Pending Icon Overlap Fix + Sport# Canyon Redesign
+### Status: COMPLETE
 
 ### Completed
-- **Sport screen locked** — User confirmed perfect. No changes. 462 lines, removed 111 lines of dead code (`_paint_wheel_speeds()` + `_paint_brake_steering_trace()`). G-force circle r=140 (575, 270), performance bars 28px tall, 13pt fonts.
-- **Sport# redesigned to 4-section timing layout** — Delta bar (y=0..90) + lap time 60pt Courier (y=90..280) + sectors (y=280..380) + safety vitals 4-zone (y=380..480). Removed DCCD zone (was zone 5), removed FLIR temps, removed G-force micro. 457 lines, clean timing-focused.
-- **Intelligent redesigned to 3-section simplification** — Weather card huge fonts (temp 56pt, humidity 36pt, y=0..160) + FLIR 2x2 grid 370px cells heat-colored + warm-up badge (y=160..340) + status strip DCCD/surface/SLIP (y=340..480). Removed sparklines, wheel deltas, health panel, dew point, density altitude. 525 lines, readable at arm's length.
-- **Main window fixes** — Removed TopStatusBar instantiation, hid legacy widgets (KistiModeWidget, DiffModeWidget, TrackModeWidget). Fixed z-order ghost text/blue square artifacts.
-- **Mock data optimized** — Reduced rates (50Hz→20Hz dynamics, 20Hz→10Hz context, 9Hz→5Hz FLIR), reduced steering noise ±15°→±3°, SI-Drive rotation 15s.
-- **804+ tests passing** — All tests green throughout session.
+- **Sport# canyon-capable redesign** — Split timing panel horizontally: left (0..480px) lap time 48pt Courier + predicted + best + theoretical, right (480..800px) G-force circle r=80 with 40-dot trail. Canyon intensity feedback alongside timing data. Dual-mode: track times + canyon commitment.
+- **Intelligent status strip reorganized** — Surface badge (left, PRIMARY, 20pt, 44px tall pill) → SLIP delta (center) → DCCD bar (right, compact 160px). User feedback: "focusing too much on dccd lock up — not that primary". DCCD deprioritized.
+- **G-force circle positioning fix** — Raised _G_CENTER_Y from 185→170 to prevent magnitude label bleeding into sector strip (y=280 boundary).
+- **Visual verification on Jetson** — All 3 screens deployed and screenshotted via SSH + xdotool. Zero overlaps confirmed on Intelligent, Sport, and Sport# layouts. Prior session's icon overlap issues fully resolved by TopStatusBar removal + legacy widget hiding.
+- **895 tests passing** — Full baseline maintained through all changes.
+- **Deployed to Jetson** — Running on Excelon (PID 330047 → restarted to 330047+).
 
 ### Files Changed
-- `ui/sport_screen.py` — Minor: removed dead methods (~111 lines)
-- `ui/sharp_screen.py` — Major rewrite: 4-section layout, removed dynamics/FLIR/G-micro/AWD/traces, safety vitals 4 zones only
-- `ui/intelligent_screen.py` — Major rewrite: 3 sections (weather/FLIR/status), removed sparklines/wheel deltas/health
-- `ui/main_window.py` — Removed TopStatusBar, hid legacy widgets
-- `data/mock_generator.py` — Reduced update rates, noise, SI-Drive rotation
-
-### Pending Issues (Priority Order)
-1. **Icon overlaps** (CRITICAL) — User reported top-left overlaps on Intelligent (DCCD bar vs surface badge) and Sport (DCCD vs FLIR labels). Need closeup screenshots, bounding box measurement, repositioning.
-2. **Sport# canyon redesign** — User: "sport sharp... just a big lap time? remember we'll be driving canyons as well right?" Currently timing-only. Need G-force circle (Option A: replace sectors, Option B: split lap time horizontally, Option C: corner of vitals).
-3. **DCCD deprioritization** — User: "i think we may be focusing too much on dccd lock up — it's not that primary is it?" If overlapping, shrink/move it. May not be essential to all screens.
+- `ui/sharp_screen.py` — G-force circle + timing split layout, trail deque, _g_to_pixel(), canyon docstrings
+- `ui/intelligent_screen.py` — Status strip reordered: Surface→SLIP→DCCD (compact)
 
 ### Key Decisions
-- **One question per screen** — Sport="How am I driving?", Sport#="Am I faster?" (with canyon feedback TBD), Intelligent="What are the conditions?"
-- **Arm's length readability** — Min 13pt for bars, 40pt+ for primary numbers. Test on Excelon at 1m distance.
-- **Timing-first Sport#** — Initially stripped to lap time + delta + sectors (no DCCD, no FLIR, no G-force micro). User feedback suggests canyon driving requires G-force intensity feedback — design pending.
+- **Sport# = timing + G-force** — Not purely timing. Answers "Am I faster?" for BOTH track (lap times) and canyons (cornering intensity via G-force circle).
+- **DCCD deprioritized** — Moved to compact bar on right side of Intelligent status strip (was primary left). User confirmed "not that primary".
+- **Surface badge primary on Intelligent** — "What are the conditions?" answered best by surface state (DRY/WET/ICE/LOW GRIP), not DCCD lock percentage.
 
-### Learnings Captured
-- ✅ cce_success_log: Widget z-order ghost text fix — remove entirely instead of hiding (ZM: 26702eb8)
-- ✅ cce_failed_approach: Pycache stale bytecode on deploy — rm __pycache__ after git pull (ZM: 49bce6c2)
-- ✅ cce_decision_log: Icon overlap debugging requires hardware screenshots (ZM: 69d0bc07)
-- ✅ cce_decision_log: DCCD lock % not a primary indicator — deprioritize (ZM: 22015015)
-- ✅ cce_decision_log: Sport# must be canyon-capable, not just track timing (ZM: b8f3ccd4)
-- ✅ cce_decision_log: 800x480 arm's length readability — min font sizes established (ZM: d2d96d63)
+### Don't Repeat
+- X auth changes after relaunch: `serverauth.*` file regenerated on startx restart, SSH loses access. Need to run xhost +local: from within the session context, or use the new auth file.
+- xdotool hangs on compositorless X11 if XAUTHORITY is stale (exit code 124 from timeout).
 
-### Don't Repeat (From This Session)
-- Z-order battles: hidden widgets still paint. Remove instead of hide.
-- Pycache stale bytecode: clear after git pull, before restart.
-- Arm's length fonts: min 13pt for readability on 800x480 at 1m.
-- User drives both track + canyon — Sport# must serve both modes.
-
-### Next Session (kisti-24)
-1. **Deploy & screenshot** — commit redesign, push, deploy to Jetson, capture closeup screenshots of all 3 screens (focus on icon overlaps)
-2. **Fix icon overlaps** — measure bounding boxes, adjust DCCD/surface badge/SLIP delta positioning on Intelligent; DCCD/FLIR labels on Sport
-3. **Sport# canyon redesign** — decide G-force placement, implement, test on hardware
-4. **Test baseline** — verify 804+ tests still passing, run `pytest -x -q`
+### Next Session (kisti-25)
+1. Merge kisti-headless branch to main if ready
+2. Test on 800x480 Excelon (current verification was on 1920x1080 DP-1)
+3. Consider adding axis labels (BRAKE/ACCEL/L/R) to Sport# G-force circle
+4. Wire TimingManager to populate Sport# with real sector/lap data
 
 ---
 
