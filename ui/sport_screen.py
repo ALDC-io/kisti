@@ -56,11 +56,11 @@ from ui.theme import (
 # Constants
 # ---------------------------------------------------------------------------
 
-# G-force circle
-_G_CENTER_X = 600
-_G_CENTER_Y = 210
-_G_RADIUS = 100
-_G_RING_05 = 50
+# G-force circle — expanded to fill right side (350..800, 100..440)
+_G_CENTER_X = 575
+_G_CENTER_Y = 270
+_G_RADIUS = 140
+_G_RING_05 = 70
 _G_MAX = 1.5
 
 # Wheel speed delta thresholds (km/h)
@@ -155,16 +155,9 @@ class SportScreenWidget(QWidget):
         p.setPen(QPen(QColor(CHROME_DARK), 1))
         p.drawLine(0, 100, w, 100)
 
-        # --- Middle band (y=100..320) ---
+        # --- Middle + bottom band (y=100..440) ---
         self._paint_performance_bars(p, snap, diff_stale, dynamics_stale)
         self._paint_g_force_circle(p, snap)
-
-        p.setPen(QPen(QColor(CHROME_DARK), 1))
-        p.drawLine(0, 320, w, 320)
-
-        # --- Bottom band (y=320..440) ---
-        self._paint_wheel_speeds(p, snap)
-        self._paint_brake_steering_trace(p)
 
         p.end()
 
@@ -312,10 +305,10 @@ class SportScreenWidget(QWidget):
     ) -> None:
         bar_x = 8
         bar_w = 220
-        bar_h = 20
+        bar_h = 28
         label_w = 60
-        val_w = 60
-        y_start = 116
+        val_w = 80
+        y_start = 120
 
         bars = []
 
@@ -348,12 +341,12 @@ class SportScreenWidget(QWidget):
             norm = max(-1.0, min(1.0, snap.yaw_rate / _YAW_MAX))
             bars.append(("YAW", snap.yaw_rate, _YAW_MAX, norm, CYAN, f"{snap.yaw_rate:.1f}\u00b0/s"))
 
-        spacing = 44
+        spacing = 70
         for i, (label, _value, _max_val, frac, fill_color, val_str) in enumerate(bars):
             y = y_start + i * spacing
 
             # Label
-            p.setFont(QFont("Helvetica", 11, QFont.Weight.Bold))
+            p.setFont(QFont("Helvetica", 13, QFont.Weight.Bold))
             p.setPen(QPen(QColor(GRAY)))
             p.drawText(QRectF(bar_x, y, label_w, bar_h),
                        Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, label)
@@ -381,7 +374,7 @@ class SportScreenWidget(QWidget):
                     p.fillRect(int(bx), int(y + 2), fw, int(bar_h - 4), QColor(fill_color))
 
             # Value text
-            p.setFont(QFont("Helvetica", 11, QFont.Weight.Bold))
+            p.setFont(QFont("Helvetica", 13, QFont.Weight.Bold))
             p.setPen(QPen(QColor(fill_color) if val_str != "---" else QColor(GRAY)))
             p.drawText(QRectF(bx + bar_w + 4, y, val_w, bar_h),
                        Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, val_str)
@@ -396,7 +389,7 @@ class SportScreenWidget(QWidget):
         r1 = _G_RADIUS
         r05 = _G_RING_05
 
-        p.fillRect(350, 100, 450, 220, QColor(BG_DARK))
+        p.fillRect(350, 100, 450, 340, QColor(BG_DARK))
 
         # Concentric rings
         p.setPen(QPen(QColor(DIM), 1))
@@ -447,10 +440,10 @@ class SportScreenWidget(QWidget):
 
         # Current G magnitude below circle
         g_mag = math.sqrt(lat_g ** 2 + lon_g ** 2)
-        p.setFont(QFont("Helvetica", 16, QFont.Weight.Bold))
+        p.setFont(QFont("Helvetica", 22, QFont.Weight.Bold))
         p.setPen(QPen(QColor(WHITE)))
         p.drawText(
-            QRectF(cx - 40, cy + r1 + 20, 80, 22),
+            QRectF(cx - 60, cy + r1 + 8, 120, 30),
             Qt.AlignmentFlag.AlignCenter, f"{g_mag:.2f}g",
         )
 
