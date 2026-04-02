@@ -1,105 +1,89 @@
-# KiSTI — Next Session Prompt (kisti-20: Visual HMI Redesign)
+# KiSTI — Next Session Prompt (kisti-22: FLIR Integration + Visual Verify)
 
 **Working dir**: `/home/aldc/repos/kisti/`
 **Jetson**: `192.168.22.131` (user `aldc`). SSH: `ssh aldc@192.168.22.131`
-**Test baseline**: 879 tests passing (864 original + 15 new)
+**Test baseline**: 885 tests (2 pre-existing failures: stack default index)
 **Branch**: `kisti-headless`
-**Latest commit**: `a56fa9c` pushed to origin
+**Latest commit**: `ef72eb2` pushed to origin
 
-## Section 1: What Was Done (kisti-20 session)
+## Section 1: What Was Done (kisti-21 session)
 
-### Phase 1 Infrastructure — COMPLETE
-All files committed and pushed. 879 tests passing.
+### All 3 screens redesigned — zero MXG overlap
+Every screen stripped of gear/speed/RPM/boost/lambda/oil/coolant/throttle/IDC/battery/fuel/IAT/MAP/TPS.
+Now shows ONLY what the AiM MXG Strada 7" cannot display.
 
-- **`ui/theme.py`**: Added `MODE_I_ACCENT=#00AAFF`, `MODE_S_ACCENT=#FF8800`, `MODE_SS_ACCENT=#FF0000`, `FONT_XLARGE=36`, `FONT_MEGA=48`
-- **`ui/softkey_bar.py`**: Rewritten with 4 dynamic buttons + mode-colored highlights. BUT softkey bar is now REMOVED from main_window.py — SI-Drive is the only mode selector, no on-screen navigation
-- **`modes/mode_manager.py`**: K6 reserved (no sub-pages), SI-Drive staleness fallback (5s → Intelligent), `subpage_changed` signal added but unused
-- **`ui/status_bar.py`**: SI-Drive badge (colored pill), warm-up state indicator, CAN status dot. Methods: `set_si_drive_mode(int)`, `set_warmup_state(int)`, `set_can_status(bool)`
-- **`ui/main_window.py`**: Flat 3-page QStackedWidget (no nesting, no softkey bar). Content area 800x440. Accepts `mode_manager` param. `_on_si_drive_changed(mode_int)` switches screens. `update_from_bridge(snap)` feeds DiffState to active screen
-- **`main.py`**: Passes `mode_manager=mode_mgr` to MainWindow. Wires `bridge.state_changed` → `window.update_from_bridge(snap)` at 20Hz
+**Sport Sharp** (`ui/sharp_screen.py`):
+- Delta bar + timing (left) + FLIR 4-corner temps + G-force micro (55px) + AWD strip (right)
+- Sectors, brake+steering trace, 5-zone safety vitals (OIL/COOL/OILT/BRKT/DCCD)
+- Theoretical best time added below BEST
 
-### 3 New Screens — COMPLETE (code written, NOT yet visually verified)
+**Sport** (`ui/sport_screen.py`):
+- DCCD bar + surface + slip + FLIR 2x2 (top)
+- DCCD/brake/steering/yaw bars + G-force circle 100-dot trail (middle)
+- Wheel speed deltas + brake/steering trace (bottom)
 
-- **`ui/intelligent_screen.py`** — `IntelligentScreenWidget`: QPainter, blue accent. Gear/speed, boost bar, oil/coolant sparklines (deque 200), weather card, lambda bar, injector duty, GPS status, DCCD overview. 1Hz repaint timer for no-data state.
-- **`ui/sport_screen.py`** — `SportScreenWidget`: QPainter, amber accent. Gear/speed/RPM, boost arc gauge, oil/coolant sparklines, DCCD bar, brake pressure, G-force circle with 100-dot trail, wheel speed delta bars (FL/FR/RL/RR), slip delta.
-- **`ui/sharp_screen.py`** — `SportSharpScreenWidget`: QPainter, red accent. Delta bar (full-width), lap time 48px, predicted/best, sector splits, gear 120px, brake/throttle trace (400-sample scrolling strip), dim safety vitals that light up on warnings. Has `update_timing(timing_data: dict)` for TimingManager integration.
+**Intelligent** (`ui/intelligent_screen.py`):
+- Weather card expanded + warm-up + DCCD + GPS (top)
+- FLIR 4-corner temps + vehicle health overview (middle)
+- Brake temp sparklines + wheel speed deltas (bottom)
 
-### Tests — 879 passing
-- `tests/test_modes.py`: 29 tests covering SI-Drive transitions, staleness fallback, status bar, MainWindow stack switching
+### DiffState FLIR fields added
+`model/vehicle_state.py`: `brake_temp_fl/fr/rl/rr`, `flir_available`, `flir_frame_ts`, `update_flir()`, `is_flir_stale(timeout=2.0)`
 
-## Section 2: BLOCKER — Jetson Display Auth
+### RS3 shift LED investigation
+`rs3/shift_led_investigation.md`: AiM shift LEDs need RS3 math channels reading SI-Drive CAN (0x6B0) for mode-aware thresholds.
 
-KiSTI won't show on the Excelon because SSH can't get X authorization for the GDM desktop session.
+## Section 2: Prioritized TODO
 
-**The problem**: The Jetson runs GDM with auto-login. The X display is `:1025` (Xwayland), not `:0`. The Xauthority cookie is at `/run/user/1000/gdm/Xauthority` but SSH sessions can't use it (Authorization required error). The old `kisti-session` script assumed `DISPLAY=:0` which no longer exists.
+### 1. Visual verification on Jetson
+- Deploy: `~/k` (one command)
+- Rotate SI-Drive to each mode, verify screens render on 800x480 Excelon
+- Check layout spacing, font readability, color visibility
+- Currently all FLIR cells show "FLIR NOT CONNECTED" (expected — no sensor wired yet)
 
-**What needs to happen** (one of these):
-1. **Fix kisti-session script** to auto-detect the display: `DISPLAY=$(ls /tmp/.X*-lock | tail -1 | sed 's|/tmp/.X||;s|-lock||')` and copy the Xauthority cookie
-2. **OR** from a terminal INSIDE the GDM session (not SSH), run: `DISPLAY=:1025 XAUTHORITY=/run/user/1000/gdm/Xauthority python3 main.py --fullscreen`
-3. **OR** configure GDM to use kisti-session as the X session (like it was before), which gives KiSTI its own X server at `:0`
-4. **OR** use `loginctl` to get the session's environment and inject it
+### 2. FLIR Lepton integration
+- **Hardware**: FLIR Lepton (likely PureThermal USB breakout)
+- **Pattern**: Follow Yoctopuce reader at `sensors/yoctopuce_reader.py` (QObject + QTimer polling)
+- **New file**: `sensors/flir_lepton_reader.py`
+- **Dependencies**: Need `opencv-python` or `pyuvc` on Jetson
+- **Udev**: Add FLIR USB rule to `scripts/jetson/` (vendor 0x1e4e)
+- **Wire**: Instantiate in `main.py`, connect to `bridge.update_flir(fl, fr, rl, rr)`
+- **Challenge**: Extracting per-corner brake temps from a thermal image requires ROI mapping (camera position → brake disc regions). May need calibration step.
 
-**Fastest path**: Update `scripts/kisti-session` to auto-detect display number and copy the auth cookie. Then it can be run from SSH.
+### 3. Fix pre-existing test failures
+- `tests/test_modes.py::TestMainWindowSIDrive::test_si_drive_switches_stack` — expects stack index 0 (Intelligent) but default is 1 (Sport)
+- `tests/test_modes.py::TestMainWindowSIDrive::test_invalid_mode_ignored` — same issue
+- Fix: update test expectations OR update `main_window.py` default
 
-## Section 3: Remaining TODO
+### 4. FLIR tests
+- Add to `tests/test_modes.py`: FLIR field copy in snapshot, staleness, heat color thresholds
 
-### Immediate (to see the screens):
-- [ ] Fix Jetson display auth (see Section 2)
-- [ ] Verify all 3 screens render correctly on 800x480 Excelon
-- [ ] Adjust layout/sizing based on visual review
+### 5. Boost Barn tune session
+- RS3 config for SI-Drive mode-aware shift lights (see `rs3/shift_led_investigation.md`)
+- Verify CAN byte order (BE vs LE) with live data
+- Verify KiSTI screen layout during actual driving
 
-### Phase 5: Alert Engine Mode-Awareness
-- [ ] Add `set_si_drive_mode()` to `alerts/alert_engine.py`
-- [ ] Mode-aware suppression in `_fire()`: INFO suppressed in S/S#, ADVISORY suppressed in S#, CRITICAL always fires
-- [ ] `ui/widgets/critical_flash_overlay.py` — red flash overlay for S# critical alerts
-- [ ] Tests for mode suppression
-
-### Phase 6: Integration & Polish
-- [ ] Final data routing verification
-- [ ] Integration tests
-- [ ] Update NEXT_SESSION_PROMPT.md and PROGRESS.md
-
-## Section 4: Key Files
+## Section 3: Key Files
 
 | File | What It Does |
 |------|-------------|
-| `ui/main_window.py` | Flat 3-page QStackedWidget, SI-Drive switching, no softkey bar |
-| `ui/intelligent_screen.py` | **NEW** — Intelligent mode full QPainter screen |
-| `ui/sport_screen.py` | **NEW** — Sport mode full QPainter screen |
-| `ui/sharp_screen.py` | **NEW** — Sport Sharp mode full QPainter screen |
-| `ui/status_bar.py` | SI-Drive badge, warm-up, CAN dot |
-| `ui/theme.py` | Mode accent colors, font sizes |
-| `modes/mode_manager.py` | SI-Drive routing, staleness fallback |
-| `alerts/alert_engine.py` | Threshold alerts (needs mode-aware suppression) |
-| `main.py` | Signal wiring, screen data feed at 20Hz |
-| `scripts/kisti-session` | Jetson X session launcher (NEEDS display auto-detect fix) |
-| `tests/test_modes.py` | 29 tests for Phase 1 |
+| `ui/sharp_screen.py` | Sport Sharp — timing, FLIR, G-micro, AWD, traces |
+| `ui/sport_screen.py` | Sport — DCCD, FLIR, G-force circle, steering/yaw, traces |
+| `ui/intelligent_screen.py` | Intelligent — weather, FLIR, health, sparklines, wheel deltas |
+| `model/vehicle_state.py` | DiffState + DiffStateBridge (FLIR fields at lines ~223-228, ~240) |
+| `sensors/yoctopuce_reader.py` | Pattern for FLIR reader (QObject + QTimer + signal) |
+| `rs3/shift_led_investigation.md` | RS3 shift light config guide |
+| `ui/widgets/sti_heatmap_widget.py` | Reference for heat color functions |
 
-## Section 5: Architecture
+## Section 4: Architecture Notes
 
-3 screens in a flat QStackedWidget. SI-Drive physical knob (CAN 0x6B0) is the ONLY mode selector. No softkey bar, no sub-pages. Content area is 800x440 (40px status bar above).
+All 3 screens are pure QPainter (`paintEvent`). Data arrives via:
+- `update_state(DiffState)` at 20Hz (CAN + Yoctopuce + FLIR)
+- `update_timing(dict)` at 4Hz (TimingManager → only Sport Sharp uses this)
 
-```
-QStackedWidget (3 pages)
-  [0] IntelligentScreenWidget  — calm/diagnostic (blue #00AAFF)
-  [1] SportScreenWidget        — performance (amber #FF8800)
-  [2] SportSharpScreenWidget   — track attack (red #FF0000)
-```
+FLIR integration will require:
+1. Camera → per-frame thermal image (160x120 uint16)
+2. ROI extraction → 4 brake disc regions → temperature values
+3. Feed to `bridge.update_flir(fl, fr, rl, rr)`
 
-Signal flow: CAN 0x6B0 → bridge.update_si_drive() → ModeManager.si_drive_changed → MainWindow._on_si_drive_changed() → stack.setCurrentIndex()
-
-Data flow: bridge.state_changed → window.update_from_bridge(snap) → active_widget.update_state(snap)
-
-## Section 6: Zeus Memory
-
-Plan stored as ZMID `32b4a6f5-5936-461b-8b89-543edf509cd9` (management tenant) — but Zeus GET returns 404 despite POST succeeding. There's a persistence bug in Zeus Memory. The plan content is fully captured in this file instead.
-
-Architecture decision also stored by Cowork: ZMID `54e26e48` — "3 screens, no sub-pages, no softkey bar."
-
-## Section 7: Key Decisions
-
-- **3 screens only** — JK explicitly said "12 pages is too much, 1 per mode." No sub-pages, no settings in driving screens
-- **No softkey bar** — removed entirely. SI-Drive physical knob handles mode selection
-- **Content area 800x440** — reclaimed 60px from removed softkey bar
-- **QPainter only** — all screens are self-contained paintEvent rendering, no composite QWidget layouts
-- **Voice pipeline untouched** — already mode-aware, no changes needed
+The ROI mapping (which pixels = which brake disc) depends on camera mounting position. This will need a calibration/config step.

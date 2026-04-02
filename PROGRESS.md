@@ -1,5 +1,45 @@
 # KiSTI - Progress
 
+## Session: 2026-04-01 (kisti-21 — Screen Redesign: Remove MXG Overlap)
+
+### Status: COMPLETE
+
+### Completed
+- **Sport Sharp redesigned** — Removed 120px gear/speed/RPM. Replaced with FLIR 4-corner brake temps (heat-colored 2x2), G-force micro circle (55px, 5-frame trail), AWD status strip (DCCD + surface + ABS/VDC). Throttle trace → steering trace (trail-brake analysis). 5-zone safety vitals (added BRK T). Theoretical best time added to timing.
+- **Sport redesigned** — Removed gear/speed/RPM/boost arc/oil/coolant/lambda/IDC. New: DCCD bar + FLIR summary (top), steering + yaw bars + G-force circle (middle), wheel deltas + brake/steering trace (bottom). G-force 100-dot trail preserved exactly.
+- **Intelligent redesigned** — Removed gear/speed/boost/RPM/THR/MAP/TPS/oil/coolant/IAT/battery/lambda/IDC. New: expanded weather card + warm-up + DCCD + GPS (top), FLIR 4-corner + vehicle health (middle), brake temp sparklines + wheel deltas (bottom).
+- **DiffState FLIR fields** — Added brake_temp_fl/fr/rl/rr, flir_available, flir_frame_ts, update_flir() bridge method, is_flir_stale(timeout=2.0).
+- **RS3 shift LED investigation** — AiM MXG shift LEDs not CAN-addressable. Solution: RS3 math channels read SI-Drive (0x6B0) for mode-aware shift thresholds.
+- **885 tests passing** — no regressions (2 pre-existing stack index failures).
+
+### Files Changed
+- `model/vehicle_state.py` — FLIR fields on DiffState + DiffStateBridge.update_flir()
+- `ui/sharp_screen.py` — Full redesign: FLIR, G-force micro, AWD strip, steering trace, 5-zone vitals
+- `ui/sport_screen.py` — Full redesign: DCCD, FLIR, steering/yaw bars, G-force circle, trace
+- `ui/intelligent_screen.py` — Full redesign: weather, FLIR, vehicle health, brake sparklines, wheel deltas
+- `rs3/shift_led_investigation.md` — RS3 configuration guide for mode-aware shift lights
+- `rs3/README.md` — RS3 directory index
+
+### Key Decisions
+- **MXG = critical, KiSTI = context** — All 3 screens now show ONLY data the MXG cannot: FLIR thermal, G-forces, DCCD/AWD, wheel deltas, timing, weather, steering/yaw, brake pressure, surface state
+- **Safety vitals exception** — Oil PSI, coolant, oil temp remain as dim-until-warning on Sport Sharp. FLIR hottest brake corner added as 5th vital zone
+- **Steering replaces throttle** — In brake traces, steering angle + brake pressure = trail-braking analysis tool. MXG shows throttle
+
+### Don't Repeat
+- AiM MXG shift LEDs are NOT CAN-addressable — must configure in RS3 via math channels
+- SI-Drive OEM CAN values (1/2/3) differ from Link remapped values (0/1/2) — RS3 must use remapped
+- Worktree agents' file changes can apply to main repo via hooks — verify file state before writing
+- _heat_color pattern: blue (<150) → green (<300) → yellow (<450) → red (>500) for brakes
+
+### Next Session (kisti-22)
+1. Deploy to Jetson (`~/k`) and visually verify all 3 screens on 800x480 Excelon
+2. FLIR Lepton integration — create `sensors/flir_lepton_reader.py` (PureThermal USB, follow Yoctopuce pattern)
+3. Fix 2 pre-existing test failures (stack default index = 1 vs test expecting 0)
+4. FLIR-specific tests in test_modes.py
+5. Deploy to Aaron @ Boost Barn for tune session + RS3 shift light config
+
+---
+
 ## Session: 2026-04-01 (kisti-19 — Display Auth Fix + Alert Mode-Awareness)
 
 ### Status: COMPLETE
