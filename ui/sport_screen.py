@@ -54,7 +54,7 @@ from ui.theme import (
 
 # G-force circle — expanded to fill right side (350..800, 100..440)
 _G_CENTER_X = 575
-_G_CENTER_Y = 270
+_G_CENTER_Y = 250
 _G_RADIUS = 140
 _G_RING_05 = 70
 _G_MAX = 1.5
@@ -254,39 +254,18 @@ class SportScreenWidget(QWidget):
         if flir_ok:
             road_temp = snap.brake_temp_fl  # Forward FLIR = road surface
             heat_col = _brake_heat_color(road_temp)
-            bg = QColor(heat_col)
-            bg.setAlpha(40)
-            p.fillRect(rect, bg)
 
             # Label
             p.setFont(QFont("Helvetica", 10, QFont.Weight.Bold))
             p.setPen(QColor(GRAY))
             p.drawText(QRectF(520, 10, 100, 16), Qt.AlignmentFlag.AlignLeft, "ROAD")
 
-            # Temperature — large
+            # Temperature — large, heat-colored text (color = condition)
             p.setFont(QFont("Helvetica", 36, QFont.Weight.Bold))
             p.setPen(heat_col)
             p.drawText(QRectF(520, 24, 200, 50),
                        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                        f"{road_temp:.0f}\u00b0C")
-
-            # Grip hint — right side
-            if road_temp < 5:
-                grip = "ICE"
-                gc = QColor(RED)
-            elif road_temp < 15:
-                grip = "COLD"
-                gc = QColor(80, 180, 255)
-            elif road_temp < 40:
-                grip = "OK"
-                gc = QColor(GREEN)
-            else:
-                grip = "HOT"
-                gc = QColor(YELLOW)
-
-            p.setFont(QFont("Helvetica", 14, QFont.Weight.Bold))
-            p.setPen(gc)
-            p.drawText(QRectF(720, 36, 60, 24), Qt.AlignmentFlag.AlignCenter, grip)
         else:
             p.fillRect(rect, QColor(BG_PANEL))
             p.setFont(QFont("Helvetica", 12))

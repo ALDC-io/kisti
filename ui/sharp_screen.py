@@ -504,49 +504,16 @@ class SportSharpScreenWidget(QWidget):
         road_temp = snap.brake_temp_fl  # Forward FLIR = road surface
         heat_col = _brake_heat_color(road_temp)
 
-        # Full-width road temp card
-        card = QRectF(10, y0 + 4, _W - 20, strip_h - 8)
-        bg = QColor(heat_col)
-        bg.setAlpha(35)
-        p.fillRect(card, bg)
-
         # Label — left
         p.setFont(QFont("Helvetica", 12, QFont.Bold))
         p.setPen(QColor(GRAY))
         p.drawText(QRectF(24, y0 + 8, 120, 18), Qt.AlignLeft | Qt.AlignVCenter, "ROAD SURFACE")
 
-        # Temperature — large, left
+        # Temperature — large, left, heat-colored text (color = condition)
         p.setFont(QFont("Helvetica", 40, QFont.Bold))
-        p.setPen(QColor(WHITE))
+        p.setPen(heat_col)
         p.drawText(QRectF(24, y0 + 28, 250, 56),
                    Qt.AlignLeft | Qt.AlignVCenter, f"{road_temp:.0f}\u00b0C")
-
-        # Grip context — right
-        if road_temp < 5:
-            grip, gc = "ICE RISK", QColor(RED)
-        elif road_temp < 15:
-            grip, gc = "COLD", QColor(80, 180, 255)
-        elif road_temp < 40:
-            grip, gc = "OPTIMAL", QColor(GREEN)
-        else:
-            grip, gc = "HOT", QColor(YELLOW)
-
-        pill_w = 140
-        pill_h = 36
-        pill_x = _W - pill_w - 30
-        pill_y = y0 + (strip_h - pill_h) // 2
-
-        pill_bg = QColor(gc)
-        pill_bg.setAlphaF(0.25)
-        p.setPen(Qt.NoPen)
-        p.setBrush(pill_bg)
-        p.drawRoundedRect(QRectF(pill_x, pill_y, pill_w, pill_h), 18, 18)
-        p.setPen(QPen(gc, 1))
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawRoundedRect(QRectF(pill_x, pill_y, pill_w, pill_h), 18, 18)
-        p.setFont(QFont("Helvetica", 16, QFont.Bold))
-        p.setPen(gc)
-        p.drawText(QRectF(pill_x, pill_y, pill_w, pill_h), Qt.AlignCenter, grip)
 
     # ------------------------------------------------------------------
     # Safety vitals (y=380..480) — 5 zones, DIM until warning
