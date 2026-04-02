@@ -279,22 +279,22 @@ class TestMainWindowSIDrive:
     def test_si_drive_switches_stack(self, qapp):
         from ui.main_window import MainWindow
         win = MainWindow()
-        assert win._stack.currentIndex() == 0  # Starts on Intelligent
+        assert win._stack.currentIndex() == 1  # Starts on Sport (default)
 
-        win._on_si_drive_changed(1)
-        assert win._stack.currentIndex() == 1  # Sport
+        win._on_si_drive_changed(0)
+        assert win._stack.currentIndex() == 0  # Intelligent
 
         win._on_si_drive_changed(2)
         assert win._stack.currentIndex() == 2  # Sport Sharp
 
-        win._on_si_drive_changed(0)
-        assert win._stack.currentIndex() == 0  # Back to Intelligent
+        win._on_si_drive_changed(1)
+        assert win._stack.currentIndex() == 1  # Back to Sport
 
     def test_invalid_mode_ignored(self, qapp):
         from ui.main_window import MainWindow
         win = MainWindow()
         win._on_si_drive_changed(99)
-        assert win._stack.currentIndex() == 0  # Unchanged
+        assert win._stack.currentIndex() == 1  # Unchanged (stays on Sport default)
 
 
 class TestStatusBar:
@@ -330,3 +330,90 @@ class TestStatusBar:
         # CAN dot should be green (we check the stylesheet contains GREEN)
         from ui.theme import GREEN
         assert GREEN in bar._can_dot.styleSheet()
+
+
+# ===================================================================
+# FLIR thermal fields
+# ===================================================================
+
+class TestFLIRFields:
+    """DiffState FLIR brake temp fields and staleness."""
+
+    def test_flir_fields_default(self):
+        from model.vehicle_state import DiffState
+        snap = DiffState()
+        assert snap.brake_temp_fl == 0.0
+        assert snap.brake_temp_fr == 0.0
+        assert snap.brake_temp_rl == 0.0
+        assert snap.brake_temp_rr == 0.0
+        assert snap.flir_available is False
+
+    def test_flir_stale_when_never_updated(self):
+        from model.vehicle_state import DiffState
+        snap = DiffState()
+        assert snap.is_flir_stale() is True
+
+    def test_flir_not_stale_after_update(self, qapp):
+        bridge = DiffStateBridge()
+        bridge.update_flir(280.0, 310.0, 220.0, 250.0)
+        snap = bridge.snapshot()
+        assert snap.brake_temp_fl == 280.0
+        assert snap.brake_temp_fr == 310.0
+        assert snap.brake_temp_rl == 220.0
+        assert snap.brake_temp_rr == 250.0
+        assert snap.flir_available is True
+        assert snap.is_flir_stale() is False
+
+    def test_flir_snapshot_copies_fields(self, qapp):
+        bridge = DiffStateBridge()
+        bridge.update_flir(100.0, 200.0, 300.0, 400.0)
+        snap1 = bridge.snapshot()
+        bridge.update_flir(500.0, 600.0, 700.0, 800.0)
+        snap2 = bridge.snapshot()
+        # snap1 should be unchanged
+        assert snap1.brake_temp_fl == 100.0
+        assert snap2.brake_temp_fl == 500.0
+
+    def test_flir_heat_color_cold(self):
+        from ui.sharp_screen import _brake_heat_color
+        color = _brake_heat_color(100.0)  # below 150 = cold blue
+        assert color.blue() > color.red()  # blue dominant
+
+    def test_flir_heat_color_optimal(self):
+        from ui.sharp_screen import _brake_heat_color
+        color = _brake_heat_color(250.0)  # between 150-300 = green zone
+        assert color.green() > color.red()  # green dominant
+
+    def test_flir_heat_color_hot(self):
+        from ui.sharp_screen import _brake_heat_color
+        color = _brake_heat_color(520.0)  # above 500 = red
+        assert color.red() == 255
+        assert color.green() < 100
+
+    def test_sport_sharp_accepts_flir(self, qapp):
+        from ui.sharp_screen import SportSharpScreenWidget
+        w = SportSharpScreenWidget()
+        from model.vehicle_state import DiffState
+        snap = DiffState()
+        snap.brake_temp_fl = 350.0
+        snap.flir_available = True
+        w.update_state(snap)
+        # Should not crash
+
+    def test_sport_accepts_flir(self, qapp):
+        from ui.sport_screen import SportScreenWidget
+        w = SportScreenWidget()
+        from model.vehicle_state import DiffState
+        snap = DiffState()
+        snap.brake_temp_fl = 350.0
+        snap.flir_available = True
+        w.update_state(snap)
+
+    def test_intelligent_accepts_flir(self, qapp):
+        from ui.intelligent_screen import IntelligentScreenWidget
+        w = IntelligentScreenWidget()
+        from model.vehicle_state import DiffState
+        snap = DiffState()
+        snap.brake_temp_fl = 350.0
+        snap.flir_available = True
+        w.update_state(snap)
