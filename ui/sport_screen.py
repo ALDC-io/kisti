@@ -76,10 +76,11 @@ _STEER_MAX = 450.0
 _YAW_MAX = 60.0
 
 # FLIR thresholds
-_FLIR_COLD = 150.0
-_FLIR_GREEN = 300.0
-_FLIR_YELLOW = 450.0
-_FLIR_RED = 500.0
+# Road surface temp thresholds (forward-facing grill FLIR)
+_FLIR_COLD = 5.0      # Ice risk
+_FLIR_GREEN = 15.0    # Cool but safe
+_FLIR_YELLOW = 40.0   # Warm/optimal
+_FLIR_RED = 55.0      # Very hot pavement
 
 
 def _brake_heat_color(temp_c: float) -> QColor:

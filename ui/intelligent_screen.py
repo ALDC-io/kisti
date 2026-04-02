@@ -42,10 +42,11 @@ from ui.theme import (
 # ---------------------------------------------------------------------------
 # FLIR brake temp thresholds (deg C)
 # ---------------------------------------------------------------------------
-_FLIR_COLD: float = 150.0
-_FLIR_GREEN: float = 300.0
-_FLIR_YELLOW: float = 450.0
-_FLIR_RED: float = 500.0
+# Road surface temp thresholds (forward-facing grill FLIR)
+_FLIR_COLD: float = 5.0      # Ice risk
+_FLIR_GREEN: float = 15.0    # Cool but safe
+_FLIR_YELLOW: float = 40.0   # Warm/optimal
+_FLIR_RED: float = 55.0      # Very hot pavement
 
 # ---------------------------------------------------------------------------
 # Wheel speed delta thresholds (km/h)

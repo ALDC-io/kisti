@@ -911,10 +911,12 @@ class MockCanGenerator(QObject):
         self._prev_heading = 135.0
 
         # FLIR brake temp state (°C)
-        self._flir_fl = 180.0
-        self._flir_fr = 175.0
-        self._flir_rl = 160.0
-        self._flir_rr = 155.0
+        # Forward FLIR = road surface temp (single camera in grill)
+        # fl used as road surface reading; fr/rl/rr unused but kept for API compat
+        self._flir_fl = 18.0   # Road surface ~ambient
+        self._flir_fr = 18.0
+        self._flir_rl = 18.0
+        self._flir_rr = 18.0
 
         # Mock ambient weather
         self._amb_temp = 18.0
@@ -1341,21 +1343,18 @@ class MockCanGenerator(QObject):
         )
 
     def _flir_tick(self) -> None:
-        """Mock FLIR Lepton — brake disc temps correlated with braking."""
-        # Braking heats up front more than rear (60/40 bias)
-        heat_rate = self._brake_press / 80.0 * 8.0  # max ~8°C/tick at 80 bar
-        cool_rate = 0.3  # radiative cooling per tick
+        """Mock forward FLIR — road surface temp tracks near ambient."""
+        # Road surface drifts slowly around ambient temp (±5°C)
+        # Sun exposure can warm road above ambient; shade/rain cools it
+        target = self._amb_temp + random.uniform(-3.0, 5.0)
+        self._flir_fl += (target - self._flir_fl) * 0.02 + random.uniform(-0.3, 0.3)
 
-        self._flir_fl += heat_rate * 0.35 - cool_rate + random.uniform(-1.0, 1.0)
-        self._flir_fr += heat_rate * 0.35 - cool_rate + random.uniform(-1.0, 1.0)
-        self._flir_rl += heat_rate * 0.15 - cool_rate + random.uniform(-0.8, 0.8)
-        self._flir_rr += heat_rate * 0.15 - cool_rate + random.uniform(-0.8, 0.8)
-
-        # Clamp to plausible brake disc range (50–650°C)
-        self._flir_fl = max(50.0, min(650.0, self._flir_fl))
-        self._flir_fr = max(50.0, min(650.0, self._flir_fr))
-        self._flir_rl = max(50.0, min(650.0, self._flir_rl))
-        self._flir_rr = max(50.0, min(650.0, self._flir_rr))
+        # Clamp to plausible road surface range (-20°C to 60°C)
+        self._flir_fl = max(-20.0, min(60.0, self._flir_fl))
+        # Mirror to other fields for API compat
+        self._flir_fr = self._flir_fl
+        self._flir_rl = self._flir_fl
+        self._flir_rr = self._flir_fl
 
         self._bridge.update_flir(
             fl=self._flir_fl,

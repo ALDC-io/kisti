@@ -81,11 +81,11 @@ _G_RADIUS = 80        # Outer ring = 1.0g
 _G_RING_05 = 40       # Inner ring = 0.5g
 _G_MAX = 1.5          # Clamp G values
 
-# FLIR brake temp thresholds (°C) — used by _brake_heat_color and safety vitals
-_FLIR_COLD = 150.0
-_FLIR_GREEN = 300.0
-_FLIR_YELLOW = 450.0
-_FLIR_RED = 500.0
+# Road surface temp thresholds (forward-facing grill FLIR)
+_FLIR_COLD = 5.0      # Ice risk
+_FLIR_GREEN = 15.0    # Cool but safe
+_FLIR_YELLOW = 40.0   # Warm/optimal
+_FLIR_RED = 55.0      # Very hot pavement
 
 # Safety thresholds — sourced from data/build_record.py BASELINES
 _OIL_WARN_LOW = 15.0   # PSI
