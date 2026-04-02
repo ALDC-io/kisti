@@ -76,7 +76,7 @@ _BAR_W = _W - 2 * _BAR_MARGIN
 _TIMING_W = 480       # Left side: timing data
 _G_PANEL_X = 480      # Right side: G-force circle
 _G_CENTER_X = 640     # Circle center X (midpoint of 480..800)
-_G_CENTER_Y = 185     # Circle center Y (midpoint of 90..280)
+_G_CENTER_Y = 170     # Circle center Y (raised to fit magnitude label above sector strip)
 _G_RADIUS = 80        # Outer ring = 1.0g
 _G_RING_05 = 40       # Inner ring = 0.5g
 _G_MAX = 1.5          # Clamp G values
