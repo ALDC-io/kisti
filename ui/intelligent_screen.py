@@ -1,15 +1,17 @@
 """KiSTI - Intelligent Mode Screen (SI-Drive = 0)
 
-Calm / diagnostic / street display. Rich context, large fonts, low density.
+Calm / diagnostic / street display.  Rich context the AiM MXG Strada
+cannot show: weather, FLIR brake temps, vehicle health, wheel deltas.
+
 Full QPainter rendering — no composite QWidget layouts.
 
 Content area: 800x440 (status bar above, no softkey bar).
 Color accent: MODE_I_ACCENT (#00AAFF) blue.
 
 Layout:
-  Top (0..120)    — Gear+Speed | Boost bar | Oil+Coolant
-  Middle (120..300) — Sparklines | Weather card | Vehicle status
-  Bottom (300..440)  — Lambda bar | Injector duty | GPS status
+  Top (0..100)      — Weather expanded (left 400) | Warm-up + DCCD + Surface + GPS (right 400)
+  Middle (100..300)  — FLIR brake temps (left 320) | Vehicle health + wheel overview (right 480)
+  Bottom (300..440)  — Brake temp sparklines (left 400) | Wheel speed delta bars (right 400)
 """
 
 from __future__ import annotations
@@ -18,10 +20,8 @@ from collections import deque
 
 from PySide6.QtCore import Qt, QPointF, QRectF
 from PySide6.QtGui import (
-    QBrush,
     QColor,
     QFont,
-    QLinearGradient,
     QPainter,
     QPainterPath,
     QPen,
@@ -43,10 +43,8 @@ from ui.theme import (
     CYAN,
     CHROME_DARK,
     MODE_I_ACCENT,
-    FONT_BASE,
     FONT_HEADER,
     FONT_BIG,
-    FONT_MEGA,
 )
 
 # ---------------------------------------------------------------------------
@@ -55,35 +53,28 @@ from ui.theme import (
 _HISTORY_SIZE: int = 200
 
 # ---------------------------------------------------------------------------
-# Threshold constants
+# FLIR brake temp thresholds (deg C)
 # ---------------------------------------------------------------------------
-
-# Boost bar range (kPa above atmospheric)
-_BOOST_MAX_KPA: float = 200.0
-_BOOST_WARN_KPA: float = 140.0
-_BOOST_CRIT_KPA: float = 180.0
-
-# Oil pressure thresholds (PSI)
-_OIL_LOW_WARN: float = 25.0
-
-# Coolant temperature thresholds (deg C)
-_CLT_WARN: float = 105.0
-_CLT_CRIT: float = 115.0
-
-# Lambda bar range
-_LAMBDA_MIN: float = 0.70
-_LAMBDA_MAX: float = 1.30
-_LAMBDA_TARGET: float = 1.0
-
-# Injector duty thresholds (%)
-_INJ_WARN: float = 80.0
-_INJ_CRIT: float = 90.0
-
-# Atmospheric pressure (kPa) for boost calculation
-_ATM_KPA: float = 101.3
+_FLIR_COLD: float = 150.0
+_FLIR_GREEN: float = 300.0
+_FLIR_YELLOW: float = 450.0
+_FLIR_RED: float = 500.0
 
 # ---------------------------------------------------------------------------
-# Font helpers
+# Wheel speed delta thresholds (km/h)
+# ---------------------------------------------------------------------------
+_WS_MODERATE: float = 2.0
+_WS_SEVERE: float = 5.0
+
+# ---------------------------------------------------------------------------
+# Layout constants
+# ---------------------------------------------------------------------------
+_W = 800
+_H = 440
+
+
+# ---------------------------------------------------------------------------
+# Font helper
 # ---------------------------------------------------------------------------
 
 def _font(size: int, bold: bool = False) -> QFont:
@@ -94,20 +85,65 @@ def _font(size: int, bold: bool = False) -> QFont:
 
 
 # ---------------------------------------------------------------------------
+# Brake heat color: blue (<150) -> green (<300) -> yellow (<450) -> red (>500)
+# ---------------------------------------------------------------------------
+
+def _brake_heat_color(temp_c: float) -> QColor:
+    """Blue (cold) -> Green (optimal) -> Yellow (warm) -> Red (hot)."""
+    if temp_c <= _FLIR_COLD:
+        return QColor(80, 180, 255)     # Light blue
+    elif temp_c <= _FLIR_GREEN:
+        t = (temp_c - _FLIR_COLD) / max(1, _FLIR_GREEN - _FLIR_COLD)
+        r = int(80 * (1 - t))
+        g = int(180 * (1 - t) + 200 * t)
+        b = int(255 * (1 - t) + 80 * t)
+        return QColor(r, g, b)
+    elif temp_c <= _FLIR_YELLOW:
+        t = (temp_c - _FLIR_GREEN) / max(1, _FLIR_YELLOW - _FLIR_GREEN)
+        r = int(255 * t)
+        g = int(200 * (1 - t) + 170 * t)
+        b = int(80 * (1 - t))
+        return QColor(r, g, b)
+    else:
+        t = min(1.0, (temp_c - _FLIR_YELLOW) / max(1, _FLIR_RED - _FLIR_YELLOW))
+        r = 255
+        g = int(170 * (1 - t) + 30 * t)
+        return QColor(r, g, 0)
+
+
+def _wheel_delta_color(abs_delta: float) -> str:
+    """Wheel speed delta color: cyan=small, yellow=moderate, red=severe."""
+    if abs_delta > _WS_SEVERE:
+        return RED
+    if abs_delta > _WS_MODERATE:
+        return YELLOW
+    return CYAN
+
+
+# ---------------------------------------------------------------------------
 # IntelligentScreenWidget
 # ---------------------------------------------------------------------------
 
 class IntelligentScreenWidget(QWidget):
-    """Full QPainter-based Intelligent mode display (SI-Drive = 0)."""
+    """Full QPainter-based Intelligent mode display (SI-Drive = 0).
+
+    Shows ONLY data the AiM MXG Strada 7" cannot:
+      - Weather (Yoctopuce ambient)
+      - FLIR brake temps (4-corner)
+      - Vehicle health (DCCD, surface, warm-up, ABS/VDC, ethanol)
+      - Wheel speed deltas + slip
+      - GPS fix indicator
+    """
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._snap: DiffState | None = None
 
-        # 10-second ring buffers (pushed at 20 Hz)
-        self._oil_history: deque[float] = deque(maxlen=_HISTORY_SIZE)
-        self._coolant_history: deque[float] = deque(maxlen=_HISTORY_SIZE)
-        self._boost_history: deque[float] = deque(maxlen=_HISTORY_SIZE)
+        # 10-second ring buffers for brake temp sparklines (pushed at 20 Hz)
+        self._brake_fl_history: deque[float] = deque(maxlen=_HISTORY_SIZE)
+        self._brake_fr_history: deque[float] = deque(maxlen=_HISTORY_SIZE)
+        self._brake_rl_history: deque[float] = deque(maxlen=_HISTORY_SIZE)
+        self._brake_rr_history: deque[float] = deque(maxlen=_HISTORY_SIZE)
 
         # Tell Qt we paint our entire rect every frame (compositorless X11)
         self.setAttribute(Qt.WA_OpaquePaintEvent)
@@ -126,10 +162,10 @@ class IntelligentScreenWidget(QWidget):
     def update_state(self, snap: DiffState) -> None:
         """Called at 20 Hz from MainWindow with the latest DiffState snapshot."""
         self._snap = snap
-        self._oil_history.append(snap.oil_psi)
-        self._coolant_history.append(snap.coolant_temp)
-        boost_kpa = max(0.0, snap.map_4bar_kpa - _ATM_KPA)
-        self._boost_history.append(boost_kpa)
+        self._brake_fl_history.append(snap.brake_temp_fl)
+        self._brake_fr_history.append(snap.brake_temp_fr)
+        self._brake_rl_history.append(snap.brake_temp_rl)
+        self._brake_rr_history.append(snap.brake_temp_rr)
         self.update()  # schedule repaint
 
     # ------------------------------------------------------------------
@@ -155,310 +191,648 @@ class IntelligentScreenWidget(QWidget):
         stale_engine = snap is None or snap.is_engine_stale()
         stale_diff = snap is None or snap.is_diff_stale()
         stale_gps = snap is None or snap.is_gps_stale()
+        stale_flir = snap is None or snap.is_flir_stale()
+        stale_wheel = snap is None or snap.is_wheel_stale()
 
-        # --- Top section (y=0..120): Primary vitals ---
-        self._draw_top_section(p, w, snap, stale_engine)
+        # --- Top section (y=0..100): Weather + Vehicle State ---
+        self._draw_top_section(p, snap, stale_gps, stale_diff, stale_engine)
 
         # Divider
         p.setPen(QPen(QColor(DIM), 1))
-        p.drawLine(0, 120, w, 120)
+        p.drawLine(0, 100, w, 100)
 
-        # --- Middle section (y=120..300): Health overview ---
-        self._draw_middle_section(p, w, snap, stale_engine, stale_diff)
+        # --- Middle section (y=100..300): FLIR + Health ---
+        self._draw_middle_section(p, snap, stale_flir, stale_wheel, stale_engine,
+                                  stale_diff)
 
         # Divider
         p.drawLine(0, 300, w, 300)
 
-        # --- Bottom section (y=300..440): Status line ---
-        self._draw_bottom_section(p, w, snap, stale_engine, stale_gps)
+        # --- Bottom section (y=300..440): Sparklines + Wheel deltas ---
+        self._draw_bottom_section(p, snap, stale_flir, stale_wheel)
 
         p.end()
 
     # ==================================================================
-    # TOP SECTION (y=0..120)
+    # TOP SECTION (y=0..100): Weather (left) | Warm-up + DCCD + Surface + GPS (right)
     # ==================================================================
 
     def _draw_top_section(
-        self, p: QPainter, w: int, snap: DiffState | None, stale: bool
+        self, p: QPainter, snap: DiffState | None,
+        stale_gps: bool, stale_diff: bool, stale_engine: bool,
     ) -> None:
-        """Gear+Speed (left), Boost bar (center), Oil+Coolant (right)."""
-        # --- Left: Gear + Speed ---
-        self._draw_gear_speed(p, snap, stale)
-        # --- Center: Boost bar ---
-        self._draw_boost_bar(p, w, snap, stale)
-        # --- Right: Oil + Coolant ---
-        self._draw_oil_coolant(p, w, snap, stale)
+        self._draw_weather_card(p, x=0, y=0, cw=400, ch=100, snap=snap)
+        self._draw_vehicle_state_panel(p, x=400, y=0, cw=400, ch=100, snap=snap,
+                                       stale_diff=stale_diff, stale_gps=stale_gps,
+                                       stale_engine=stale_engine)
 
-    def _draw_gear_speed(
-        self, p: QPainter, snap: DiffState | None, stale: bool
+    # ------------------------------------------------------------------
+    # Weather card (expanded, full top-left 400x100)
+    # ------------------------------------------------------------------
+
+    def _draw_weather_card(
+        self, p: QPainter, x: int, y: int, cw: int, ch: int,
+        snap: DiffState | None,
     ) -> None:
-        """Gear number (large) and speed below it."""
-        # Gear
-        gear_text = "N"
-        if not stale and snap is not None and snap.gear > 0:
-            gear_text = str(snap.gear)
-        color = QColor(GRAY) if stale else QColor(WHITE)
-        p.setFont(_font(FONT_MEGA, bold=True))
-        p.setPen(QPen(color))
-        p.drawText(QRectF(12, 8, 80, 60), Qt.AlignCenter, gear_text)
+        """Ambient weather: temp, humidity, pressure, density altitude, dew point."""
+        # Card background
+        p.setPen(QPen(QColor(DIM), 1))
+        p.setBrush(QColor(BG_ACCENT))
+        p.drawRoundedRect(QRectF(x + 4, y + 4, cw - 8, ch - 8), 4, 4)
 
-        # Speed
-        if stale or snap is None:
-            speed_text = "---"
-            speed_color = QColor(GRAY)
-        else:
-            speed_text = f"{snap.speed_kph:.0f}"
-            speed_color = QColor(MODE_I_ACCENT)
-        p.setFont(_font(22, bold=True))
-        p.setPen(QPen(speed_color))
-        p.drawText(QRectF(12, 68, 60, 28), Qt.AlignRight | Qt.AlignVCenter, speed_text)
-
-        # "km/h" label
-        p.setFont(_font(11))
-        p.setPen(QPen(QColor(GRAY)))
-        p.drawText(QRectF(74, 72, 40, 22), Qt.AlignLeft | Qt.AlignVCenter, "km/h")
-
-    def _draw_boost_bar(
-        self, p: QPainter, w: int, snap: DiffState | None, stale: bool
-    ) -> None:
-        """Horizontal fill bar for boost pressure (center of top section)."""
-        bar_x = 130
-        bar_w = w - 320
-        bar_y = 20
-        bar_h = 32
-        label_y = 4
-
-        # Label
+        # Header
         p.setFont(_font(11, bold=True))
-        p.setPen(QPen(QColor(SILVER)))
-        p.drawText(QRectF(bar_x, label_y, bar_w, 16), Qt.AlignLeft | Qt.AlignVCenter, "BOOST")
+        p.setPen(QPen(QColor(MODE_I_ACCENT)))
+        p.drawText(QRectF(x + 12, y + 6, cw - 24, 16), Qt.AlignLeft | Qt.AlignVCenter,
+                   "WEATHER")
 
+        available = snap is not None and snap.ambient_available
+        row_h = 15
+        row_y = y + 24
+
+        # Two-column layout: left column and right column within the card
+        col1_lx = x + 12
+        col1_vx = x + 80
+        col1_vw = 100
+
+        col2_lx = x + 198
+        col2_vx = x + 280
+        col2_vw = 108
+
+        # Column 1 rows
+        rows_left = [
+            ("TEMP", f"{snap.ambient_temp_c:.1f}\u00b0C" if available else "---"),
+            ("HUMIDITY", f"{snap.ambient_humidity_pct:.0f}%" if available else "---"),
+            ("PRESSURE", f"{snap.ambient_pressure_hpa:.0f} hPa" if available else "---"),
+        ]
+
+        # Column 2 rows
+        rows_right = [
+            ("DENS ALT", f"{snap.density_altitude_ft:.0f} ft" if available else "---"),
+            ("DEW PT", f"{snap.dew_point_c:.1f}\u00b0C" if available else "---"),
+        ]
+
+        for i, (label, value) in enumerate(rows_left):
+            ry = row_y + i * row_h
+            p.setFont(_font(10))
+            p.setPen(QPen(QColor(GRAY)))
+            p.drawText(QRectF(col1_lx, ry, col1_vx - col1_lx, row_h),
+                       Qt.AlignLeft | Qt.AlignVCenter, label)
+            val_color = QColor(WHITE) if available else QColor(GRAY)
+            p.setFont(_font(11, bold=True))
+            p.setPen(QPen(val_color))
+            p.drawText(QRectF(col1_vx, ry, col1_vw, row_h),
+                       Qt.AlignLeft | Qt.AlignVCenter, value)
+
+        for i, (label, value) in enumerate(rows_right):
+            ry = row_y + i * row_h
+            p.setFont(_font(10))
+            p.setPen(QPen(QColor(GRAY)))
+            p.drawText(QRectF(col2_lx, ry, col2_vx - col2_lx, row_h),
+                       Qt.AlignLeft | Qt.AlignVCenter, label)
+            val_color = QColor(WHITE) if available else QColor(GRAY)
+            p.setFont(_font(11, bold=True))
+            p.setPen(QPen(val_color))
+            p.drawText(QRectF(col2_vx, ry, col2_vw, row_h),
+                       Qt.AlignLeft | Qt.AlignVCenter, value)
+
+        # "NO SENSOR" label if unavailable
+        if not available:
+            p.setFont(_font(9))
+            p.setPen(QPen(QColor(GRAY)))
+            p.drawText(QRectF(col2_lx, row_y + 2 * row_h, col2_vw + 82, row_h),
+                       Qt.AlignLeft | Qt.AlignVCenter, "NO SENSOR")
+
+    # ------------------------------------------------------------------
+    # Vehicle state panel (top-right 400x100)
+    # Warm-up state, DCCD bar, Surface badge, GPS fix indicator
+    # ------------------------------------------------------------------
+
+    def _draw_vehicle_state_panel(
+        self, p: QPainter, x: int, y: int, cw: int, ch: int,
+        snap: DiffState | None,
+        stale_diff: bool, stale_gps: bool, stale_engine: bool,
+    ) -> None:
+        inner_x = x + 8
+        inner_w = cw - 16
+
+        # --- Row 1: Warm-up state (large + prominent) ---
+        warmup_y = y + 8
+        warmup_h = 22
+        if snap is not None:
+            warmup_label = snap.warmup_state.label
+            warmup_color = QColor(snap.warmup_state.color)
+        else:
+            warmup_label = "---"
+            warmup_color = QColor(GRAY)
+
+        p.setFont(_font(FONT_HEADER, bold=True))
+        p.setPen(QPen(warmup_color))
+        p.drawText(
+            QRectF(inner_x, warmup_y, inner_w // 2, warmup_h),
+            Qt.AlignLeft | Qt.AlignVCenter,
+            warmup_label,
+        )
+
+        # GPS fix indicator — right side of warm-up row
+        gps_dot_x = x + cw - 80
+        if stale_gps or snap is None:
+            sat_text = "GPS ---"
+            dot_color = QColor(GRAY)
+        else:
+            sats = snap.gps_satellites
+            fix_q = snap.gps_fix_quality
+            sat_text = f"GPS {sats}"
+            if fix_q >= 2:
+                dot_color = QColor(GREEN)
+            elif fix_q >= 1:
+                dot_color = QColor(YELLOW)
+            else:
+                dot_color = QColor(RED)
+
+        # Fix quality dot
+        dot_r = 5
+        dot_cy = warmup_y + warmup_h // 2
+        p.setPen(Qt.NoPen)
+        p.setBrush(dot_color)
+        p.drawEllipse(QPointF(gps_dot_x, dot_cy), dot_r, dot_r)
+
+        # Satellite count text
+        p.setFont(_font(11, bold=True))
+        p.setPen(QPen(dot_color))
+        p.drawText(QRectF(gps_dot_x + 10, warmup_y, 60, warmup_h),
+                   Qt.AlignLeft | Qt.AlignVCenter, sat_text)
+
+        # --- Row 2: DCCD lock bar ---
+        dccd_y = warmup_y + warmup_h + 6
+        dccd_bar_h = 14
+        p.setFont(_font(10, bold=True))
+        p.setPen(QPen(QColor(GRAY)))
+        p.drawText(QRectF(inner_x, dccd_y, 44, dccd_bar_h),
+                   Qt.AlignLeft | Qt.AlignVCenter, "DCCD")
+
+        bar_x = inner_x + 46
+        bar_w = inner_w - 100
         # Bar background
         p.setPen(Qt.NoPen)
         p.setBrush(QColor(BG_PANEL))
-        p.drawRoundedRect(QRectF(bar_x, bar_y, bar_w, bar_h), 4, 4)
+        p.drawRoundedRect(QRectF(bar_x, dccd_y, bar_w, dccd_bar_h), 3, 3)
 
-        # Compute boost
-        if stale or snap is None:
-            boost_kpa = 0.0
-            value_text = "---"
+        if not stale_diff and snap is not None:
+            lock_frac = min(snap.dccd_command_pct / 100.0, 1.0)
+            if lock_frac > 0.01:
+                lock_color = QColor(MODE_I_ACCENT)
+                if snap.dccd_command_pct > 80:
+                    lock_color = QColor(YELLOW)
+                p.setBrush(lock_color)
+                p.drawRoundedRect(
+                    QRectF(bar_x, dccd_y, bar_w * lock_frac, dccd_bar_h), 3, 3
+                )
+            pct_text = f"{snap.dccd_command_pct:.0f}%"
+            pct_color = QColor(WHITE)
         else:
-            boost_kpa = max(0.0, snap.map_4bar_kpa - _ATM_KPA)
-            value_text = f"{boost_kpa:.0f} kPa"
+            pct_text = "---%"
+            pct_color = QColor(GRAY)
 
-        # Fill
-        fill_frac = min(boost_kpa / _BOOST_MAX_KPA, 1.0) if _BOOST_MAX_KPA > 0 else 0.0
-        fill_w = bar_w * fill_frac
-
-        if fill_w > 1:
-            # Color by severity
-            if boost_kpa >= _BOOST_CRIT_KPA:
-                fill_color = QColor(RED)
-            elif boost_kpa >= _BOOST_WARN_KPA:
-                fill_color = QColor(YELLOW)
-            else:
-                fill_color = QColor(GREEN)
-
-            # Gradient fill
-            grad = QLinearGradient(bar_x, bar_y, bar_x + fill_w, bar_y)
-            base = QColor(fill_color)
-            base.setAlphaF(0.6)
-            grad.setColorAt(0.0, base)
-            grad.setColorAt(1.0, fill_color)
-            p.setBrush(grad)
-            p.drawRoundedRect(QRectF(bar_x, bar_y, fill_w, bar_h), 4, 4)
-
-        # Bar outline
         p.setPen(QPen(QColor(CHROME_DARK), 1))
         p.setBrush(Qt.NoBrush)
-        p.drawRoundedRect(QRectF(bar_x, bar_y, bar_w, bar_h), 4, 4)
+        p.drawRoundedRect(QRectF(bar_x, dccd_y, bar_w, dccd_bar_h), 3, 3)
 
-        # Value text (right-aligned inside bar)
-        val_color = QColor(GRAY) if stale else QColor(WHITE)
-        p.setFont(_font(FONT_HEADER, bold=True))
-        p.setPen(QPen(val_color))
+        p.setFont(_font(10, bold=True))
+        p.setPen(QPen(pct_color))
         p.drawText(
-            QRectF(bar_x, bar_y, bar_w - 8, bar_h),
-            Qt.AlignRight | Qt.AlignVCenter,
-            value_text,
+            QRectF(bar_x + bar_w + 4, dccd_y, 46, dccd_bar_h),
+            Qt.AlignLeft | Qt.AlignVCenter,
+            pct_text,
         )
 
-        # Warn/Crit tick marks
-        for threshold, tick_color in [
-            (_BOOST_WARN_KPA, YELLOW),
-            (_BOOST_CRIT_KPA, RED),
-        ]:
-            tick_x = bar_x + bar_w * (threshold / _BOOST_MAX_KPA)
-            p.setPen(QPen(QColor(tick_color), 1, Qt.DashLine))
-            p.drawLine(QPointF(tick_x, bar_y + 2), QPointF(tick_x, bar_y + bar_h - 2))
-
-        # RPM line below boost bar
-        rpm_y = bar_y + bar_h + 6
-        if stale or snap is None:
-            rpm_text = "--- RPM"
-            rpm_col = QColor(GRAY)
+        # --- Row 3: Surface badge ---
+        badge_y = dccd_y + dccd_bar_h + 6
+        badge_h = 18
+        if snap is not None:
+            surface_label = snap.surface_state.label
+            surface_color = QColor(snap.surface_state.color)
         else:
-            rpm_text = f"{snap.rpm:.0f} RPM"
-            rpm_col = QColor(SILVER)
-        p.setFont(_font(13))
-        p.setPen(QPen(rpm_col))
-        p.drawText(QRectF(bar_x, rpm_y, bar_w, 18), Qt.AlignLeft | Qt.AlignVCenter, rpm_text)
+            surface_label = "---"
+            surface_color = QColor(GRAY)
 
-        # Throttle line
-        if stale or snap is None:
-            thr_text = "THR ---"
-        else:
-            thr_text = f"THR {snap.throttle_pct:.0f}%"
+        p.setFont(_font(10, bold=True))
+        badge_tw = p.fontMetrics().horizontalAdvance(surface_label) + 16
+        # Pill background
+        p.setPen(Qt.NoPen)
+        pill_bg = QColor(surface_color)
+        pill_bg.setAlphaF(0.25)
+        p.setBrush(pill_bg)
+        p.drawRoundedRect(QRectF(inner_x, badge_y, badge_tw, badge_h), 9, 9)
+        p.setPen(QPen(surface_color))
         p.drawText(
-            QRectF(bar_x, rpm_y, bar_w, 18),
-            Qt.AlignRight | Qt.AlignVCenter,
-            thr_text,
+            QRectF(inner_x, badge_y, badge_tw, badge_h),
+            Qt.AlignCenter,
+            surface_label,
         )
-
-        # MAP line
-        map_y = rpm_y + 18
-        if stale or snap is None:
-            map_text = "MAP --- kPa"
-        else:
-            map_text = f"MAP {snap.map_kpa:.0f} kPa"
-        p.setFont(_font(11))
-        p.setPen(QPen(QColor(GRAY)))
-        p.drawText(QRectF(bar_x, map_y, bar_w, 16), Qt.AlignLeft | Qt.AlignVCenter, map_text)
-
-        # TPS
-        if stale or snap is None:
-            tps_text = "TPS ---"
-        else:
-            tps_text = f"TPS {snap.tps:.0f}%"
-        p.drawText(
-            QRectF(bar_x, map_y, bar_w, 16),
-            Qt.AlignRight | Qt.AlignVCenter,
-            tps_text,
-        )
-
-    def _draw_oil_coolant(
-        self, p: QPainter, w: int, snap: DiffState | None, stale: bool
-    ) -> None:
-        """Oil PSI/temp and coolant temp (right side of top section)."""
-        rx = w - 180
-        rw = 170
-
-        # --- Oil line ---
-        if stale or snap is None:
-            oil_text = "OIL  --- PSI / ---\u00b0C"
-            oil_color = QColor(GRAY)
-        else:
-            oil_psi = snap.oil_psi
-            oil_temp = snap.oil_temp_c
-            oil_text = f"OIL  {oil_psi:.0f} PSI / {oil_temp:.0f}\u00b0C"
-            if oil_psi < _OIL_LOW_WARN:
-                oil_color = QColor(RED)
-            else:
-                oil_color = QColor(GREEN)
-
-        p.setFont(_font(14, bold=True))
-        p.setPen(QPen(oil_color))
-        p.drawText(QRectF(rx, 18, rw, 24), Qt.AlignLeft | Qt.AlignVCenter, oil_text)
-
-        # --- Coolant line ---
-        if stale or snap is None:
-            clt_text = "CLT  ---\u00b0C"
-            clt_color = QColor(GRAY)
-        else:
-            clt = snap.coolant_temp
-            clt_text = f"CLT  {clt:.0f}\u00b0C"
-            if clt >= _CLT_CRIT:
-                clt_color = QColor(RED)
-            elif clt >= _CLT_WARN:
-                clt_color = QColor(YELLOW)
-            else:
-                clt_color = QColor(GREEN)
-
-        p.setPen(QPen(clt_color))
-        p.drawText(QRectF(rx, 46, rw, 24), Qt.AlignLeft | Qt.AlignVCenter, clt_text)
-
-        # --- IAT line ---
-        if stale or snap is None:
-            iat_text = "IAT  ---\u00b0C"
-            iat_color = QColor(GRAY)
-        else:
-            iat_text = f"IAT  {snap.iat_c:.0f}\u00b0C"
-            iat_color = QColor(SILVER)
-
-        p.setFont(_font(12))
-        p.setPen(QPen(iat_color))
-        p.drawText(QRectF(rx, 74, rw, 20), Qt.AlignLeft | Qt.AlignVCenter, iat_text)
-
-        # --- Battery voltage ---
-        if stale or snap is None:
-            bat_text = "BAT  ---V"
-            bat_color = QColor(GRAY)
-        else:
-            bat_text = f"BAT  {snap.battery_v:.1f}V"
-            if snap.battery_v < 12.0:
-                bat_color = QColor(RED)
-            elif snap.battery_v < 13.0:
-                bat_color = QColor(YELLOW)
-            else:
-                bat_color = QColor(GREEN)
-
-        p.setPen(QPen(bat_color))
-        p.drawText(QRectF(rx, 96, rw, 20), Qt.AlignLeft | Qt.AlignVCenter, bat_text)
 
     # ==================================================================
-    # MIDDLE SECTION (y=120..300)
+    # MIDDLE SECTION (y=100..300): FLIR (left) | Health overview (right)
     # ==================================================================
 
     def _draw_middle_section(
-        self,
-        p: QPainter,
-        w: int,
-        snap: DiffState | None,
-        stale_engine: bool,
+        self, p: QPainter, snap: DiffState | None,
+        stale_flir: bool, stale_wheel: bool, stale_engine: bool,
         stale_diff: bool,
     ) -> None:
-        """Sparklines (left), Weather + Vehicle status (right)."""
-        # Left column: sparklines (x=0..350)
-        self._draw_sparkline(
-            p, x=10, y=128, sw=240, sh=36,
-            label="OIL PSI",
-            data=self._oil_history,
-            color=GREEN,
-            min_val=0.0, max_val=80.0,
-        )
-        self._draw_sparkline(
-            p, x=10, y=172, sw=240, sh=36,
-            label="CLT \u00b0C",
-            data=self._coolant_history,
-            color=GREEN,
-            color_hi=RED,
-            hi_threshold=_CLT_WARN,
-            min_val=50.0, max_val=130.0,
-        )
-        self._draw_sparkline(
-            p, x=10, y=216, sw=240, sh=36,
-            label="BOOST",
-            data=self._boost_history,
-            color=CYAN,
-            min_val=0.0, max_val=_BOOST_MAX_KPA,
-        )
-
-        # Current value beside each sparkline
-        self._draw_sparkline_value(p, x=256, y=128, sh=36, data=self._oil_history,
-                                   fmt="{:.0f}", unit="PSI", stale=stale_engine)
-        self._draw_sparkline_value(p, x=256, y=172, sh=36, data=self._coolant_history,
-                                   fmt="{:.0f}", unit="\u00b0C", stale=stale_engine)
-        self._draw_sparkline_value(p, x=256, y=216, sh=36, data=self._boost_history,
-                                   fmt="{:.0f}", unit="kPa", stale=stale_engine)
-
+        self._draw_flir_panel(p, x=0, y=100, cw=320, ch=200, snap=snap,
+                              stale=stale_flir)
         # Vertical divider
         p.setPen(QPen(QColor(DIM), 1))
-        p.drawLine(340, 126, 340, 296)
+        p.drawLine(320, 106, 320, 294)
+        self._draw_health_panel(p, x=320, y=100, cw=480, ch=200, snap=snap,
+                                stale_wheel=stale_wheel, stale_engine=stale_engine,
+                                stale_diff=stale_diff)
 
-        # Right column: weather card (top) + vehicle status (bottom)
-        self._draw_weather_card(p, x=352, y=126, cw=w - 362, snap=snap)
-        self._draw_vehicle_status(p, x=352, y=222, cw=w - 362, snap=snap,
-                                  stale_engine=stale_engine, stale_diff=stale_diff)
+    # ------------------------------------------------------------------
+    # FLIR brake temp display (left, 320x200)
+    # ------------------------------------------------------------------
+
+    def _draw_flir_panel(
+        self, p: QPainter, x: int, y: int, cw: int, ch: int,
+        snap: DiffState | None, stale: bool,
+    ) -> None:
+        """4-corner brake temp display with front-rear delta indicator."""
+        flir_ok = snap is not None and snap.flir_available and not stale
+
+        # Header
+        p.setFont(_font(11, bold=True))
+        p.setPen(QPen(QColor(MODE_I_ACCENT)))
+        p.drawText(QRectF(x + 10, y + 6, cw - 20, 16),
+                   Qt.AlignLeft | Qt.AlignVCenter, "BRAKE TEMPS")
+
+        if not flir_ok:
+            # Not connected
+            p.setFont(_font(12))
+            p.setPen(QPen(QColor(GRAY)))
+            p.drawText(QRectF(x, y + 60, cw, 30), Qt.AlignCenter,
+                       "FLIR NOT CONNECTED")
+            return
+
+        # 2x2 grid of brake temps
+        grid_x = x + 16
+        grid_y = y + 28
+        cell_w = 135
+        cell_h = 68
+
+        corners = [
+            ("FL", snap.brake_temp_fl, grid_x, grid_y),
+            ("FR", snap.brake_temp_fr, grid_x + cell_w + 10, grid_y),
+            ("RL", snap.brake_temp_rl, grid_x, grid_y + cell_h + 8),
+            ("RR", snap.brake_temp_rr, grid_x + cell_w + 10, grid_y + cell_h + 8),
+        ]
+
+        for label, temp, cx, cy in corners:
+            rect = QRectF(cx, cy, cell_w, cell_h)
+
+            # Heat-colored background
+            heat_col = _brake_heat_color(temp)
+            bg = QColor(heat_col)
+            bg.setAlpha(50)
+            p.fillRect(rect, bg)
+
+            # Border
+            p.setPen(QPen(heat_col, 1))
+            p.setBrush(Qt.NoBrush)
+            p.drawRoundedRect(rect, 4, 4)
+
+            # Corner label — small top-left
+            p.setFont(_font(9, bold=True))
+            p.setPen(QPen(QColor(GRAY)))
+            p.drawText(int(cx) + 6, int(cy) + 14, label)
+
+            # Temperature — large centered
+            p.setFont(_font(FONT_BIG, bold=True))
+            p.setPen(QPen(heat_col))
+            p.drawText(rect, Qt.AlignCenter, f"{temp:.0f}\u00b0")
+
+        # Front-rear delta indicator
+        delta_y = grid_y + 2 * cell_h + 20
+        front_avg = (snap.brake_temp_fl + snap.brake_temp_fr) / 2.0
+        rear_avg = (snap.brake_temp_rl + snap.brake_temp_rr) / 2.0
+        fr_delta = abs(front_avg - rear_avg)
+
+        p.setFont(_font(10, bold=True))
+        if fr_delta > 50.0:
+            delta_color = QColor(YELLOW)
+            delta_label = f"F/R \u0394 {fr_delta:.0f}\u00b0C  IMBALANCE"
+        else:
+            delta_color = QColor(GREEN)
+            delta_label = f"F/R \u0394 {fr_delta:.0f}\u00b0C"
+        p.setPen(QPen(delta_color))
+        p.drawText(QRectF(x + 10, delta_y, cw - 20, 16),
+                   Qt.AlignLeft | Qt.AlignVCenter, delta_label)
+
+    # ------------------------------------------------------------------
+    # Vehicle health panel (right, 480x200)
+    # ------------------------------------------------------------------
+
+    def _draw_health_panel(
+        self, p: QPainter, x: int, y: int, cw: int, ch: int,
+        snap: DiffState | None,
+        stale_wheel: bool, stale_engine: bool, stale_diff: bool,
+    ) -> None:
+        """Wheel speeds, slip delta, service, ABS/VDC, E85."""
+        inner_x = x + 10
+        inner_w = cw - 20
+
+        # --- Wheel speed overview (4 lines) ---
+        ws_y = y + 8
+        ws_h = 18
+        p.setFont(_font(10, bold=True))
+        p.setPen(QPen(QColor(MODE_I_ACCENT)))
+        p.drawText(QRectF(inner_x, ws_y, inner_w, 14),
+                   Qt.AlignLeft | Qt.AlignVCenter, "WHEEL SPEEDS")
+
+        ws_row_y = ws_y + 18
+        vehicle_speed = snap.speed_kph if snap is not None else 0.0
+
+        wheels = [
+            ("FL", snap.wheel_speed_fl if snap else 0.0),
+            ("FR", snap.wheel_speed_fr if snap else 0.0),
+            ("RL", snap.wheel_speed_rl if snap else 0.0),
+            ("RR", snap.wheel_speed_rr if snap else 0.0),
+        ]
+
+        for i, (name, ws) in enumerate(wheels):
+            ry = ws_row_y + i * ws_h
+            delta = ws - vehicle_speed if not stale_wheel and snap is not None else 0.0
+
+            # Label
+            p.setFont(_font(10, bold=True))
+            p.setPen(QPen(QColor(SILVER)))
+            p.drawText(QRectF(inner_x, ry, 26, ws_h),
+                       Qt.AlignLeft | Qt.AlignVCenter, name)
+
+            # Speed value
+            if stale_wheel or snap is None:
+                spd_text = "---"
+                val_color = QColor(GRAY)
+            else:
+                spd_text = f"{ws:.0f} km/h"
+                val_color = QColor(WHITE)
+            p.setFont(_font(10))
+            p.setPen(QPen(val_color))
+            p.drawText(QRectF(inner_x + 28, ry, 80, ws_h),
+                       Qt.AlignLeft | Qt.AlignVCenter, spd_text)
+
+            # Delta from vehicle speed
+            if stale_wheel or snap is None:
+                delta_text = ""
+                delta_col = QColor(GRAY)
+            else:
+                sign = "+" if delta >= 0 else ""
+                delta_text = f"{sign}{delta:.1f}"
+                delta_col = QColor(_wheel_delta_color(abs(delta)))
+            p.setFont(_font(10, bold=True))
+            p.setPen(QPen(delta_col))
+            p.drawText(QRectF(inner_x + 110, ry, 60, ws_h),
+                       Qt.AlignLeft | Qt.AlignVCenter, delta_text)
+
+        # --- Slip delta (right of wheel speeds) ---
+        slip_x = inner_x + 200
+        slip_y = ws_row_y
+        p.setFont(_font(10, bold=True))
+        p.setPen(QPen(QColor(MODE_I_ACCENT)))
+        p.drawText(QRectF(slip_x, slip_y, 120, 16),
+                   Qt.AlignLeft | Qt.AlignVCenter, "SLIP \u0394")
+
+        if snap is not None and snap.slip_delta is not None and not stale_wheel:
+            slip_val = snap.slip_delta
+            slip_color = QColor(_wheel_delta_color(abs(slip_val)))
+            p.setFont(_font(FONT_BIG, bold=True))
+            p.setPen(QPen(slip_color))
+            p.drawText(QRectF(slip_x, slip_y + 18, 120, 36),
+                       Qt.AlignLeft | Qt.AlignVCenter, f"{slip_val:+.1f}")
+            p.setFont(_font(10))
+            p.setPen(QPen(QColor(GRAY)))
+            p.drawText(QRectF(slip_x + 80, slip_y + 26, 40, 18),
+                       Qt.AlignLeft | Qt.AlignVCenter, "km/h")
+        else:
+            p.setFont(_font(FONT_BIG, bold=True))
+            p.setPen(QPen(QColor(GRAY)))
+            p.drawText(QRectF(slip_x, slip_y + 18, 120, 36),
+                       Qt.AlignLeft | Qt.AlignVCenter, "---")
+
+        # --- Service / engine info ---
+        svc_y = ws_row_y + 4 * ws_h + 6
+        p.setFont(_font(10))
+        p.setPen(QPen(QColor(GRAY)))
+        p.drawText(QRectF(inner_x, svc_y, inner_w, 16),
+                   Qt.AlignLeft | Qt.AlignVCenter, "ENGINE: 0 km")
+
+        # --- Status indicators row: ABS, VDC, BRK, HBRK ---
+        ind_y = svc_y + 20
+        ind_r = 5
+        indicators = [
+            ("ABS", snap.abs_active if snap else False),
+            ("VDC", snap.vdc_tc if snap else False),
+            ("BRK", snap.brake if snap else False),
+            ("HBRK", snap.handbrake if snap else False),
+        ]
+
+        ind_x = inner_x
+        for label, active in indicators:
+            # Dot
+            dot_color = QColor(RED) if active else QColor(DIM)
+            p.setPen(Qt.NoPen)
+            p.setBrush(dot_color)
+            p.drawEllipse(QPointF(ind_x + ind_r, ind_y + ind_r), ind_r, ind_r)
+
+            # Label
+            p.setFont(_font(9))
+            p.setPen(QPen(QColor(WHITE) if active else QColor(GRAY)))
+            p.drawText(QRectF(ind_x + ind_r * 2 + 4, ind_y, 40, ind_r * 2),
+                       Qt.AlignLeft | Qt.AlignVCenter, label)
+            ind_x += 60
+
+        # --- E85 ethanol percentage ---
+        eth_y = ind_y + 20
+        if stale_engine or snap is None:
+            eth_text = "E85: ---"
+            eth_color = QColor(GRAY)
+        else:
+            eth_text = f"E85: {snap.ethanol_pct:.0f}%"
+            eth_color = QColor(CYAN)
+
+        p.setFont(_font(11, bold=True))
+        p.setPen(QPen(eth_color))
+        p.drawText(QRectF(inner_x, eth_y, inner_w, 18),
+                   Qt.AlignLeft | Qt.AlignVCenter, eth_text)
+
+    # ==================================================================
+    # BOTTOM SECTION (y=300..440): Sparklines (left) | Wheel delta bars (right)
+    # ==================================================================
+
+    def _draw_bottom_section(
+        self, p: QPainter, snap: DiffState | None,
+        stale_flir: bool, stale_wheel: bool,
+    ) -> None:
+        self._draw_brake_sparklines(p, x=0, y=300, cw=400, ch=140,
+                                    stale=stale_flir)
+        # Vertical divider
+        p.setPen(QPen(QColor(DIM), 1))
+        p.drawLine(400, 306, 400, 434)
+        self._draw_wheel_delta_bars(p, x=400, y=300, cw=400, ch=140,
+                                    snap=snap, stale=stale_wheel)
+
+    # ------------------------------------------------------------------
+    # Brake temp sparklines (bottom-left 400x140)
+    # ------------------------------------------------------------------
+
+    def _draw_brake_sparklines(
+        self, p: QPainter, x: int, y: int, cw: int, ch: int,
+        stale: bool,
+    ) -> None:
+        """4 sparklines: FL, FR, RL, RR brake temps with heat-colored lines."""
+        p.setFont(_font(10, bold=True))
+        p.setPen(QPen(QColor(MODE_I_ACCENT)))
+        p.drawText(QRectF(x + 10, y + 4, cw - 20, 14),
+                   Qt.AlignLeft | Qt.AlignVCenter, "BRAKE TEMP HISTORY")
+
+        sparklines = [
+            ("FL", self._brake_fl_history),
+            ("FR", self._brake_fr_history),
+            ("RL", self._brake_rl_history),
+            ("RR", self._brake_rr_history),
+        ]
+
+        sp_y = y + 22
+        sp_h = 26
+        sp_gap = 2
+
+        for i, (label, data) in enumerate(sparklines):
+            sy = sp_y + i * (sp_h + sp_gap)
+            # Determine heat color from latest value
+            if len(data) > 0 and not stale:
+                heat_color = _brake_heat_color(data[-1])
+                color_str = heat_color.name()
+            else:
+                color_str = GRAY
+
+            self._draw_sparkline(
+                p, x=x + 10, y=sy, sw=290, sh=sp_h,
+                label=label,
+                data=data,
+                color=color_str,
+                min_val=0.0, max_val=600.0,
+            )
+            self._draw_sparkline_value(
+                p, x=x + 306, y=sy, sh=sp_h,
+                data=data,
+                fmt="{:.0f}",
+                unit="\u00b0C",
+                stale=stale,
+            )
+
+    # ------------------------------------------------------------------
+    # Wheel speed delta bars (bottom-right 400x140)
+    # ------------------------------------------------------------------
+
+    def _draw_wheel_delta_bars(
+        self, p: QPainter, x: int, y: int, cw: int, ch: int,
+        snap: DiffState | None, stale: bool,
+    ) -> None:
+        """4 horizontal bars centered on zero for wheel speed deltas."""
+        p.setFont(_font(10, bold=True))
+        p.setPen(QPen(QColor(MODE_I_ACCENT)))
+        p.drawText(QRectF(x + 10, y + 4, cw - 20, 14),
+                   Qt.AlignLeft | Qt.AlignVCenter, "WHEEL SPEED \u0394")
+
+        bar_y0 = y + 24
+        bar_h = 20
+        row_gap = 6
+        label_x = x + 10
+        label_w = 28
+        center_x = x + 60 + 130  # center of bar area
+        bar_half_w = 130
+        val_x = x + 60 + 260 + 6
+        val_w = 60
+
+        vehicle_speed = snap.speed_kph if snap is not None else 0.0
+
+        wheels = [
+            ("FL", snap.wheel_speed_fl if snap else 0.0),
+            ("FR", snap.wheel_speed_fr if snap else 0.0),
+            ("RL", snap.wheel_speed_rl if snap else 0.0),
+            ("RR", snap.wheel_speed_rr if snap else 0.0),
+        ]
+
+        for i, (name, ws) in enumerate(wheels):
+            ry = bar_y0 + i * (bar_h + row_gap)
+            delta = ws - vehicle_speed if not stale and snap is not None else 0.0
+
+            # Label
+            p.setFont(_font(11, bold=True))
+            p.setPen(QPen(QColor(SILVER)))
+            p.drawText(QRectF(label_x, ry, label_w, bar_h),
+                       Qt.AlignLeft | Qt.AlignVCenter, name)
+
+            # Bar background
+            bar_bg_x = center_x - bar_half_w
+            p.fillRect(int(bar_bg_x), int(ry + 2),
+                       int(bar_half_w * 2), int(bar_h - 4),
+                       QColor(BG_ACCENT))
+
+            # Center line
+            p.setPen(QPen(QColor(GRAY), 1))
+            p.drawLine(int(center_x), int(ry + 2),
+                       int(center_x), int(ry + bar_h - 2))
+
+            if not stale and snap is not None:
+                # Delta bar from center
+                color = _wheel_delta_color(abs(delta))
+                max_delta = 10.0
+                frac = min(1.0, abs(delta) / max_delta)
+                bar_px = int(bar_half_w * frac)
+
+                if delta >= 0:
+                    p.fillRect(int(center_x), int(ry + 2),
+                               bar_px, int(bar_h - 4), QColor(color))
+                else:
+                    p.fillRect(int(center_x - bar_px), int(ry + 2),
+                               bar_px, int(bar_h - 4), QColor(color))
+
+                sign = "+" if delta >= 0 else ""
+                val_str = f"{sign}{delta:.1f}"
+            else:
+                val_str = "---"
+
+            # Value text
+            p.setFont(_font(10, bold=True))
+            val_color = QColor(_wheel_delta_color(abs(delta))) if (not stale and snap is not None) else QColor(GRAY)
+            p.setPen(QPen(val_color))
+            p.drawText(QRectF(val_x, ry, val_w, bar_h),
+                       Qt.AlignLeft | Qt.AlignVCenter, val_str)
+
+        # Slip delta — prominent below bars
+        slip_y = bar_y0 + 4 * (bar_h + row_gap) + 2
+        p.setFont(_font(11, bold=True))
+        p.setPen(QPen(QColor(MODE_I_ACCENT)))
+        p.drawText(QRectF(label_x, slip_y, 60, 18),
+                   Qt.AlignLeft | Qt.AlignVCenter, "SLIP \u0394")
+
+        if snap is not None and snap.slip_delta is not None and not stale:
+            slip_val = snap.slip_delta
+            slip_color = QColor(_wheel_delta_color(abs(slip_val)))
+            p.setFont(_font(FONT_HEADER, bold=True))
+            p.setPen(QPen(slip_color))
+            p.drawText(QRectF(label_x + 62, slip_y - 2, 80, 22),
+                       Qt.AlignLeft | Qt.AlignVCenter, f"{slip_val:+.1f}")
+            p.setFont(_font(10))
+            p.setPen(QPen(QColor(GRAY)))
+            p.drawText(QRectF(label_x + 130, slip_y, 40, 18),
+                       Qt.AlignLeft | Qt.AlignVCenter, "km/h")
+        else:
+            p.setFont(_font(FONT_HEADER, bold=True))
+            p.setPen(QPen(QColor(GRAY)))
+            p.drawText(QRectF(label_x + 62, slip_y - 2, 80, 22),
+                       Qt.AlignLeft | Qt.AlignVCenter, "---")
 
     # ------------------------------------------------------------------
     # Sparkline rendering (inline QPainter, no child widgets)
@@ -477,7 +851,7 @@ class IntelligentScreenWidget(QWidget):
         hi_threshold: float = 0.0,
     ) -> None:
         """Draw a single sparkline chart at (x, y) with size (sw, sh)."""
-        label_w = 62
+        label_w = 30
         chart_x = x + label_w
         chart_w = sw - label_w
         chart_h = sh
@@ -566,485 +940,13 @@ class IntelligentScreenWidget(QWidget):
             color = QColor(GRAY)
         else:
             text = fmt.format(data[-1])
-            color = QColor(WHITE)
+            # Color by heat for brake temps
+            color = _brake_heat_color(data[-1])
 
-        p.setFont(_font(14, bold=True))
+        p.setFont(_font(12, bold=True))
         p.setPen(QPen(color))
-        p.drawText(QRectF(x, y, 50, sh), Qt.AlignVCenter | Qt.AlignRight, text)
+        p.drawText(QRectF(x, y, 40, sh), Qt.AlignVCenter | Qt.AlignRight, text)
 
         p.setFont(_font(9))
         p.setPen(QPen(QColor(GRAY)))
-        p.drawText(QRectF(x + 52, y, 30, sh), Qt.AlignVCenter | Qt.AlignLeft, unit)
-
-    # ------------------------------------------------------------------
-    # Weather card
-    # ------------------------------------------------------------------
-
-    def _draw_weather_card(
-        self, p: QPainter, x: int, y: int, cw: int, snap: DiffState | None
-    ) -> None:
-        """Ambient weather: temp, humidity, pressure, density altitude."""
-        # Card background
-        p.setPen(QPen(QColor(DIM), 1))
-        p.setBrush(QColor(BG_ACCENT))
-        card_h = 88
-        p.drawRoundedRect(QRectF(x, y, cw, card_h), 4, 4)
-
-        # Header
-        p.setFont(_font(10, bold=True))
-        p.setPen(QPen(QColor(MODE_I_ACCENT)))
-        p.drawText(QRectF(x + 8, y + 2, cw - 16, 18), Qt.AlignLeft | Qt.AlignVCenter, "WEATHER")
-
-        available = snap is not None and snap.ambient_available
-        row_h = 16
-        row_y = y + 20
-        lx = x + 10
-        vx = x + cw // 2
-
-        rows = [
-            ("TEMP", f"{snap.ambient_temp_c:.1f}\u00b0C" if available else "---"),
-            ("HUMIDITY", f"{snap.ambient_humidity_pct:.0f}%" if available else "---"),
-            ("PRESSURE", f"{snap.ambient_pressure_hpa:.0f} hPa" if available else "---"),
-            ("DENS ALT", f"{snap.density_altitude_ft:.0f} ft" if available else "---"),
-        ]
-
-        for i, (label, value) in enumerate(rows):
-            ry = row_y + i * row_h
-            p.setFont(_font(10))
-            p.setPen(QPen(QColor(GRAY)))
-            p.drawText(QRectF(lx, ry, vx - lx, row_h), Qt.AlignLeft | Qt.AlignVCenter, label)
-            val_color = QColor(WHITE) if available else QColor(GRAY)
-            p.setFont(_font(11, bold=True))
-            p.setPen(QPen(val_color))
-            p.drawText(QRectF(vx, ry, cw - (vx - x) - 8, row_h),
-                       Qt.AlignRight | Qt.AlignVCenter, value)
-
-    # ------------------------------------------------------------------
-    # Vehicle status card
-    # ------------------------------------------------------------------
-
-    def _draw_vehicle_status(
-        self,
-        p: QPainter,
-        x: int, y: int, cw: int,
-        snap: DiffState | None,
-        stale_engine: bool,
-        stale_diff: bool,
-    ) -> None:
-        """DCCD lock, surface state, battery, ethanol, fuel pressure."""
-        card_h = 74
-        p.setPen(QPen(QColor(DIM), 1))
-        p.setBrush(QColor(BG_ACCENT))
-        p.drawRoundedRect(QRectF(x, y, cw, card_h), 4, 4)
-
-        inner_x = x + 8
-        inner_w = cw - 16
-
-        # --- DCCD lock bar (top row) ---
-        dccd_y = y + 6
-        dccd_bar_h = 14
-        p.setFont(_font(10, bold=True))
-        p.setPen(QPen(QColor(GRAY)))
-        p.drawText(QRectF(inner_x, dccd_y, 48, dccd_bar_h),
-                   Qt.AlignLeft | Qt.AlignVCenter, "DCCD")
-
-        bar_x = inner_x + 50
-        bar_w = inner_w - 100
-        # Bar background
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor(BG_PANEL))
-        p.drawRoundedRect(QRectF(bar_x, dccd_y, bar_w, dccd_bar_h), 3, 3)
-
-        if not stale_diff and snap is not None:
-            lock_frac = min(snap.dccd_command_pct / 100.0, 1.0)
-            if lock_frac > 0.01:
-                lock_color = QColor(MODE_I_ACCENT)
-                if snap.dccd_command_pct > 80:
-                    lock_color = QColor(YELLOW)
-                p.setBrush(lock_color)
-                p.drawRoundedRect(
-                    QRectF(bar_x, dccd_y, bar_w * lock_frac, dccd_bar_h), 3, 3
-                )
-            pct_text = f"{snap.dccd_command_pct:.0f}%"
-            pct_color = QColor(WHITE)
-        else:
-            pct_text = "---%"
-            pct_color = QColor(GRAY)
-
-        p.setPen(QPen(QColor(CHROME_DARK), 1))
-        p.setBrush(Qt.NoBrush)
-        p.drawRoundedRect(QRectF(bar_x, dccd_y, bar_w, dccd_bar_h), 3, 3)
-
-        p.setFont(_font(10, bold=True))
-        p.setPen(QPen(pct_color))
-        p.drawText(
-            QRectF(bar_x + bar_w + 4, dccd_y, 46, dccd_bar_h),
-            Qt.AlignLeft | Qt.AlignVCenter,
-            pct_text,
-        )
-
-        # --- Surface state badge ---
-        badge_y = dccd_y + dccd_bar_h + 6
-        badge_h = 16
-        if snap is not None:
-            surface_label = snap.surface_state.label
-            surface_color = QColor(snap.surface_state.color)
-        else:
-            surface_label = "---"
-            surface_color = QColor(GRAY)
-
-        p.setFont(_font(10, bold=True))
-        # Badge pill
-        badge_tw = p.fontMetrics().horizontalAdvance(surface_label) + 16
-        p.setPen(Qt.NoPen)
-        pill_bg = QColor(surface_color)
-        pill_bg.setAlphaF(0.25)
-        p.setBrush(pill_bg)
-        p.drawRoundedRect(QRectF(inner_x, badge_y, badge_tw, badge_h), 8, 8)
-        p.setPen(QPen(surface_color))
-        p.drawText(
-            QRectF(inner_x, badge_y, badge_tw, badge_h),
-            Qt.AlignCenter,
-            surface_label,
-        )
-
-        # --- Ethanol + Fuel pressure (same row as surface badge) ---
-        if stale_engine or snap is None:
-            eth_text = "E85 ---"
-            fuel_text = "FUEL ---kPa"
-            row_color = QColor(GRAY)
-        else:
-            eth_text = f"E85 {snap.ethanol_pct:.0f}%"
-            fuel_text = f"FUEL {snap.fuel_pressure_kpa:.0f}kPa"
-            row_color = QColor(SILVER)
-
-        p.setFont(_font(10))
-        p.setPen(QPen(row_color))
-        p.drawText(
-            QRectF(inner_x + badge_tw + 12, badge_y, 80, badge_h),
-            Qt.AlignLeft | Qt.AlignVCenter,
-            eth_text,
-        )
-        p.drawText(
-            QRectF(inner_x + inner_w - 110, badge_y, 110, badge_h),
-            Qt.AlignRight | Qt.AlignVCenter,
-            fuel_text,
-        )
-
-        # --- Warm-up state ---
-        warmup_y = badge_y + badge_h + 6
-        warmup_h = 16
-        if snap is not None:
-            warmup_label = snap.warmup_state.label
-            warmup_color = QColor(snap.warmup_state.color)
-        else:
-            warmup_label = "---"
-            warmup_color = QColor(GRAY)
-
-        p.setFont(_font(10, bold=True))
-        p.setPen(QPen(warmup_color))
-        p.drawText(
-            QRectF(inner_x, warmup_y, inner_w, warmup_h),
-            Qt.AlignLeft | Qt.AlignVCenter,
-            f"ENGINE: {warmup_label}",
-        )
-
-    # ==================================================================
-    # BOTTOM SECTION (y=300..440)
-    # ==================================================================
-
-    def _draw_bottom_section(
-        self, p: QPainter, w: int, snap: DiffState | None,
-        stale_engine: bool, stale_gps: bool,
-    ) -> None:
-        """Lambda bar (left), Injector duty (center), GPS (right)."""
-        self._draw_lambda_bar(p, snap, stale_engine)
-        self._draw_injector_duty(p, w, snap, stale_engine)
-        self._draw_gps_status(p, w, snap, stale_gps)
-
-    # ------------------------------------------------------------------
-    # Lambda bar
-    # ------------------------------------------------------------------
-
-    def _draw_lambda_bar(
-        self, p: QPainter, snap: DiffState | None, stale: bool
-    ) -> None:
-        """Horizontal bar centered on lambda 1.0. Rich=green (left), lean=red (right)."""
-        bar_x = 16
-        bar_w = 300
-        bar_y = 320
-        bar_h = 28
-        label_y = 306
-
-        # Label
-        p.setFont(_font(11, bold=True))
-        p.setPen(QPen(QColor(SILVER)))
-        p.drawText(QRectF(bar_x, label_y, bar_w, 14), Qt.AlignLeft | Qt.AlignVCenter, "LAMBDA")
-
-        # Bar background
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor(BG_PANEL))
-        p.drawRoundedRect(QRectF(bar_x, bar_y, bar_w, bar_h), 4, 4)
-
-        # Scale marks
-        center_x = bar_x + bar_w * (_LAMBDA_TARGET - _LAMBDA_MIN) / (_LAMBDA_MAX - _LAMBDA_MIN)
-
-        # Center line (1.0)
-        p.setPen(QPen(QColor(GRAY), 1, Qt.DashLine))
-        p.drawLine(QPointF(center_x, bar_y + 2), QPointF(center_x, bar_y + bar_h - 2))
-
-        if not stale and snap is not None:
-            lam = snap.lambda_1
-            # Clamp to range for drawing
-            lam_clamped = max(_LAMBDA_MIN, min(lam, _LAMBDA_MAX))
-            indicator_x = bar_x + bar_w * (lam_clamped - _LAMBDA_MIN) / (_LAMBDA_MAX - _LAMBDA_MIN)
-
-            # Color: green near 1.0, yellow slightly off, red far off
-            deviation = abs(lam - _LAMBDA_TARGET)
-            if deviation < 0.05:
-                ind_color = QColor(GREEN)
-            elif deviation < 0.15:
-                ind_color = QColor(YELLOW)
-            else:
-                ind_color = QColor(RED)
-
-            # Draw filled region from center to current value
-            if lam_clamped < _LAMBDA_TARGET:
-                # Rich side — fill from indicator to center
-                fill_x = indicator_x
-                fill_w = center_x - indicator_x
-                fill_col = QColor(GREEN)
-                fill_col.setAlphaF(0.4)
-            else:
-                # Lean side — fill from center to indicator
-                fill_x = center_x
-                fill_w = indicator_x - center_x
-                fill_col = QColor(RED)
-                fill_col.setAlphaF(0.4)
-
-            if fill_w > 1:
-                p.setPen(Qt.NoPen)
-                p.setBrush(fill_col)
-                p.drawRect(QRectF(fill_x, bar_y + 2, fill_w, bar_h - 4))
-
-            # Indicator line
-            p.setPen(QPen(ind_color, 3))
-            p.drawLine(
-                QPointF(indicator_x, bar_y + 1),
-                QPointF(indicator_x, bar_y + bar_h - 1),
-            )
-
-            value_text = f"{lam:.3f}"
-            value_color = ind_color
-        else:
-            value_text = "---"
-            value_color = QColor(GRAY)
-
-        # Bar outline
-        p.setPen(QPen(QColor(CHROME_DARK), 1))
-        p.setBrush(Qt.NoBrush)
-        p.drawRoundedRect(QRectF(bar_x, bar_y, bar_w, bar_h), 4, 4)
-
-        # Scale labels
-        p.setFont(_font(9))
-        p.setPen(QPen(QColor(DIM)))
-        p.drawText(QRectF(bar_x, bar_y + bar_h + 1, 40, 14),
-                   Qt.AlignLeft | Qt.AlignTop, "0.70")
-        p.drawText(QRectF(bar_x + bar_w - 40, bar_y + bar_h + 1, 40, 14),
-                   Qt.AlignRight | Qt.AlignTop, "1.30")
-        p.drawText(QRectF(center_x - 15, bar_y + bar_h + 1, 30, 14),
-                   Qt.AlignCenter | Qt.AlignTop, "1.0")
-
-        # Rich / Lean labels
-        p.setFont(_font(9))
-        p.setPen(QPen(QColor(GREEN)))
-        p.drawText(QRectF(bar_x + 4, bar_y + 2, 40, 12),
-                   Qt.AlignLeft | Qt.AlignTop, "RICH")
-        p.setPen(QPen(QColor(RED)))
-        p.drawText(QRectF(bar_x + bar_w - 44, bar_y + 2, 40, 12),
-                   Qt.AlignRight | Qt.AlignTop, "LEAN")
-
-        # Numeric value below bar
-        p.setFont(_font(FONT_BASE, bold=True))
-        p.setPen(QPen(value_color))
-        p.drawText(
-            QRectF(bar_x, bar_y + bar_h + 14, bar_w, 20),
-            Qt.AlignCenter | Qt.AlignVCenter,
-            f"\u03bb {value_text}",
-        )
-
-    # ------------------------------------------------------------------
-    # Injector duty
-    # ------------------------------------------------------------------
-
-    def _draw_injector_duty(
-        self, p: QPainter, w: int, snap: DiffState | None, stale: bool
-    ) -> None:
-        """Percentage bar for injector duty cycle."""
-        bar_x = 340
-        bar_w = w - 340 - 160
-        bar_y = 320
-        bar_h = 28
-        label_y = 306
-
-        # Label
-        p.setFont(_font(11, bold=True))
-        p.setPen(QPen(QColor(SILVER)))
-        p.drawText(QRectF(bar_x, label_y, bar_w, 14), Qt.AlignLeft | Qt.AlignVCenter, "INJ DUTY")
-
-        # Bar background
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor(BG_PANEL))
-        p.drawRoundedRect(QRectF(bar_x, bar_y, bar_w, bar_h), 4, 4)
-
-        if not stale and snap is not None:
-            duty = snap.injector_duty
-            fill_frac = min(duty / 100.0, 1.0)
-
-            if duty >= _INJ_CRIT:
-                fill_color = QColor(RED)
-            elif duty >= _INJ_WARN:
-                fill_color = QColor(YELLOW)
-            else:
-                fill_color = QColor(GREEN)
-
-            fill_w = bar_w * fill_frac
-            if fill_w > 1:
-                grad = QLinearGradient(bar_x, bar_y, bar_x + fill_w, bar_y)
-                base = QColor(fill_color)
-                base.setAlphaF(0.5)
-                grad.setColorAt(0.0, base)
-                grad.setColorAt(1.0, fill_color)
-                p.setBrush(grad)
-                p.drawRoundedRect(QRectF(bar_x, bar_y, fill_w, bar_h), 4, 4)
-
-            value_text = f"{duty:.0f}%"
-            value_color = fill_color
-        else:
-            value_text = "---%"
-            value_color = QColor(GRAY)
-
-        # Warn/Crit tick marks
-        for threshold, tick_color in [(_INJ_WARN, YELLOW), (_INJ_CRIT, RED)]:
-            tick_x = bar_x + bar_w * (threshold / 100.0)
-            p.setPen(QPen(QColor(tick_color), 1, Qt.DashLine))
-            p.drawLine(QPointF(tick_x, bar_y + 2), QPointF(tick_x, bar_y + bar_h - 2))
-
-        # Bar outline
-        p.setPen(QPen(QColor(CHROME_DARK), 1))
-        p.setBrush(Qt.NoBrush)
-        p.drawRoundedRect(QRectF(bar_x, bar_y, bar_w, bar_h), 4, 4)
-
-        # Value text inside bar
-        p.setFont(_font(FONT_HEADER, bold=True))
-        p.setPen(QPen(value_color))
-        p.drawText(
-            QRectF(bar_x, bar_y, bar_w - 6, bar_h),
-            Qt.AlignRight | Qt.AlignVCenter,
-            value_text,
-        )
-
-        # Scale
-        p.setFont(_font(9))
-        p.setPen(QPen(QColor(DIM)))
-        p.drawText(QRectF(bar_x, bar_y + bar_h + 1, 30, 14),
-                   Qt.AlignLeft | Qt.AlignTop, "0%")
-        p.drawText(QRectF(bar_x + bar_w - 35, bar_y + bar_h + 1, 35, 14),
-                   Qt.AlignRight | Qt.AlignTop, "100%")
-
-    # ------------------------------------------------------------------
-    # GPS status
-    # ------------------------------------------------------------------
-
-    def _draw_gps_status(
-        self, p: QPainter, w: int, snap: DiffState | None, stale: bool
-    ) -> None:
-        """Satellite count + fix quality (bottom right)."""
-        gps_x = w - 148
-        gps_y = 306
-        gps_w = 140
-        gps_h = 130
-
-        # Header
-        p.setFont(_font(11, bold=True))
-        p.setPen(QPen(QColor(MODE_I_ACCENT)))
-        p.drawText(QRectF(gps_x, gps_y, gps_w, 16),
-                   Qt.AlignLeft | Qt.AlignVCenter, "GPS")
-
-        row_y = gps_y + 18
-        row_h = 18
-
-        if stale or snap is None:
-            sat_text = "SAT: ---"
-            fix_text = "FIX: ---"
-            sat_color = QColor(GRAY)
-            fix_color = QColor(GRAY)
-        else:
-            sats = snap.gps_satellites
-            fix_q = snap.gps_fix_quality
-            sat_text = f"SAT: {sats}"
-            fix_labels = {0: "NONE", 1: "2D", 2: "3D"}
-            fix_text = f"FIX: {fix_labels.get(fix_q, '?')}"
-
-            # Color by satellite count
-            if sats >= 8:
-                sat_color = QColor(GREEN)
-            elif sats >= 4:
-                sat_color = QColor(YELLOW)
-            else:
-                sat_color = QColor(RED)
-
-            # Color by fix quality
-            if fix_q >= 2:
-                fix_color = QColor(GREEN)
-            elif fix_q >= 1:
-                fix_color = QColor(YELLOW)
-            else:
-                fix_color = QColor(RED)
-
-        p.setFont(_font(12))
-        p.setPen(QPen(sat_color))
-        p.drawText(QRectF(gps_x, row_y, gps_w, row_h),
-                   Qt.AlignLeft | Qt.AlignVCenter, sat_text)
-
-        p.setPen(QPen(fix_color))
-        p.drawText(QRectF(gps_x, row_y + row_h, gps_w, row_h),
-                   Qt.AlignLeft | Qt.AlignVCenter, fix_text)
-
-        # Speed from GPS (secondary)
-        if not stale and snap is not None:
-            gps_speed_kph = snap.gps_speed_mps * 3.6
-            spd_text = f"{gps_speed_kph:.0f} km/h"
-            spd_color = QColor(CYAN)
-        else:
-            spd_text = "--- km/h"
-            spd_color = QColor(GRAY)
-
-        p.setFont(_font(10))
-        p.setPen(QPen(spd_color))
-        p.drawText(QRectF(gps_x, row_y + row_h * 2, gps_w, row_h),
-                   Qt.AlignLeft | Qt.AlignVCenter, f"GPS SPD: {spd_text}")
-
-        # Heading
-        if not stale and snap is not None:
-            hdg_text = f"HDG: {snap.gps_heading:.0f}\u00b0"
-            hdg_color = QColor(CYAN)
-        else:
-            hdg_text = "HDG: ---\u00b0"
-            hdg_color = QColor(GRAY)
-
-        p.setPen(QPen(hdg_color))
-        p.drawText(QRectF(gps_x, row_y + row_h * 3, gps_w, row_h),
-                   Qt.AlignLeft | Qt.AlignVCenter, hdg_text)
-
-        # Altitude
-        if not stale and snap is not None:
-            alt_text = f"ALT: {snap.gps_altitude_m:.0f}m"
-            alt_color = QColor(CYAN)
-        else:
-            alt_text = "ALT: ---m"
-            alt_color = QColor(GRAY)
-
-        p.setPen(QPen(alt_color))
-        p.drawText(QRectF(gps_x, row_y + row_h * 4, gps_w, row_h),
-                   Qt.AlignLeft | Qt.AlignVCenter, alt_text)
+        p.drawText(QRectF(x + 42, y, 30, sh), Qt.AlignVCenter | Qt.AlignLeft, unit)
