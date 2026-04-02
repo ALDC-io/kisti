@@ -916,6 +916,13 @@ class MockCanGenerator(QObject):
         self._flir_rl = 160.0
         self._flir_rr = 155.0
 
+        # Mock ambient weather
+        self._amb_temp = 18.0
+        self._amb_humidity = 55.0
+        self._amb_pressure = 1013.0
+        self._amb_density_alt = 850.0
+        self._amb_dew_point = 9.0
+
         # SI Drive state
         self._si_drive = 0  # Intelligent
         self._si_drive_timer = 0.0
@@ -962,6 +969,10 @@ class MockCanGenerator(QObject):
         self._flir_timer.setInterval(1000 // MOCK_FLIR_HZ)
         self._flir_timer.timeout.connect(self._flir_tick)
 
+        self._amb_timer = QTimer(self)
+        self._amb_timer.setInterval(1000)  # 1 Hz — weather changes slowly
+        self._amb_timer.timeout.connect(self._ambient_tick)
+
     def start(self) -> None:
         self._diff_timer.start()
         self._ctx_timer.start()
@@ -974,6 +985,7 @@ class MockCanGenerator(QObject):
             self._gps_timer.start()
             self._imu_timer.start()
         self._flir_timer.start()
+        self._amb_timer.start()
         log.info("Mock CAN generator started (ECU: %s)", ACTIVE_ECU)
 
     def stop(self) -> None:
@@ -987,6 +999,7 @@ class MockCanGenerator(QObject):
         self._gps_timer.stop()
         self._imu_timer.stop()
         self._flir_timer.stop()
+        self._amb_timer.stop()
 
     def _diff_tick(self) -> None:
         self._t += 0.02  # 50 Hz
@@ -1349,6 +1362,34 @@ class MockCanGenerator(QObject):
             fr=self._flir_fr,
             rl=self._flir_rl,
             rr=self._flir_rr,
+        )
+
+    def _ambient_tick(self) -> None:
+        """Mock ambient weather — slow random walk around spring conditions."""
+        self._amb_temp += random.uniform(-0.1, 0.1)
+        self._amb_temp = max(5.0, min(35.0, self._amb_temp))
+
+        self._amb_humidity += random.uniform(-0.3, 0.3)
+        self._amb_humidity = max(20.0, min(90.0, self._amb_humidity))
+
+        self._amb_pressure += random.uniform(-0.05, 0.05)
+        self._amb_pressure = max(990.0, min(1030.0, self._amb_pressure))
+
+        # Density altitude approximation
+        self._amb_density_alt = (
+            (1013.25 - self._amb_pressure) * 30.0
+            + (self._amb_temp - 15.0) * 120.0
+        )
+
+        # Dew point approximation (Magnus formula simplified)
+        self._amb_dew_point = self._amb_temp - (100.0 - self._amb_humidity) / 5.0
+
+        self._bridge.update_ambient(
+            temp_c=self._amb_temp,
+            humidity_pct=self._amb_humidity,
+            pressure_hpa=self._amb_pressure,
+            density_altitude_ft=self._amb_density_alt,
+            dew_point_c=self._amb_dew_point,
         )
 
 
