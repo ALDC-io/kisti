@@ -29,11 +29,13 @@
 - **Arm's length readability** — Min 13pt for bars, 40pt+ for primary numbers. Test on Excelon at 1m distance.
 - **Timing-first Sport#** — Initially stripped to lap time + delta + sectors (no DCCD, no FLIR, no G-force micro). User feedback suggests canyon driving requires G-force intensity feedback — design pending.
 
-### Learnings (Not Yet Captured to Zeus)
-- Widget z-order: TopStatusBar + legacy widgets create ghost text even if hidden. Remove entirely instead.
-- Pycache race: deploy script must rm __pycache__ after git pull (old .pyc files compiled before new code lands).
-- Icon positioning: visually check on hardware (closeup screenshots) before assuming pixel math is correct.
-- DCCD is not a primary indicator — user emphasized prioritization of other signals.
+### Learnings Captured
+- ✅ cce_success_log: Widget z-order ghost text fix — remove entirely instead of hiding (ZM: 26702eb8)
+- ✅ cce_failed_approach: Pycache stale bytecode on deploy — rm __pycache__ after git pull (ZM: 49bce6c2)
+- ✅ cce_decision_log: Icon overlap debugging requires hardware screenshots (ZM: 69d0bc07)
+- ✅ cce_decision_log: DCCD lock % not a primary indicator — deprioritize (ZM: 22015015)
+- ✅ cce_decision_log: Sport# must be canyon-capable, not just track timing (ZM: b8f3ccd4)
+- ✅ cce_decision_log: 800x480 arm's length readability — min font sizes established (ZM: d2d96d63)
 
 ### Don't Repeat (From This Session)
 - Z-order battles: hidden widgets still paint. Remove instead of hide.
