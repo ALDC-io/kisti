@@ -74,12 +74,15 @@ class MainWindow(QMainWindow):
         # CAN / DIFF data pipeline
         self._diff_bridge = bridge if bridge is not None else DiffStateBridge(self)
 
-        # Legacy mode widgets (kept for voice pipeline + data compat)
+        # Legacy mode widgets (kept for voice pipeline + data compat, hidden)
         self._kisti_mode = KistiModeWidget(self)
         self._kisti_mode.set_bridge(self._diff_bridge)
+        self._kisti_mode.hide()
         self._diff_mode = DiffModeWidget(self)
         self._diff_mode.set_bridge(self._diff_bridge)
+        self._diff_mode.hide()
         self._track_mode = TrackModeWidget(self)
+        self._track_mode.hide()
 
         # === 3 SI-Drive screens ===
         self._intelligent_screen = IntelligentScreenWidget(self)
