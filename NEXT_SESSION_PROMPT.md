@@ -1,89 +1,127 @@
-# KiSTI — Next Session Prompt (kisti-22: FLIR Integration + Visual Verify)
+# KiSTI — Next Session Prompt (kisti-22: Visual Verify + FLIR Hardware + Boost Barn Prep)
 
 **Working dir**: `/home/aldc/repos/kisti/`
 **Jetson**: `192.168.22.131` (user `aldc`). SSH: `ssh aldc@192.168.22.131`
-**Test baseline**: 885 tests (2 pre-existing failures: stack default index)
+**Test baseline**: 895 tests, all passing
 **Branch**: `kisti-headless`
-**Latest commit**: `ef72eb2` pushed to origin
+**Latest commit**: `b1efc19` pushed to origin, deployed to Jetson (running as PID 75796)
 
 ## Section 1: What Was Done (kisti-21 session)
 
-### All 3 screens redesigned — zero MXG overlap
-Every screen stripped of gear/speed/RPM/boost/lambda/oil/coolant/throttle/IDC/battery/fuel/IAT/MAP/TPS.
-Now shows ONLY what the AiM MXG Strada 7" cannot display.
+### Screen Redesign — Zero MXG Overlap
+All 3 screens stripped of everything the AiM MXG Strada 7" already shows (gear, speed, RPM, boost, lambda, oil, coolant, throttle, IDC, battery, fuel, IAT, MAP, TPS, ethanol). Now shows ONLY what the MXG cannot.
 
 **Sport Sharp** (`ui/sharp_screen.py`):
-- Delta bar + timing (left) + FLIR 4-corner temps + G-force micro (55px) + AWD strip (right)
-- Sectors, brake+steering trace, 5-zone safety vitals (OIL/COOL/OILT/BRKT/DCCD)
-- Theoretical best time added below BEST
+- Delta bar (top) + Timing with theoretical best (left)
+- FLIR 4-corner brake temps in heat-colored 2x2 grid (right, y=80..170)
+- G-force micro circle 55px with 5-frame trail (right, y=170..250)
+- AWD status strip: DCCD bar + surface badge + ABS/VDC dots (right, y=250..280)
+- Sector strip (y=280..320)
+- Brake + STEERING trace replacing throttle — trail-brake analysis (y=320..380)
+- 5-zone safety vitals: OIL | COOL | OIL T | BRK T (new) | DCCD — dim-until-warning (y=380..440)
 
 **Sport** (`ui/sport_screen.py`):
-- DCCD bar + surface + slip + FLIR 2x2 (top)
-- DCCD/brake/steering/yaw bars + G-force circle 100-dot trail (middle)
+- DCCD bar + surface + slip + FLIR 2x2 summary (top)
+- DCCD/brake/steering/yaw performance bars + G-force circle with 100-dot trail (middle)
 - Wheel speed deltas + brake/steering trace (bottom)
 
 **Intelligent** (`ui/intelligent_screen.py`):
-- Weather card expanded + warm-up + DCCD + GPS (top)
-- FLIR 4-corner temps + vehicle health overview (middle)
-- Brake temp sparklines + wheel speed deltas (bottom)
+- Expanded weather card (Yoctopuce) + warm-up + DCCD + GPS fix (top)
+- FLIR 4-corner brake temps + vehicle health overview (middle)
+- Brake temp sparklines + wheel speed delta bars (bottom)
 
-### DiffState FLIR fields added
+### DiffState FLIR Fields
 `model/vehicle_state.py`: `brake_temp_fl/fr/rl/rr`, `flir_available`, `flir_frame_ts`, `update_flir()`, `is_flir_stale(timeout=2.0)`
 
-### RS3 shift LED investigation
-`rs3/shift_led_investigation.md`: AiM shift LEDs need RS3 math channels reading SI-Drive CAN (0x6B0) for mode-aware thresholds.
+### FLIR Lepton Reader
+`sensors/flir_lepton_reader.py`: PureThermal USB reader. Auto-detects 160x120 thermal camera on /dev/video0-4. ROI-based brake temp extraction. Radiometric centi-Kelvin conversion. Follows Yoctopuce QObject+QTimer+Signal pattern. Currently shows "FLIR NOT CONNECTED" — no hardware wired yet.
+
+### RS3 Shift LED Investigation
+`rs3/shift_led_investigation.md`: AiM MXG shift LEDs are firmware-controlled (NOT CAN-addressable). Solution: RS3 math channels read SI-Drive CAN frame (0x6B0) for mode-aware shift thresholds (I=off, S=5500, S#=6800 RPM).
+
+### Test Fixes
+- Fixed 2 pre-existing stack index failures (default = Sport index 1, not Intelligent index 0)
+- Added 10 FLIR tests: field defaults, staleness, snapshot copy, heat colors, all 3 screens accept data
+- 885 → 895 tests, all passing
 
 ## Section 2: Prioritized TODO
 
 ### 1. Visual verification on Jetson
-- Deploy: `~/k` (one command)
-- Rotate SI-Drive to each mode, verify screens render on 800x480 Excelon
-- Check layout spacing, font readability, color visibility
-- Currently all FLIR cells show "FLIR NOT CONNECTED" (expected — no sensor wired yet)
+- KiSTI is already running on the Excelon (PID 75796)
+- Rotate SI-Drive knob to each mode, check layout spacing, font readability, color contrast on 800x480
+- All FLIR cells show "FLIR NOT CONNECTED" or "--- " (expected)
+- Verify G-force circle renders, brake/steering trace scrolls, weather card populates
+- Note any layout tweaks needed (font too small, elements overlapping, etc.)
 
-### 2. FLIR Lepton integration
-- **Hardware**: FLIR Lepton (likely PureThermal USB breakout)
-- **Pattern**: Follow Yoctopuce reader at `sensors/yoctopuce_reader.py` (QObject + QTimer polling)
-- **New file**: `sensors/flir_lepton_reader.py`
-- **Dependencies**: Need `opencv-python` or `pyuvc` on Jetson
-- **Udev**: Add FLIR USB rule to `scripts/jetson/` (vendor 0x1e4e)
-- **Wire**: Instantiate in `main.py`, connect to `bridge.update_flir(fl, fr, rl, rr)`
-- **Challenge**: Extracting per-corner brake temps from a thermal image requires ROI mapping (camera position → brake disc regions). May need calibration step.
+### 2. Wire FLIR Lepton hardware
+- Confirm camera model (FLIR Lepton 3.x with PureThermal breakout)
+- Install opencv-python on Jetson: `pip3 install opencv-python-headless`
+- Add udev rule for PureThermal USB: `SUBSYSTEM=="usb", ATTRS{idVendor}=="1e4e", ATTRS{idProduct}=="0100", MODE="0666"`
+- Wire in main.py: instantiate `FLIRLeptonReader`, connect `temps_updated` signal to `bridge.update_flir()`
+- Calibrate ROI rectangles for camera mounting position (which pixels = which brake disc)
+- This is the hardest part — ROI depends on physical camera placement
 
-### 3. Fix pre-existing test failures
-- `tests/test_modes.py::TestMainWindowSIDrive::test_si_drive_switches_stack` — expects stack index 0 (Intelligent) but default is 1 (Sport)
-- `tests/test_modes.py::TestMainWindowSIDrive::test_invalid_mode_ignored` — same issue
-- Fix: update test expectations OR update `main_window.py` default
+### 3. RS3 shift light config at Boost Barn
+- Bring laptop with Race Studio 3
+- Follow `rs3/shift_led_investigation.md` pre-tune checklist
+- Key: define SI_Drive_Mode CAN channel (0x6B0 byte 0 uint8), create ShiftPoint/ShiftWarning math channels
+- Verify CAN byte order (BE vs LE) with live data before configuring RS3
+- Save RS3 config backup before and after
 
-### 4. FLIR tests
-- Add to `tests/test_modes.py`: FLIR field copy in snapshot, staleness, heat color thresholds
+### 4. Mock CAN data for screens
+- The mock CAN generator may need updates to populate the new fields screens expect
+- Check `data/mock_generator.py` — does it generate DCCD, wheel speeds, IMU, steering, brake pressure?
+- If not, update it so screens render properly without real CAN hardware
 
-### 5. Boost Barn tune session
-- RS3 config for SI-Drive mode-aware shift lights (see `rs3/shift_led_investigation.md`)
-- Verify CAN byte order (BE vs LE) with live data
-- Verify KiSTI screen layout during actual driving
+### 5. FLIR ROI calibration tool
+- Future: build a simple calibration UI that shows the thermal image with draggable ROI rectangles
+- Or: manual calibration by pointing camera at known hot spots, adjusting ROI in config
 
 ## Section 3: Key Files
 
 | File | What It Does |
 |------|-------------|
-| `ui/sharp_screen.py` | Sport Sharp — timing, FLIR, G-micro, AWD, traces |
-| `ui/sport_screen.py` | Sport — DCCD, FLIR, G-force circle, steering/yaw, traces |
-| `ui/intelligent_screen.py` | Intelligent — weather, FLIR, health, sparklines, wheel deltas |
-| `model/vehicle_state.py` | DiffState + DiffStateBridge (FLIR fields at lines ~223-228, ~240) |
-| `sensors/yoctopuce_reader.py` | Pattern for FLIR reader (QObject + QTimer + signal) |
+| `ui/sharp_screen.py` | Sport Sharp — timing, FLIR, G-micro, AWD, traces (803 lines) |
+| `ui/sport_screen.py` | Sport — DCCD, FLIR, G-force circle, steering/yaw, traces (591 lines) |
+| `ui/intelligent_screen.py` | Intelligent — weather, FLIR, health, sparklines, wheel deltas (952 lines) |
+| `model/vehicle_state.py` | DiffState + DiffStateBridge — all telemetry fields + FLIR |
+| `sensors/flir_lepton_reader.py` | FLIR Lepton PureThermal USB reader (214 lines) |
+| `sensors/yoctopuce_reader.py` | Yoctopuce weather sensor (pattern reference) |
 | `rs3/shift_led_investigation.md` | RS3 shift light config guide |
-| `ui/widgets/sti_heatmap_widget.py` | Reference for heat color functions |
+| `scripts/deploy-to-jetson.sh` | SSH pull + relaunch |
+| `~/k` | One-command deploy wrapper (commit + push + deploy) |
+| `tests/test_modes.py` | 39 tests: modes, status bar, FLIR fields |
 
-## Section 4: Architecture Notes
+## Section 4: Architecture
 
-All 3 screens are pure QPainter (`paintEvent`). Data arrives via:
-- `update_state(DiffState)` at 20Hz (CAN + Yoctopuce + FLIR)
-- `update_timing(dict)` at 4Hz (TimingManager → only Sport Sharp uses this)
+### Screen data flow
+```
+CAN bus (1 Mbps)  →  kisti_can.py  →  DiffStateBridge.update_*()
+Yoctopuce USB     →  yoctopuce_reader.py  →  DiffStateBridge.update_ambient()
+FLIR USB          →  flir_lepton_reader.py  →  DiffStateBridge.update_flir()
+TimingManager     →  DiffStateBridge.update_timing()
 
-FLIR integration will require:
-1. Camera → per-frame thermal image (160x120 uint16)
-2. ROI extraction → 4 brake disc regions → temperature values
-3. Feed to `bridge.update_flir(fl, fr, rl, rr)`
+DiffStateBridge.snapshot()  →  MainWindow (20Hz QTimer)
+  → active_screen.update_state(snap)
+  → sharp_screen.update_timing(timing_dict)
+```
 
-The ROI mapping (which pixels = which brake disc) depends on camera mounting position. This will need a calibration/config step.
+### Screen design philosophy
+- **MXG Strada** = critical instruments (RPM, speed, gear, boost, shift lights, oil, coolant, lambda)
+- **KiSTI Excelon** = context the MXG can't show (FLIR thermal, G-forces, DCCD/AWD, wheel dynamics, timing, weather, steering analysis, AI insights)
+
+### FLIR integration gap
+The reader (`flir_lepton_reader.py`) is built but not wired into `main.py`. The connection point is:
+```python
+flir = FLIRLeptonReader()
+flir.temps_updated.connect(lambda t: bridge.update_flir(t.fl, t.fr, t.rl, t.rr))
+flir.start()
+```
+
+## Section 5: Don't Repeat
+- AiM MXG shift LEDs are NOT CAN-addressable — RS3 math channels only
+- SI-Drive OEM values (1/2/3) differ from Link remapped values (0/1/2) — RS3 uses remapped
+- `_heat_color` pattern: blue (<150) → green (<300) → yellow (<450) → red (>500) for brakes
+- Worktree agents may apply changes via hooks — verify file state before writing
+- Stack default index = 1 (Sport), not 0 (Intelligent) — tests updated to match
+- Never give multi-step SSH commands — use `~/k` for deploy
