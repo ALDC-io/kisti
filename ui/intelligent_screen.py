@@ -321,11 +321,12 @@ class IntelligentScreenWidget(QWidget):
         p.drawText(QRectF(cols[2], 82, col_w, 16),
                    Qt.AlignLeft | Qt.AlignVCenter, "RELATIVE")
 
-        # --- Col 4: PRESSURE ---
+        # --- Col 4: PRESSURE (right-aligned) ---
+        prs_right = _W - 20  # right edge with margin
         p.setFont(_font(10, bold=True))
         p.setPen(QPen(QColor(GRAY)))
-        p.drawText(QRectF(cols[3], 6, col_w, 16),
-                   Qt.AlignLeft | Qt.AlignVCenter, "PRESSURE")
+        p.drawText(QRectF(cols[3], 6, prs_right - cols[3], 16),
+                   Qt.AlignRight | Qt.AlignVCenter, "PRESSURE")
 
         if available:
             prs_text = f"{snap.ambient_pressure_hpa:.0f}"
@@ -336,13 +337,13 @@ class IntelligentScreenWidget(QWidget):
 
         p.setFont(_font(38, bold=True))
         p.setPen(QPen(prs_color))
-        p.drawText(QRectF(cols[3], 24, col_w, 56),
-                   Qt.AlignLeft | Qt.AlignVCenter, prs_text)
+        p.drawText(QRectF(cols[3], 24, prs_right - cols[3], 56),
+                   Qt.AlignRight | Qt.AlignVCenter, prs_text)
 
         p.setFont(_font(10))
         p.setPen(QPen(QColor(GRAY)))
-        p.drawText(QRectF(cols[3], 82, col_w, 16),
-                   Qt.AlignLeft | Qt.AlignVCenter, "hPa")
+        p.drawText(QRectF(cols[3], 82, prs_right - cols[3], 16),
+                   Qt.AlignRight | Qt.AlignVCenter, "hPa")
 
         # "NO SENSOR" overlay when unavailable
         if not available and (snap is None or snap.is_road_surface_stale()):
