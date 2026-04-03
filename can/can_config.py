@@ -38,8 +38,19 @@ IMU_GYRO_FRAME_ID: int = 0x6A7    # 50 Hz — 3-axis gyroscope
 # Arbitration IDs — G5 Neo 4 Additional Frames
 # ---------------------------------------------------------------------------
 
-GENERIC_DASH_BASE_ID: int = 0x360  # 7 frames: 0x360-0x366, 50 Hz
-GENERIC_DASH_COUNT: int = 3        # We use frames 0-2 (0x360-0x362)
+GENERIC_DASH_BASE_ID: int = 0x3E8  # Single multiplexed CAN ID (PCLink default 1000/0x3E8)
+                                   # VERIFY against your PCLink CAN Setup before enabling
+GENERIC_DASH_COUNT: int = 14       # 14 sub-frames multiplexed on single ID (byte[0] = frame index)
+
+# G5 Generic Dash sub-frame indices (byte[0] of each message)
+# Layout: byte[0]=frame_idx, byte[1]=0x00, bytes[2:8]=three LE int16 signals
+# PCLink defaults — confirm against raw CAN sniff before trusting scaling
+GD_FRAME_RPM_MAP_TPS: int = 0      # RPM (raw), MAP (kPa×10), TPS (%×10)
+GD_FRAME_CLT_IAT_LAMBDA: int = 1   # CLT (°C×10), IAT (°C×10), Lambda1 (λ×1000)
+GD_FRAME_OIL_FUEL: int = 2         # OilPress (kPa×10), OilTemp (°C×10), FuelPress (kPa×10)
+GD_FRAME_BATT_INJ_ETHANOL: int = 3  # Battery (V×100), InjDuty (%×10), Ethanol (%×10)
+GD_FRAME_GEAR_WHEEL_LF_RF: int = 4  # Gear (raw), WheelSpeed_LF (km/h×10), WheelSpeed_RF (km/h×10)
+GD_FRAME_WHEEL_LR_RR: int = 5      # WheelSpeed_LR (km/h×10), WheelSpeed_RR (km/h×10), reserved
 
 SI_DRIVE_FRAME_ID: int = 0x6B0    # User CAN: SI Drive state, 10 Hz
 SENSOR_FRAME_ID: int = 0x6B1      # User CAN: extended sensors, 20 Hz
@@ -63,7 +74,7 @@ _GPS_IMU_IDS: set[int] = {
 }
 
 _G5_INPUT_IDS: set[int] = {
-    *(GENERIC_DASH_BASE_ID + i for i in range(GENERIC_DASH_COUNT)),
+    GENERIC_DASH_BASE_ID,  # single multiplexed ID — NOT a range
     SI_DRIVE_FRAME_ID,
     SENSOR_FRAME_ID,
     KEYPAD_FRAME_ID,
@@ -176,70 +187,52 @@ DYN_BRAKE_OFFSET: int = 6
 DYN_BRAKE_SCALE: float = 0.1  # raw / 10 → bar
 
 # ---------------------------------------------------------------------------
-# 0x360 — Generic Dash Frame 1 (8 bytes)
+# DEPRECATED — Generic Dash offset/scale constants (pre-sniff design)
 # ---------------------------------------------------------------------------
-# Link G5 Neo 4 Generic Dash output. 4 channels per frame, uint16 BE.
+# These constants assumed sequential IDs (0x360-0x362) with big-endian uint16,
+# 4 signals per frame. The actual G5 Generic Dash protocol is:
+#   - Single CAN ID (0x3E8), multiplexed on byte[0], LE int16, 3 signals/frame
 #
-# NOTE: Link's native Generic Dash uses LITTLE-endian. Our User CAN stream
-# re-encodes as BIG-endian for consistency with the DIFF/CONTEXT frames.
-# Verify byte order in PCLink G5 CAN stream configuration before first use.
-#
-# Byte0-1: RPM              uint16 BE  raw RPM (no scaling)
-# Byte2-3: MAP_kPa_x10      uint16 BE  kPa × 10
-# Byte4-5: TPS_x10          uint16 BE  % × 10
-# Byte6-7: CLT_x10          int16 BE   °C × 10
+# These constants are KEPT to avoid import errors in kisti_can.py.
+# decode_generic_dash_1/2/3() in kisti_can.py are also incorrect and will be
+# replaced post-sniff when real frame IDs and byte order are confirmed.
+# Use g5_generic_dash.py (G5GenericDashParser) for new code.
 
 GD1_RPM_OFFSET: int = 0
 GD1_RPM_SCALE: float = 1.0
 
 GD1_MAP_OFFSET: int = 2
-GD1_MAP_SCALE: float = 0.1  # kPa
+GD1_MAP_SCALE: float = 0.1
 
 GD1_TPS_OFFSET: int = 4
-GD1_TPS_SCALE: float = 0.1  # %
+GD1_TPS_SCALE: float = 0.1
 
 GD1_CLT_OFFSET: int = 6
-GD1_CLT_SCALE: float = 0.1  # °C (signed)
-
-# ---------------------------------------------------------------------------
-# 0x361 — Generic Dash Frame 2 (8 bytes)
-# ---------------------------------------------------------------------------
-# Byte0-1: IAT_x10          int16 BE   °C × 10
-# Byte2-3: Lambda1_x1000    uint16 BE  λ × 1000
-# Byte4-5: OilPressure_x10  uint16 BE  kPa × 10
-# Byte6-7: OilTemp_x10      int16 BE   °C × 10
+GD1_CLT_SCALE: float = 0.1
 
 GD2_IAT_OFFSET: int = 0
-GD2_IAT_SCALE: float = 0.1  # °C
+GD2_IAT_SCALE: float = 0.1
 
 GD2_LAMBDA_OFFSET: int = 2
-GD2_LAMBDA_SCALE: float = 0.001  # λ
+GD2_LAMBDA_SCALE: float = 0.001
 
 GD2_OIL_PRESS_OFFSET: int = 4
-GD2_OIL_PRESS_SCALE: float = 0.1  # kPa
+GD2_OIL_PRESS_SCALE: float = 0.1
 
 GD2_OIL_TEMP_OFFSET: int = 6
-GD2_OIL_TEMP_SCALE: float = 0.1  # °C
-
-# ---------------------------------------------------------------------------
-# 0x362 — Generic Dash Frame 3 (8 bytes)
-# ---------------------------------------------------------------------------
-# Byte0-1: EthanolPct_x10   uint16 BE  % × 10
-# Byte2-3: FuelPressure_x10 uint16 BE  kPa × 10
-# Byte4-5: BatteryV_x100    uint16 BE  V × 100
-# Byte6-7: InjDuty_x10      uint16 BE  % × 10
+GD2_OIL_TEMP_SCALE: float = 0.1
 
 GD3_ETHANOL_OFFSET: int = 0
-GD3_ETHANOL_SCALE: float = 0.1  # %
+GD3_ETHANOL_SCALE: float = 0.1
 
 GD3_FUEL_PRESS_OFFSET: int = 2
-GD3_FUEL_PRESS_SCALE: float = 0.1  # kPa
+GD3_FUEL_PRESS_SCALE: float = 0.1
 
 GD3_BATT_OFFSET: int = 4
-GD3_BATT_SCALE: float = 0.01  # V
+GD3_BATT_SCALE: float = 0.01
 
 GD3_INJ_DUTY_OFFSET: int = 6
-GD3_INJ_DUTY_SCALE: float = 0.1  # %
+GD3_INJ_DUTY_SCALE: float = 0.1
 
 # ---------------------------------------------------------------------------
 # 0x6B0 — SI Drive frame layout (8 bytes)
