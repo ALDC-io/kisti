@@ -145,8 +145,9 @@ def main():
     # Core: CAN bus bridge
     bridge = DiffStateBridge()
     listener, mock = create_can_source(bridge)
-    if mock is not None:
-        mock.start()
+    # Mock disabled — only real sensors (FLIR, Yocto, Korlan CAN)
+    # if mock is not None:
+    #     mock.start()
 
     # Mode manager: SI Drive → subsystem control
     mode_mgr = ModeManager(bridge)
