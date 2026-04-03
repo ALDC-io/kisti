@@ -1,5 +1,46 @@
 # KiSTI - Progress
 
+## Session: 2026-04-03 (kisti-23 — usb_8dev Driver + G5 Generic Dash Parser)
+
+### Status: COMPLETE
+
+### Completed
+- **usb_8dev kernel module built and installed** — OOT module for Tegra 5.15.148 kernel. Auto-loads on boot via `/etc/modules-load.d/usb_8dev.conf`. Udev rule auto-brings up `can1` at 1Mbit/s. Loopback test passed: raw CAN traffic verified clean. Korlan USB2CAN (0483:1234) now creates `/dev/can1` interface.
+- **G5 Generic Dash protocol corrected** — Major finding: prior `can_config.py` had GENERIC_DASH_BASE_ID=0x360 (sequential frames 0x360-0x362, big-endian). Actual protocol: single CAN ID 0x3E8, multiplexed on byte[0], little-endian int16. Researched from open-source libraries + AIM PDF.
+- **G5GenericDashParser written and tested** — New `can/g5_generic_dash.py`: stateful decoder, byte[0] mux dispatch, 6 sub-frames, 15+ properties (rpm/map/tps/temps/lambda/oil/fuel/battery/gear/4× wheel speeds), stale detection, reset. 44 unit tests, all passing.
+- **Sector strip fix deployed** — `ui/sharp_screen.py:449`: Added `and sector_times[i] > 0` guard. Unrun sectors (time=0) now stay dark, not pre-populated as red blocks. Commit d139dd7.
+- **985 tests passing** — Baseline 942 + 44 new G5GenericDashParser tests. 1 pre-existing failure: `test_timing_after_lap` in `test_timing_manager.py` (not regression).
+- **Hardware blocker identified** — CAN cable (PN 101-5104) not yet ordered. Cannot do raw sniff until cable + DB9 breakout + 120Ω terminator arrive.
+
+### Files Changed
+- `can/can_config.py` — GENERIC_DASH_BASE_ID 0x360→0x3E8, COUNT 3→14, _G5_INPUT_IDS single ID, GD_FRAME_* constants, GD1/GD2/GD3 deprecated (kept for import compat)
+- `can/g5_generic_dash.py` — **NEW**: G5GenericDashParser, mux decode, stale detection
+- `tests/test_g5_generic_dash.py` — **NEW**: 44 tests (rejection, None-before-recv, all signals, stale, custom ID, reset)
+- `ui/sharp_screen.py` — Sector strip fix at line 449
+- `NEXT_SESSION_PROMPT.md` — Full handoff with priorities, hardware buy list, sniff plan
+
+### Key Decisions
+- **Single CAN ID > sequential frames** — Link G5 multiplexes 14 sub-frames on one ID, not 3 separate IDs. Simpler, more efficient, matches industry standard.
+- **Little-endian signals** — Confirmed LE int16 via AIM + open-source decoders. Prior assumption of big-endian was wrong.
+- **Defer integration until post-sniff** — Keep deprecated GD1/GD2/GD3 in can_config.py to avoid breaking kisti_can.py imports. Replace decode_ functions only after hardware verification.
+
+### Learnings Captured
+- ✅ cce_success_log: kisti-23 session summary (usb_8dev + G5 parser)
+- ✅ cce_decision_log: G5 Generic Dash protocol architecture (single ID, LE int16, mux)
+
+### Don't Repeat
+- Verify CAN protocol specs against real hardware BEFORE writing decoders — open-source libraries may have different assumptions
+- Always confirm byte order (BE vs LE) via actual hardware sniff — don't trust naming conventions
+- Deprecated constants (GD1/GD2/GD3) must stay if downstream imports them by name — add deprecation comment, don't delete
+
+### Next Session (kisti-24)
+1. **Order CAN hardware** — JK action: PN 101-5104 ($75), DB9 breakout ($14), 120Ω terminator ($13). DTM4 pinout documented in NEXT_SESSION_PROMPT.md
+2. **CAN sniff post-hardware** — Verify actual PCLink CAN ID (expect 0x3E8, may differ), byte[0] cycles 0-13, byte[1]=0x00, LE int16 signals
+3. **Integrate G5GenericDashParser into kisti_can.py** — Replace decode_generic_dash_1/2/3 calls, change CAN_INTERFACE to "can1", flip MOCK_ENABLED to False
+4. **Post-Boost Barn: SC-6 session trends** — Do NOT start until after real ECU data flowing (Boost Barn tune WO #15562, Aaron)
+
+---
+
 ## Session: 2026-04-02 (kisti-27 — Coaching Deploy + SC Assessment)
 
 ### Status: COMPLETE
