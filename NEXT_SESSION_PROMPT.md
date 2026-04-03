@@ -1,88 +1,68 @@
-# KiSTI — Next Session Prompt (kisti-26: Coaching Screens)
+# KiSTI Next Session Handoff
 
-**Working dir**: `/home/aldc/repos/kisti/`
-**Jetson**: `192.168.22.131` (user `aldc`). SSH: `ssh aldc@192.168.22.131`
-**Test baseline**: 895 tests, all passing
-**Branch**: `kisti-headless`
-**Deploy**: `bash scripts/deploy-to-jetson.sh`
-**Project Plan**: `/home/aldc/projects/active/2026-04-02-kisti-coaching-screens/README.md`
+**Repo**: `/home/aldc/repos/kisti/` | **Branch**: `kisti-headless`
+**Jetson**: `192.168.22.131` (SSH user: `aldc`, pw: `aldc1234`)
+**935 tests passing** — `python3 -m pytest tests/ -x -q`
 
 ---
 
-## What Was Done (kisti-25b)
+## What Was Done (This Session)
 
-Screen redesign complete. All 3 SI-Drive screens are clean, readable, deployed:
-- **Sport**: G-force circle (r=140, 100-dot trail) + 4 perf bars + DCCD/FLIR top strip
-- **Sport#**: Delta bar + timing panel (left) + G-force circle (right) + sectors + safety vitals
-- **Intelligent**: Weather card + road surface temp + status strip (Surface primary, SLIP, DCCD compact)
-- Full-page FLIR tint (alpha 15) on all 3 screens
-- FLIR is single forward-facing road camera (grill-mounted), uses `brake_temp_fl` as proxy field
+### Coaching Screens Phases 1-6 COMPLETE
+All 3 SI-Drive screens (Sport, Intelligent, Sport#) now actively coach the driver.
 
-## What Needs Doing (6 Phases)
+- **Phase 2**: Voice ticker on all 3 screens — last 3 spoken lines with alpha fade
+- **Phase 3**: `coaching/technique_analyzer.py` — 30s rolling window, brake/steering/trail-braking feedback on Sport screen
+- **Phase 4**: `coaching/condition_rules.py` — 8 rules (ice risk, wet surface, oil temp, etc.), CoachingLevel filtered (K5 button)
+- **Phase 5**: Sport# sector insight — `_sector_insight()` adds "big gain"/"lost time"/"a bit slow" to sector blocks
+- **Layout fix**: G magnitude moved inside G circle (lower interior at `cy + r1*0.45`) on Sport screen — was floating orphaned below circle
+- **Committed + pushed**: `6fffe11` on `kisti-headless`
 
-The screens show numbers. They don't coach. We have 15+ AI/sensor capabilities wired and operational — but invisible on the display. This project transforms the screens from passive telemetry gauges into an active AI co-driver.
+## Not Yet Done
+- **Deploy to Jetson**: commit pushed, Jetson NOT updated yet (`git pull` + GDM restart not run)
+- **Coaching score assessment**: User asked "how do you score us for helping the driver be a better driver?" — not answered
+- **SC-6 (edge memory trends)**: Session-over-session DuckDB trends still NOT surfacing on screen
 
-### Phase 1: Wire TimingManager to Sport# (THE #1 GAP)
-**Problem**: `SportSharpScreenWidget.update_timing(data)` exists but is NEVER CALLED from main.py. The timing panel permanently shows "--:--.---".
+---
 
-**Key files**:
-- `main.py` ~line 375-445: TimingManager wired, emits `lap_completed` / `sector_completed` signals
-- `ui/sharp_screen.py` line 196-205: `update_timing(timing_data: dict)` accepts timing dict
-- `timing/timing_manager.py`: GPS-based lap/sector detection
-- `can/kisti_can.py`: MockCanGenerator needs mock timing data for demo mode
+## First Thing: Deploy to Jetson
+```bash
+ssh aldc@192.168.22.131 "cd ~/repos/kisti && git pull --ff-only && echo aldc1234 | sudo -S systemctl restart gdm"
+```
+Then visually verify G label sits inside circle on Sport screen.
 
-**Approach**:
-1. Find where TimingManager signals connect in main.py
-2. Add slot that calls `sharp_screen.update_timing()` with the timing dict
-3. Add mock timing data to MockCanGenerator (fake laps ~90s, 4 sectors, delta +/-2s)
-4. Test: Sport# displays live timing during demo rotation
+---
 
-### Phase 2: Voice Activity Ticker (All 3 Screens)
-**Problem**: Voice pipeline speaks via TTS but nothing appears on screen.
+## Prioritized TODOs
 
-**Approach**:
-- Add `text_output` signal to VoiceManager (check if `speak()` already emits one)
-- Shared `deque[str](maxlen=3)` in main.py, route to all 3 screens
-- Paint as dim text overlay (14pt minimum)
+### 1. Score the coaching screens (answer user's question)
+Honest assessment against SC-1 to SC-7 (see `README.md`). Key gaps:
+- SC-6 NOT DONE — DuckDB session trends not visible on screen. Driver can't see "braking improved 12%".
+- SC-2 (technique feedback): 30s window is slow to respond. Could go 10s.
 
-### Phase 3: Sport Technique Feedback
-**Problem**: Sport shows raw G/brake/steer values but doesn't analyze driving technique.
+### 2. SC-6: Edge Memory Trends (Next Phase)
+`ui/intelligent_screen.py` status strip (y=340..480) has room for a 3rd column.
+New file needed: `coaching/session_trend_analyzer.py` — query DuckDB `sessions` table for brake consistency trend over last 3 sessions.
 
-**Approach**:
-- New `coaching/technique_analyzer.py` — 30s rolling window of telemetry
-- Metrics: brake consistency (std dev), steering smoothness (jerk), trail braking quality
-- 1Hz refresh, single coaching line on Sport screen
+### 3. Check voice ticker overlap on Sport
+Ticker at y=106-136 in G circle area (x=360-790). Verify no overlap with circle labels when voice is active.
 
-### Phase 4: Intelligent Coaching + Conditions to Actions
-**Problem**: CoachingLevel exists (K5 cycles FULL/MODERATE/MINIMAL) but screen ignores it.
+---
 
-**Approach**:
-- Coaching text panel on Intelligent
-- FULL: proactive tips ("Road 3C — reduce corner speed, grip down ~15%")
-- MODERATE: observations ("Smooth braking that corner")
-- MINIMAL: alerts only
-- Surface edge memory trends (last 3 sessions)
+## Key Files
 
-### Phase 5: Sport# Sector Analysis
-**Problem**: Sectors show green/red time blocks but don't say WHERE time was lost.
+| File | Role |
+|------|------|
+| `ui/sport_screen.py` | G label now at `cy + r1*0.45 = 313`, coaching at y=398 |
+| `ui/intelligent_screen.py` | Coaching replaces "ROAD TEMPERATURE" sublabel |
+| `ui/sharp_screen.py` | `_sector_insight()` static method, sector text |
+| `coaching/technique_analyzer.py` | 30s rolling brake/steering/trail-braking |
+| `coaching/condition_rules.py` | 8 condition-action rules, priority + level filter |
+| `main.py` | 1Hz timers, voice ticker deque wired to all screens |
 
-**Approach**:
-- Compare brake point / corner speed to best lap
-- Small insight text below each sector block
-
-### Phase 6: Integration + Jetson Verification
-- Full test suite (895+ tests), deploy, arm's-length readability check
-
-## Architecture Notes
-
-- **QPainter only** — no QWidget/QLabel (compositorless X11, TopStatusBar ghost text bug)
-- **1Hz coaching refresh** — cache in instance var, QTimer at 1000ms, don't query DuckDB in paintEvent
-- **Voice ticker as shared deque** — main.py owns the deque, screens paint from it
-
-## Don't Repeat
-- Widget with parent=self but not in layout paints at (0,0). Remove instead of hide.
-- Always clear `__pycache__` on Jetson deploy
-- Color IS the indicator — no redundant text labels
-- Full-page tint > partial colored strips
-- QPainter drawRect() inherits current brush — always setBrush(NoBrush) before border-only rects
-- Pycache race condition: old .pyc loads instead of new .py on Jetson
+## Architecture Reminders
+- Paint pattern: coaching cached in instance vars (1Hz), painted at 20Hz. Zero compute in paintEvent.
+- No Qt in coaching modules — pure Python, fully testable.
+- G circle geometry Sport: center=(575, 250), radius=140. Label now at cy + r1*0.45 = 313.
+- CPU: 527% / 600% — pre-existing (whisper VAD threads). Coaching adds ~0.5ms/s.
+- Tests baseline: 935. Must not regress.
