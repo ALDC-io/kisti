@@ -628,11 +628,18 @@ class DiffStateBridge(QObject):
                 avg = (left + center + right) / 3.0
                 if left != 0.0 or center != 0.0 or right != 0.0:  # skip only if all zero (stale)
                     ambient = self._state.ambient_temp_c
+                    dew_pt = self._state.dew_point_c
                     delta = ambient - avg  # positive = road colder than air
                     if avg < 0:
                         self._state.surface_state = SurfaceState.LOW_GRIP
+                    elif avg <= dew_pt and self._state.ambient_available:
+                        # Road temp at or below dew point — frost/ice forming NOW
+                        self._state.surface_state = SurfaceState.LOW_GRIP
                     elif avg < 5:
                         self._state.surface_state = SurfaceState.COLD
+                    elif avg < dew_pt + 3 and self._state.ambient_available:
+                        # Road temp approaching dew point — condensation risk
+                        self._state.surface_state = SurfaceState.WET
                     elif delta > 5 and self._state.ambient_humidity_pct > 70:
                         self._state.surface_state = SurfaceState.WET
                     else:
