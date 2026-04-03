@@ -46,6 +46,11 @@
 - CLAHE at 9 Hz overwhelms Jetson CPU → throttle to 3 Hz
 - OpenCV may return Y16 as flattened uint8 (120,320,1) → `.view(uint16).reshape(120,160)`
 
+### Learnings Captured
+- ✅ 11 learnings posted to Zeus Memory (zeus.aldc.io, tenant 11111111, user jk)
+- 7x cce_success_log: Y16 radiometric, dew point ice detection, mock FLIR removal, 3Hz throttle, weather card, coaching bar, sector gating
+- 4x cce_decision_log: Y16 FOURCC AGC disable, dew point vs fixed thresholds, 3Hz over CLAHE tuning, Intelligent default
+
 ### Future Ideas (scoped)
 1. **Warm object detection** — Numpy hot-spot: running road temp baseline, detect pixel clusters >10°C above baseline, >20px connected component, 2+ consecutive frames. "WARM OBJECT AHEAD" + L/C/R position. No ML needed.
 2. **YOLO animal detection** — Second visible-light camera (720p+) + YOLO on Jetson GPU for species ID. FLIR triggers, visible classifies.
