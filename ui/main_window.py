@@ -95,8 +95,8 @@ class MainWindow(QMainWindow):
         self._stack.addWidget(self._sharp_screen)        # index 2: Sport Sharp
         self._stack.addWidget(self._video_mode)          # index 3: VIDEO (thermal + cameras)
 
-        self._current_si_drive: int = 1  # Default: Sport (car starts in Sport)
-        self._stack.setCurrentIndex(1)
+        self._current_si_drive: int = 0  # Default: Intelligent (real sensors view)
+        self._stack.setCurrentIndex(0)
 
         # Critical flash overlay (WARNING/CRITICAL visual feedback in S# mode)
         self._flash_overlay = CriticalFlashOverlay(central)
