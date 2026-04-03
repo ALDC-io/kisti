@@ -363,11 +363,7 @@ class IntelligentScreenWidget(QWidget):
             # Blit cached QImage (colormap applied in _on_frame_updated)
             p.drawImage(QRectF(0, y0, _W, panel_h), self._cached_ir_image)
 
-            # Semi-transparent "ROAD SURFACE" label overlay
-            p.setFont(_font(12, bold=True))
-            p.setPen(QPen(QColor(255, 255, 255, 160)))
-            p.drawText(QRectF(20, y0 + 4, 200, 20),
-                       Qt.AlignLeft | Qt.AlignVCenter, "ROAD SURFACE")
+            pass  # clean thermal image — no label overlay
         else:
             # Section label
             p.setFont(_font(12, bold=True))
