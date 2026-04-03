@@ -8,77 +8,56 @@
 
 ## What Was Done (This Session)
 
-### Coaching Screens Phases 2-5 COMPLETE (commit a3eb24c)
-- **Phase 2**: Voice ticker on all 3 screens (last 3 spoken lines, alpha fade)
-- **Phase 3**: `coaching/technique_analyzer.py` — 30s rolling window, brake/steering/trail-braking (Sport screen)
-- **Phase 4**: `coaching/condition_rules.py` — 8 rules (ice risk, wet, oil temp, etc.), CoachingLevel-filtered (Intelligent screen)
-- **Phase 5**: `_sector_insight()` in sharp_screen.py — "big gain"/"lost time"/"a bit slow" per sector (Sport# screen)
-- **Layout**: G magnitude inside circle at `cy + r1*0.45 = 313`, coaching text at y=398 (Sport)
+### GNOME / Headless Boot Fixed (commit 6bf1e0b)
+- GDM was re-enabled by `systemctl restart gdm` last session
+- Fixed: `sudo systemctl disable gdm && sudo systemctl stop gdm && reboot`
+- Verified: post-reboot GDM=inactive, Xorg on `:0 vt1`, getty autologin working
+- KiSTI auto-launches `--fullscreen` via startx → `kisti-session` script as expected
 
-### Deployed to Jetson
-- `git pull --ff-only` succeeded on Jetson (14 files, 1009 insertions)
-- GDM restarted — **BUT: GNOME came back** (see issue #1 below)
+### SC-2 Fixed: Technique analyzer window 30s → 10s (commit 6bf1e0b)
+- `coaching/technique_analyzer.py`: `_WINDOW=10`, `_MIN_SAMPLES=5`
+- 8/8 technique analyzer tests pass
+- Deployed to Jetson via `git pull --ff-only && ~/k`
+
+### SC-6 Readiness Check
+- DuckDB at `/data/duckdb/kisti.duckdb` — 18 tables, schema is fully built
+- `telemetry` table: **0 rows** — no real sessions yet (pre-Boost Barn)
+- SC-6 is NOT ready. Do not implement until after Boost Barn real ECU data flows
 
 ---
 
-## Issues To Fix First
+## Coaching Screen Scores (SC-1 through SC-6)
 
-### Issue 1: GNOME is back on Jetson — MUST FIX BEFORE KISTI WORKS
-The `systemctl restart gdm` re-enabled GNOME, clobbering the getty+startx headless setup from kisti-19.
-KiSTI won't display on Excelon until this is fixed.
+| SC | Criterion | Score | Gap |
+|----|-----------|-------|-----|
+| SC-1 | Coaching visible on all 3 screens | 7/10 | Sport 13pt in G-circle corner is borderline readable at speed |
+| SC-2 | Technique feedback (brake/steer/trail) | 7/10 | Fixed: 10s window — real-time now ✓ |
+| SC-3 | Condition-aware coaching | 8/10 | Only fires on Intelligent. WET/LOW_GRIP in Sport goes uncoached |
+| SC-4 | Mode-appropriate verbosity | 8/10 | Philosophy correct and implemented |
+| SC-5 | Sector insight on Sport# | 5/10 | 500ms hardcoded threshold; 9pt text; no compound insight |
+| SC-6 | Session-over-session trends | 0/10 | Not built. Blocked on real ECU data (post-Boost Barn) |
 
-**Fix path** (from kisti-19 learnings):
-```bash
-ssh aldc@192.168.22.131
-# Kill GNOME, restore headless boot
-sudo systemctl disable gdm
-sudo systemctl stop gdm
-# Verify startx still configured (check ~/.bash_profile for startx line)
-cat ~/.bash_profile
-# If startx line is gone, re-add: if [ -z "$DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then exec startx; fi
-# Reboot to verify
-echo aldc1234 | sudo -S reboot
-```
-After reboot, KiSTI should auto-start on HDMI-0 via startx → `~/repos/kisti/scripts/kisti-session`.
-
-**DO NOT use `systemctl restart gdm` again** — that's what broke it. The correct deploy command is:
-```bash
-ssh aldc@192.168.22.131 "cd ~/repos/kisti && git pull --ff-only && ~/k"
-```
-The `~/k` wrapper handles restart without touching GDM.
+**Overall: 35/60 = 58%.** SC-2 now real-time coaching. SC-6 is the differentiator.
 
 ---
 
 ## Prioritized TODOs
 
-### 1. Fix GNOME / headless boot (see Issue 1 above)
+### 1. SC-6: Session-over-session trends (POST-Boost Barn only)
+**Do NOT tackle until Boost Barn validation session confirms real ECU brake_pressure values.**
+- New file `coaching/session_trend_analyzer.py`
+- Query DuckDB `telemetry` table for brake_pressure std dev trend across last 3 sessions
+- Surface in 3rd column of Intelligent status strip (y=340..480)
+- DuckDB path: `/data/duckdb/kisti.duckdb` (NOT `~/repos/kisti/data/`)
 
-### 2. Fix SC-2: Shrink technique analyzer window (5-min change, high value)
-`coaching/technique_analyzer.py` line 37: `_WINDOW = 30` → `_WINDOW = 10`
-`coaching/technique_analyzer.py` line 38: `_MIN_SAMPLES = 10` → `_MIN_SAMPLES = 5`
-Current 30s window means feedback is 20s stale. 10s makes it feel real-time.
-Tests in `tests/test_technique_analyzer.py` — verify they still pass after change.
+### 2. SC-5 improvements (optional, low urgency)
+- Replace 500ms hardcoded threshold with adaptive per-sector baseline
+- Bump sector text from 9pt → 11pt
+- Add compound insight ("gained 0.3s — trail braking better")
 
-### 3. SC-6: Session-over-session trends on Intelligent screen (post-Boost Barn)
-**Do NOT tackle SC-6 until after Boost Barn validation session with real ECU data.**
-Reason: mock data brake pressure thresholds may need recalibration once real Link ECU values are flowing.
-When ready: new file `coaching/session_trend_analyzer.py` — query DuckDB `telemetry` table for brake_pressure std dev trend across last 3 sessions. Surface in 3rd column of Intelligent status strip (y=340..480).
-
----
-
-## Coaching Screen Scores (SC-1 through SC-6)
-These criteria were never formally added to README.md — add them when convenient.
-
-| SC | Criterion | Score | Gap |
-|----|-----------|-------|-----|
-| SC-1 | Coaching visible on all 3 screens | 7/10 | Sport 13pt in G-circle corner is borderline readable at speed |
-| SC-2 | Technique feedback (brake/steer/trail) | 5/10 | 30s window = forensics not coaching. Fix: 10s |
-| SC-3 | Condition-aware coaching | 8/10 | Only fires on Intelligent. WET/LOW_GRIP in Sport mode goes uncoached |
-| SC-4 | Mode-appropriate verbosity | 8/10 | Philosophy correct and implemented |
-| SC-5 | Sector insight on Sport# | 5/10 | 500ms hardcoded threshold; 9pt text; no compound insight |
-| SC-6 | Session-over-session trends | 0/10 | Not built. Data is in DuckDB, just no query+display layer |
-
-**Overall: 33/60 = 55%.** Coaches in the moment. Has no memory. SC-6 is the differentiator.
+### 3. SC-3 gap: WET/LOW_GRIP coaching on Sport screen (optional)
+- Condition rules currently only surface on Intelligent screen
+- Could surface a stripped-down alert on Sport too
 
 ---
 
@@ -89,9 +68,9 @@ These criteria were never formally added to README.md — add them when convenie
 | `ui/sport_screen.py` | G label at `cy + r1*0.45 = 313`, coaching at y=398 |
 | `ui/intelligent_screen.py` | Coaching replaces sublabel at y=card_y+90 |
 | `ui/sharp_screen.py` | `_sector_insight()` static method, sector text at 9pt |
-| `coaching/technique_analyzer.py` | 30s rolling window (→ fix to 10s), Sport screen |
+| `coaching/technique_analyzer.py` | 10s rolling window (fixed), Sport screen |
 | `coaching/condition_rules.py` | 8 condition-action rules, Intelligent screen |
-| `data/duckdb_store.py` | `telemetry` table has brake_pressure/steering_angle per session |
+| `data/duckdb_store.py` | `telemetry` table — brake_pressure/steering_angle per session |
 | `timing/timing_manager.py` | Sector timing, feeds Sport# sector blocks |
 | `main.py` | 1Hz timers, voice ticker deque, all screen wiring |
 | `scripts/deploy-to-jetson.sh` | SSH deploy (use `~/k` wrapper on Jetson for restart) |
@@ -103,3 +82,5 @@ These criteria were never formally added to README.md — add them when convenie
 - CPU: 527% / 600% — pre-existing (whisper VAD threads). Coaching adds ~0.5ms/s.
 - Tests baseline: 935. Must not regress.
 - **NEVER use `systemctl restart gdm`** — breaks headless display setup.
+- **Deploy command**: `ssh aldc@192.168.22.131 "cd ~/repos/kisti && git pull --ff-only && ~/k"`
+- **DuckDB path on Jetson**: `/data/duckdb/kisti.duckdb` (not in repo dir)
