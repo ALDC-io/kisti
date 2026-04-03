@@ -279,22 +279,22 @@ class TestMainWindowSIDrive:
     def test_si_drive_switches_stack(self, qapp):
         from ui.main_window import MainWindow
         win = MainWindow()
-        assert win._stack.currentIndex() == 1  # Starts on Sport (default)
+        assert win._stack.currentIndex() == 0  # Starts on Intelligent (default)
 
-        win._on_si_drive_changed(0)
-        assert win._stack.currentIndex() == 0  # Intelligent
+        win._on_si_drive_changed(1)
+        assert win._stack.currentIndex() == 1  # Sport
 
         win._on_si_drive_changed(2)
         assert win._stack.currentIndex() == 2  # Sport Sharp
 
-        win._on_si_drive_changed(1)
-        assert win._stack.currentIndex() == 1  # Back to Sport
+        win._on_si_drive_changed(0)
+        assert win._stack.currentIndex() == 0  # Back to Intelligent
 
     def test_invalid_mode_ignored(self, qapp):
         from ui.main_window import MainWindow
         win = MainWindow()
         win._on_si_drive_changed(99)
-        assert win._stack.currentIndex() == 1  # Unchanged (stays on Sport default)
+        assert win._stack.currentIndex() == 0  # Unchanged (stays on Intelligent default)
 
 
 class TestStatusBar:

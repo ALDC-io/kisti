@@ -1,4 +1,4 @@
-# NEXT SESSION PROMPT — KiSTI kisti-28
+# NEXT SESSION PROMPT — KiSTI kisti-29
 
 **Branch**: `kisti-headless`  
 **Jetson**: `ssh aldc@192.168.22.131` (pw: `aldc1234`)  
@@ -6,79 +6,118 @@
 
 ---
 
-## What Was Done (kisti-27)
+## What Was Done (kisti-28)
 
-1. **400°C FLIR bug fixed** — BGR fallback in `sensors/flir_lepton_reader.py` was scaling 0-255 uint8 pixels to fake 100-600°C. Fix: BGR path now emits `frame_updated` then returns immediately (no temps). `_roi_mean_temp` fallback returns `0.0` instead of raw value.
+### Radiometric FLIR — Real Temperature Data
+- **Y16 mode enabled** — Set V4L2 FOURCC to `Y16` on PureThermal 3. Frames are now uint16 centi-Kelvin. Confirmed: `dtype=uint16, shape=(120,160), mean=29837` = 25.2°C real room temp.
+- **OpenCV Y16 bug guard** — `.view(uint16).reshape(120,160)` workaround in `_poll()` for flattened uint8 bug.
+- `road_temp_left/center/right` now have **real Celsius values** from FLIR ROI averaging.
 
-2. **Mock FLIR removed entirely** — Deleted `_flir_fl/fr/rl/rr` state vars, `_flir_timer`, `_flir_tick()` from `can/kisti_can.py`. Road surface data now comes ONLY from real FLIR.
+### Surface State Inference (no CAN needed)
+- `update_road_surface()` in `model/vehicle_state.py` derives surface_state from FLIR + Yocto:
+  - `avg < 0°C` → LOW_GRIP (ice)
+  - `avg ≤ dew_point` → LOW_GRIP (frost/ice actively forming)
+  - `avg < 5°C` → COLD
+  - `avg < dew_point + 3°C` → WET (condensation risk)
+  - `ambient - avg > 5°C + humidity > 70%` → WET
+  - else → DRY
+- **Tested live**: cold glass bottle → road temp dropped to -3.6°C → LOW GRIP triggered.
 
-3. **`lap_in_progress` flag** — Added to `timing/timing_manager.py:get_timing_data()`. Gates sector strip rendering.
+### Mock CAN Disabled
+- `mock.start()` commented out in `main.py`. Only real sensors: FLIR, Yocto, Korlan.
+- Default screen changed to Intelligent (index 0).
+- SI-Drive mock locked to Intelligent for testing (needs `--demo` flag to restore rotation).
 
-4. **Intelligent screen: live IR image** — `IntelligentScreenWidget` wired to `flir_reader.frame_updated`. Renders 160×120 uint16 frame as inferno-colormap QImage scaled to full 800×180px band. 5-stop numpy colormap (no matplotlib). Semi-transparent label overlay.
+### UI Changes
+- **4-column weather card**: WEATHER | ROAD | HUMIDITY | BARO — evenly spaced, BARO right-aligned.
+- **CLAHE + temporal smoothing** on FLIR image. Frame throttle to ~3 Hz.
+- **LUT inferno colormap** — precomputed 256-entry, QImage cached off paint thread.
+- **Coaching text** moved from FLIR image overlay to bottom bar (y=456-480).
+- **Sport voice ticker** relocated from G-force circle to empty FLIR panel.
+- **Compact weather card** — 108px tall, FLIR panel starts at y=118.
 
-5. **Sport screen: FLIR panel removed** — Just `fillRect(BG_PANEL)`. Background tint (alpha=15) is the road temp signal.
-
-6. **Sharp screen: sectors black until lap active** — `lap_in_progress` gate draws `BG_DARK` placeholder blocks when no lap running. No stale red fills during canyon cruise.
-
-7. **Sharp screen: FLIR gradient bar** — 3-zone heat-colored bar (alpha=80), no text. Replaces `{temp:.0f}°C` labels.
-
-8. **Tests updated** — `test_non_radiometric_returns_zero` (was passthrough), BGR signal test added. `test_all_keys_present` includes `lap_in_progress`. **1006 passed, 0 failed.**
+### Tests
+- 1006 passed, 0 failed (before this session's non-test changes).
+- New tests added: BGR signal separation, non-radiometric returns 0.0, lap_in_progress key.
+- **TODO**: Run full suite to verify nothing broken by mock disable / Y16 changes.
 
 ---
 
 ## Current State
 
-**All changes UNCOMMITTED.** Tests passing. Ready to commit and deploy.
+**All changes committed and pushed** on `kisti-headless`. Deployed to Jetson. Running in sensor-only mode (no mock).
+
+Diagnostic logging active:
+- FLIR frame dtype/shape/mean on first read
+- Road temps L/C/R + surface state every 3s
 
 ---
 
 ## TODO — In Priority Order
 
-### 1. Commit all changes
+### 1. Run full test suite
 ```bash
 cd /home/aldc/repos/kisti
-git add can/kisti_can.py sensors/flir_lepton_reader.py timing/timing_manager.py \
-        ui/main_window.py ui/intelligent_screen.py ui/sport_screen.py ui/sharp_screen.py \
-        tests/test_flir_lepton.py tests/test_timing_manager.py PROGRESS.md NEXT_SESSION_PROMPT.md
-git commit -m "feat: FLIR UI overhaul — live IR on Intelligent, mock removal, 400°C fix, sector black-until-active"
+python3 -m pytest tests/ -q --tb=short --ignore=tests/test_voice_integration.py --ignore=tests/test_voice_pipeline.py 2>&1 | tail -10
 ```
 
-### 2. Deploy to Jetson
-```bash
-ssh aldc@192.168.22.131 "cd ~/repos/kisti && git pull --ff-only && ~/k"
-```
+### 2. Add `--demo` flag to main.py
+- When `--demo`: start mock CAN, restore SI-Drive rotation (15s cycle)
+- When no flag (default): real sensors only, Intelligent default
+- This lets us demo at trade shows while running real sensors on the road
 
-### 3. Verify on Jetson
-- **Key 1 (Intelligent)**: Middle band (y=160-340) should show live inferno-colormap thermal image of road. If FLIR not connected → "FLIR NOT CONNECTED" dim text.
-- **Key 2 (Sport)**: Top-right panel should be solid dark background, no L/CTR/R numbers. Subtle background tint if FLIR active.
-- **Key 3 (Sharp)**: S1/S2/S3 blocks should be dark/invisible until timing started. FLIR strip (if shown) = gradient bar, no numbers.
-- **kisti-session.log**: Should NOT show 400°C warnings. Road temp = 0 (stale if non-radiometric) or real Celsius (if radiometric mode enabled).
+### 3. Warm object detection prototype
+**Approach** (no ML, pure numpy):
+- Maintain running average of road ROI temp (3-second window)
+- Each frame: threshold pixels >10°C above road baseline
+- Find connected components >20 pixels
+- Require blob present in 2+ consecutive frames (debounce)
+- Emit signal: `warm_object_detected(position: str)` — "LEFT" / "CENTER" / "RIGHT"
+- Alert: "WARM OBJECT AHEAD" on coaching bar + voice TTS
 
-### 4. Hardware actions (JK)
-- Order CAN cable PN 101-5104 ($75) + DB9 breakout ($14) + 120Ω terminator ($13)
-- Boost Barn tune WO #15562 with Aaron — KiSTI must be in-car with mic
+**Files**: `sensors/flir_lepton_reader.py` (detection), `alerts/alert_engine.py` (alert), coaching bar (display)
+
+### 4. CAN-to-Strada text alerts
+- When Korlan cable arrives: send coaching text as CAN message to Link ECU
+- Link G5 can forward to Strada 7" configurable text display
+- CAN frame format: TBD after reading Link CAN protocol docs
+
+### 5. YOLO animal detection (future)
+- Second camera (visible light, 720p USB)
+- FLIR triggers "warm blob" → visible camera classifies
+- Jetson Orin Nano GPU runs YOLOv8-nano inference
+- "DEER AHEAD" / "ANIMAL ON ROAD" specific alerts
+
+### 6. Remove diagnostic logging
+- Remove road temp log every 3s from `vehicle_state.py`
+- Remove frame format log from `flir_lepton_reader.py`
+- (Keep until road test validates readings are correct)
+
+### 7. Order CAN hardware (JK action)
+- PN 101-5104 cable ($75)
+- DB9 breakout ($14)
+- 120Ω terminator ($13)
 
 ---
 
 ## Key Files
 | File | What changed |
 |------|-------------|
-| `sensors/flir_lepton_reader.py` | BGR fallback fix: emit frame, skip temps, 0.0 fallback |
-| `can/kisti_can.py` | Removed mock FLIR entirely |
-| `timing/timing_manager.py` | Added `lap_in_progress` to get_timing_data() |
-| `ui/main_window.py` | Pass flir_reader to IntelligentScreenWidget |
-| `ui/intelligent_screen.py` | Live IR image, inferno colormap, flir_reader wiring |
-| `ui/sport_screen.py` | _paint_flir_summary → fillRect only |
-| `ui/sharp_screen.py` | lap_in_progress gate, gradient bar for FLIR strip |
-| `tests/test_flir_lepton.py` | BGR test + renamed non-radiometric test |
-| `tests/test_timing_manager.py` | Added lap_in_progress to expected_keys |
+| `sensors/flir_lepton_reader.py` | Y16 FOURCC, OpenCV uint8 workaround, diagnostic log |
+| `model/vehicle_state.py` | Surface state inference, dew point ice detection, road temp log |
+| `can/kisti_can.py` | SI-Drive locked to Intelligent, mock FLIR removed |
+| `main.py` | Mock CAN disabled |
+| `ui/main_window.py` | Default screen Intelligent, flir_reader wired |
+| `ui/intelligent_screen.py` | 4-col weather, LUT inferno, CLAHE, throttle, coaching bar |
+| `ui/sport_screen.py` | Voice ticker relocated, FLIR panel cleared |
+| `ui/sharp_screen.py` | lap_in_progress gate, gradient bar |
 
 ---
 
 ## Architecture Notes
-- **PureThermal default mode** = AGC/non-radiometric → BGR uint8 → 3-channel frame. Cannot extract Celsius. Emit frame for display, skip temps.
-- **PureThermal radiometric mode** = uint16 centi-Kelvin (>20000 for room temp). Real Celsius available.
-- **Inferno colormap**: 5 stops, numpy vectorized, in `IntelligentScreenWidget._apply_inferno()`. 0→black, 64→#3B0764, 128→#F97316, 192→#FDE047, 255→white.
-- **Background tint alpha=15** in Sport + Sharp — this is intentionally subtle (6% opacity). The user confirmed this as the desired road temp visual.
-- **`lap_in_progress`** = `timer._lap_start_ts is not None`. None = no active lap. Set on crossing start/finish.
-- Old `brake_temp_fl/fr/rl/rr` + `update_flir()` still in DiffState — reserved for future ECU/CAN brake data.
+- **Y16 FOURCC** auto-disables AGC on PureThermal fw≥1.0.0. No CCI commands needed. Resets on power cycle but Y16 request happens every startup in `flir_lepton_reader.start()`.
+- **Surface state priority**: LOW_GRIP (ice/frost) > COLD (<5°C) > WET (condensation/rain) > DRY
+- **Dew point = ice predictor**: `road_temp ≤ dew_point` means moisture is condensing and freezing on the road surface. This is THE black ice signal.
+- **Frame pipeline**: FLIR 9Hz → skip 2/3 → float32 temporal blend → uint8 normalize → CLAHE → LUT inferno → QImage cache → paintEvent blit
+- **Warm object detection approach**: road baseline (3s avg) + threshold (>10°C above) + connected components (>20px) + debounce (2 frames) = "WARM OBJECT AHEAD"
+- **Mock CAN**: still created but not started. Add `--demo` flag to restore for presentations.
