@@ -446,7 +446,7 @@ class SportScreenWidget(QWidget):
     # ------------------------------------------------------------------
 
     # ------------------------------------------------------------------
-    # Voice ticker (top-right of G-force panel, y=104..150)
+    # Voice ticker (top-right panel, x=515..785, y=10..86)
     # ------------------------------------------------------------------
 
     def _paint_voice_ticker(self, p: QPainter) -> None:
@@ -454,8 +454,8 @@ class SportScreenWidget(QWidget):
             return
         p.setFont(QFont("Helvetica", 11))
         alphas = [120, 70, 40]
-        x, y0, w = 360, 106, 430
-        for i, line in enumerate(self._voice_ticker):
+        x, y0, w = 515, 12, 270
+        for i, line in enumerate(self._voice_ticker[:5]):
             color = QColor(WHITE)
             color.setAlpha(alphas[min(i, 2)])
             p.setPen(color)
