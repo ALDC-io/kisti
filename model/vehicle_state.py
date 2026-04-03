@@ -613,6 +613,21 @@ class DiffStateBridge(QObject):
             self._state.road_temp_center = center
             self._state.road_temp_right = right
             self._state.road_surface_ts = time.monotonic()
+
+            # Derive surface_state from FLIR + ambient when no CAN data
+            if self._state.is_diff_stale():
+                avg = (left + center + right) / 3.0
+                if avg > 0:  # only infer when temps are real (not 0.0/stale)
+                    ambient = self._state.ambient_temp_c
+                    delta = ambient - avg  # positive = road colder than air
+                    if avg < 0:
+                        self._state.surface_state = SurfaceState.LOW_GRIP
+                    elif avg < 5:
+                        self._state.surface_state = SurfaceState.COLD
+                    elif delta > 5 and self._state.ambient_humidity_pct > 70:
+                        self._state.surface_state = SurfaceState.WET
+                    else:
+                        self._state.surface_state = SurfaceState.DRY
         self.state_changed.emit()
 
     def update_ambient(
