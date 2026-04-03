@@ -606,8 +606,17 @@ class DiffStateBridge(QObject):
             self._state.flir_frame_ts = time.monotonic()
         self.state_changed.emit()
 
+    _road_log_count: int = 0
+
     def update_road_surface(self, left: float, center: float, right: float) -> None:
         """Called from FLIR Lepton reader with road surface temps for 3 horizontal zones (°C)."""
+        self._road_log_count += 1
+        if self._road_log_count % 27 == 0:  # log every ~3 seconds
+            import logging
+            logging.getLogger("kisti.model").info(
+                "Road temps: L=%.1f C=%.1f R=%.1f avg=%.1f surface=%s",
+                left, center, right, (left + center + right) / 3.0,
+                self._state.surface_state.label)
         with self._lock:
             self._state.road_temp_left = left
             self._state.road_temp_center = center
