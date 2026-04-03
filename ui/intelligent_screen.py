@@ -7,9 +7,9 @@ Full QPainter rendering — no composite QWidget layouts.
 Color accent: MODE_I_ACCENT (#00AAFF) blue.
 
 Layout:
-  y=0..160    Weather card — BIG temp, humidity, pressure. 3 values only.
-  y=160..340  FLIR brake temps — 2x2 grid filling 800px wide + warm-up badge.
-  y=340..480  Status strip — DCCD bar + surface badge + slip delta.
+  y=0..114    Weather card — compact temp, humidity, pressure.
+  y=118..310  FLIR road surface — live IR image (inferno colormap).
+  y=316..480  Status strip — DCCD bar + surface badge + slip delta.
 """
 
 from __future__ import annotations
@@ -208,18 +208,18 @@ class IntelligentScreenWidget(QWidget):
         snap = self._snap
         available = snap is not None and snap.ambient_available
 
-        # Card background (no border — clean edge)
+        # Card background (compact)
         p.setPen(Qt.NoPen)
         p.setBrush(QColor(BG_ACCENT))
-        p.drawRoundedRect(QRectF(6, 6, _W - 12, 148), 6, 6)
+        p.drawRoundedRect(QRectF(6, 4, _W - 12, 108), 6, 6)
 
         # Section label
-        p.setFont(_font(12, bold=True))
+        p.setFont(_font(11, bold=True))
         p.setPen(QPen(QColor(MODE_I_ACCENT)))
-        p.drawText(QRectF(20, 10, 200, 20),
+        p.drawText(QRectF(20, 6, 200, 16),
                    Qt.AlignLeft | Qt.AlignVCenter, "WEATHER")
 
-        # --- Temperature: BIG center-left ---
+        # --- Temperature: left ---
         if available:
             temp_text = f"{snap.ambient_temp_c:.1f}"
             temp_color = QColor(WHITE)
@@ -227,37 +227,32 @@ class IntelligentScreenWidget(QWidget):
             temp_text = "---"
             temp_color = QColor(GRAY)
 
-        # Large temperature number
-        p.setFont(_font(56, bold=True))
+        p.setFont(_font(44, bold=True))
         p.setPen(QPen(temp_color))
-        p.drawText(QRectF(20, 28, 300, 90),
+        p.drawText(QRectF(20, 22, 260, 66),
                    Qt.AlignLeft | Qt.AlignVCenter, temp_text)
 
-        # Degree + C unit to the right of the number
-        p.setFont(_font(28, bold=True))
-        p.setPen(QPen(QColor(GRAY)))
-        # Measure how wide the temp text is at 56pt to position the unit
-        metrics = p.fontMetrics()
-        p.setFont(_font(56, bold=True))
+        # Degree + C unit
+        p.setFont(_font(44, bold=True))
         temp_width = p.fontMetrics().horizontalAdvance(temp_text)
-        p.setFont(_font(28, bold=True))
+        p.setFont(_font(22, bold=True))
         p.setPen(QPen(QColor(GRAY)))
-        p.drawText(QRectF(20 + temp_width + 4, 28, 80, 90),
+        p.drawText(QRectF(20 + temp_width + 4, 22, 60, 66),
                    Qt.AlignLeft | Qt.AlignTop, "\u00b0C")
 
-        # Small "TEMP" label under the number
-        p.setFont(_font(11))
+        # Small "TEMP" label
+        p.setFont(_font(10))
         p.setPen(QPen(QColor(GRAY)))
-        p.drawText(QRectF(20, 120, 120, 20),
+        p.drawText(QRectF(20, 90, 120, 16),
                    Qt.AlignLeft | Qt.AlignVCenter, "TEMPERATURE")
 
         # --- Humidity: right column, top ---
         hum_x = 440
-        hum_y = 32
+        hum_y = 16
 
-        p.setFont(_font(11, bold=True))
+        p.setFont(_font(10, bold=True))
         p.setPen(QPen(QColor(GRAY)))
-        p.drawText(QRectF(hum_x, hum_y, 160, 18),
+        p.drawText(QRectF(hum_x, hum_y, 160, 16),
                    Qt.AlignLeft | Qt.AlignVCenter, "HUMIDITY")
 
         if available:
@@ -267,17 +262,17 @@ class IntelligentScreenWidget(QWidget):
             hum_text = "---"
             hum_color = QColor(GRAY)
 
-        p.setFont(_font(36, bold=True))
+        p.setFont(_font(26, bold=True))
         p.setPen(QPen(hum_color))
-        p.drawText(QRectF(hum_x, hum_y + 18, 200, 50),
+        p.drawText(QRectF(hum_x, hum_y + 14, 200, 36),
                    Qt.AlignLeft | Qt.AlignVCenter, hum_text)
 
         # --- Pressure: right column, bottom ---
-        prs_y = hum_y + 72
+        prs_y = hum_y + 52
 
-        p.setFont(_font(11, bold=True))
+        p.setFont(_font(10, bold=True))
         p.setPen(QPen(QColor(GRAY)))
-        p.drawText(QRectF(hum_x, prs_y, 160, 18),
+        p.drawText(QRectF(hum_x, prs_y, 160, 16),
                    Qt.AlignLeft | Qt.AlignVCenter, "PRESSURE")
 
         if available:
@@ -289,24 +284,24 @@ class IntelligentScreenWidget(QWidget):
             prs_color = QColor(GRAY)
             prs_unit = ""
 
-        p.setFont(_font(36, bold=True))
+        p.setFont(_font(26, bold=True))
         p.setPen(QPen(prs_color))
-        p.drawText(QRectF(hum_x, prs_y + 18, 200, 50),
+        p.drawText(QRectF(hum_x, prs_y + 14, 200, 36),
                    Qt.AlignLeft | Qt.AlignVCenter, prs_text)
 
         # Unit label for pressure
         if prs_unit:
             prs_num_w = p.fontMetrics().horizontalAdvance(prs_text)
-            p.setFont(_font(16))
+            p.setFont(_font(14))
             p.setPen(QPen(QColor(GRAY)))
-            p.drawText(QRectF(hum_x + prs_num_w + 4, prs_y + 18, 80, 50),
+            p.drawText(QRectF(hum_x + prs_num_w + 4, prs_y + 14, 80, 36),
                        Qt.AlignLeft | Qt.AlignVCenter, prs_unit)
 
         # "NO SENSOR" overlay when unavailable
         if not available:
-            p.setFont(_font(14))
+            p.setFont(_font(13))
             p.setPen(QPen(QColor(GRAY)))
-            p.drawText(QRectF(0, 60, _W, 30), Qt.AlignCenter, "NO WEATHER SENSOR")
+            p.drawText(QRectF(0, 40, _W, 30), Qt.AlignCenter, "NO WEATHER SENSOR")
 
     # ==================================================================
     # ROAD SURFACE (y=160..340)
@@ -348,8 +343,8 @@ class IntelligentScreenWidget(QWidget):
                                                     frame_uint16.shape[1], 3)
 
     def _draw_flir_panel(self, p: QPainter) -> None:
-        y0 = 160
-        panel_h = 180  # y=160..340
+        y0 = 118
+        panel_h = 192  # y=118..310
 
         # Warm-up badge (top-right, always shown)
         self._draw_warmup_badge(p, y0)
@@ -427,7 +422,7 @@ class IntelligentScreenWidget(QWidget):
                    Qt.AlignCenter, warmup_label)
 
     # ==================================================================
-    # STATUS STRIP (y=340..480)
+    # STATUS STRIP (y=316..480)
     # DCCD bar + Surface badge + Slip delta — one horizontal row.
     # ==================================================================
 
@@ -436,8 +431,8 @@ class IntelligentScreenWidget(QWidget):
         stale_diff = snap is None or snap.is_diff_stale()
         stale_wheel = snap is None or snap.is_wheel_stale()
 
-        y0 = 340
-        strip_h = 140  # y=340..480
+        y0 = 316
+        strip_h = 164  # y=316..480
 
         # Layout: Surface (left, primary) | SLIP (center) | DCCD (right, secondary)
         # Answers "What are the conditions?" — surface is #1 for Intelligent mode.
