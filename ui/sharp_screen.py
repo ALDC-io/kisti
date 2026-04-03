@@ -446,7 +446,7 @@ class SportSharpScreenWidget(QWidget):
             sx = _BAR_X + i * sector_w
             rect = QRectF(sx + gap / 2, _SECTOR_Y0 + 3, sector_w - gap, strip_h - 6)
 
-            if i < len(sector_times) and sector_times[i] is not None:
+            if i < len(sector_times) and sector_times[i] is not None and sector_times[i] > 0:
                 sector_ms = sector_times[i]
                 best_ms = best_sector_times[i] if i < len(best_sector_times) and best_sector_times[i] else None
 
