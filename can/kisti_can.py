@@ -149,6 +149,7 @@ from can.can_config import (
     WS_RR_OFFSET,
     WS_SCALE,
 )
+from can.g5_generic_dash import G5GenericDashParser
 from model.vehicle_state import DiffStateBridge, SurfaceState
 
 log = logging.getLogger("kisti.can")
@@ -625,6 +626,7 @@ class CanListenerThread(threading.Thread):
         self._interface = interface
         self._running = threading.Event()
         self._running.set()
+        self._g5_parser: G5GenericDashParser = G5GenericDashParser()
 
     def stop(self) -> None:
         self._running.clear()
@@ -680,16 +682,35 @@ class CanListenerThread(threading.Thread):
         elif arb_id == DYNAMICS_FRAME_ID:
             d = decode_dynamics_frame(data)
             self._bridge.update_dynamics(**d)
-        # G5 Neo 4 frames
+        # G5 Neo 4 — single multiplexed ID (byte[0]=sub-frame index, LE int16 signals)
+        # VERIFY CAN ID against raw sniff before flipping MOCK_ENABLED = False
         elif arb_id == GENERIC_DASH_BASE_ID:
-            d = decode_generic_dash_1(data)
-            self._bridge.update_generic_dash_1(**d)
-        elif arb_id == GENERIC_DASH_BASE_ID + 1:
-            d = decode_generic_dash_2(data)
-            self._bridge.update_generic_dash_2(**d)
-        elif arb_id == GENERIC_DASH_BASE_ID + 2:
-            d = decode_generic_dash_3(data)
-            self._bridge.update_generic_dash_3(**d)
+            if self._g5_parser.feed(arb_id, data):
+                p = self._g5_parser
+                # gd1: rpm/map/tps from sub-frame 0; coolant_temp from sub-frame 1
+                if p.rpm is not None:
+                    self._bridge.update_generic_dash_1(
+                        rpm=p.rpm,
+                        map_kpa=p.map_kpa if p.map_kpa is not None else 0.0,
+                        tps=p.tps_pct if p.tps_pct is not None else 0.0,
+                        coolant_temp=p.coolant_temp_c if p.coolant_temp_c is not None else 0.0,
+                    )
+                # gd2: iat_c/lambda from sub-frame 1; oil data from sub-frame 2
+                if p.iat_c is not None:
+                    self._bridge.update_generic_dash_2(
+                        iat_c=p.iat_c,
+                        lambda_1=p.lambda1 if p.lambda1 is not None else 0.0,
+                        oil_pressure_kpa=p.oil_pressure_kpa if p.oil_pressure_kpa is not None else 0.0,
+                        oil_temp_c=p.oil_temp_c if p.oil_temp_c is not None else 0.0,
+                    )
+                # gd3: fuel_press from sub-frame 2; battery/inj/ethanol from sub-frame 3
+                if p.battery_v is not None:
+                    self._bridge.update_generic_dash_3(
+                        ethanol_pct=p.ethanol_pct if p.ethanol_pct is not None else 0.0,
+                        fuel_pressure_kpa=p.fuel_pressure_kpa if p.fuel_pressure_kpa is not None else 0.0,
+                        battery_v=p.battery_v,
+                        injector_duty=p.injector_duty_pct if p.injector_duty_pct is not None else 0.0,
+                    )
         elif arb_id == SI_DRIVE_FRAME_ID:
             d = decode_si_drive_frame(data)
             self._bridge.update_si_drive(**d)

@@ -1307,3 +1307,105 @@ class TestAmbientSimulator:
         # No single-tick jump > 2 hPa (gradual interpolation)
         for i in range(1, len(pressures)):
             assert abs(pressures[i] - pressures[i - 1]) < 2.0
+
+
+class TestG5DispatchIntegration:
+    """Integration tests for CanListenerThread._dispatch_frame() using G5GenericDashParser.
+
+    Verifies that the live CAN dispatch correctly routes multiplexed G5 frames
+    through the parser and calls bridge update methods with decoded engineering values.
+    Uses a Mock bridge to avoid Qt dependency.
+    """
+
+    @staticmethod
+    def _make_g5_frame(frame_idx: int, s0: int, s1: int, s2: int) -> bytes:
+        """Build a valid G5 Generic Dash frame (byte[0]=idx, byte[1]=0x00, 3× LE int16)."""
+        return bytes([frame_idx, 0x00]) + struct.pack('<hhh', s0, s1, s2)
+
+    @staticmethod
+    def _make_listener():
+        """Create a CanListenerThread with a Mock bridge (no thread started)."""
+        from unittest.mock import Mock
+        from can.kisti_can import CanListenerThread
+        from can.can_config import GENERIC_DASH_BASE_ID  # noqa: F401 — used below
+        bridge = Mock()
+        return CanListenerThread(bridge, interface="can_test"), bridge
+
+    def test_frame0_triggers_gd1_with_partial_values(self):
+        """Sub-frame 0 (RPM/MAP/TPS) → gd1 called; coolant_temp=0.0 until frame 1."""
+        from can.can_config import GENERIC_DASH_BASE_ID
+        listener, bridge = self._make_listener()
+        # RPM=2000 (raw=2000), MAP=120kPa (raw=1200), TPS=30% (raw=300)
+        data = self._make_g5_frame(0, 2000, 1200, 300)
+        listener._dispatch_frame(GENERIC_DASH_BASE_ID, data)
+        bridge.update_generic_dash_1.assert_called_once()
+        call_kwargs = bridge.update_generic_dash_1.call_args[1]
+        assert abs(call_kwargs["rpm"] - 2000.0) < 0.1
+        assert abs(call_kwargs["map_kpa"] - 120.0) < 0.1
+        assert abs(call_kwargs["tps"] - 30.0) < 0.1
+        assert call_kwargs["coolant_temp"] == 0.0  # frame 1 not yet received
+        bridge.update_generic_dash_2.assert_not_called()
+        bridge.update_generic_dash_3.assert_not_called()
+
+    def test_frame1_triggers_gd1_and_gd2(self):
+        """Sub-frame 1 (CLT/IAT/Lambda) → gd1 updated with coolant_temp + gd2 partially filled."""
+        from can.can_config import GENERIC_DASH_BASE_ID
+        listener, bridge = self._make_listener()
+        # First feed frame 0 to populate rpm/map/tps
+        listener._dispatch_frame(GENERIC_DASH_BASE_ID, self._make_g5_frame(0, 3000, 1500, 800))
+        bridge.reset_mock()
+        # Now feed frame 1: CLT=87°C (raw=870), IAT=25°C (raw=250), Lambda=0.99 (raw=990)
+        listener._dispatch_frame(GENERIC_DASH_BASE_ID, self._make_g5_frame(1, 870, 250, 990))
+        bridge.update_generic_dash_1.assert_called_once()
+        gd1_kwargs = bridge.update_generic_dash_1.call_args[1]
+        assert abs(gd1_kwargs["coolant_temp"] - 87.0) < 0.1  # now fresh from frame 1
+        assert abs(gd1_kwargs["rpm"] - 3000.0) < 0.1         # still cached from frame 0
+        bridge.update_generic_dash_2.assert_called_once()
+        gd2_kwargs = bridge.update_generic_dash_2.call_args[1]
+        assert abs(gd2_kwargs["iat_c"] - 25.0) < 0.1
+        assert abs(gd2_kwargs["lambda_1"] - 0.99) < 0.001
+
+    def test_frame3_completes_gd3(self):
+        """After frames 0-3, gd3 is called with all four fields populated."""
+        from can.can_config import GENERIC_DASH_BASE_ID
+        listener, bridge = self._make_listener()
+        listener._dispatch_frame(GENERIC_DASH_BASE_ID, self._make_g5_frame(0, 1500, 1000, 500))
+        listener._dispatch_frame(GENERIC_DASH_BASE_ID, self._make_g5_frame(1, 800, 200, 1000))
+        listener._dispatch_frame(GENERIC_DASH_BASE_ID, self._make_g5_frame(2, 3500, 900, 3800))
+        bridge.reset_mock()
+        # Frame 3: Battery=14.1V (raw=1410), InjDuty=45% (raw=450), Ethanol=10% (raw=100)
+        listener._dispatch_frame(GENERIC_DASH_BASE_ID, self._make_g5_frame(3, 1410, 450, 100))
+        bridge.update_generic_dash_3.assert_called_once()
+        gd3_kwargs = bridge.update_generic_dash_3.call_args[1]
+        assert abs(gd3_kwargs["battery_v"] - 14.1) < 0.01
+        assert abs(gd3_kwargs["injector_duty"] - 45.0) < 0.1
+        assert abs(gd3_kwargs["ethanol_pct"] - 10.0) < 0.1
+        assert abs(gd3_kwargs["fuel_pressure_kpa"] - 380.0) < 0.1  # from frame 2
+
+    def test_gd1_not_called_before_frame0(self):
+        """If only frame 1 arrives (no frame 0 yet), gd1 is not called (rpm=None)."""
+        from can.can_config import GENERIC_DASH_BASE_ID
+        listener, bridge = self._make_listener()
+        # Feed frame 1 without frame 0 — rpm not yet known
+        listener._dispatch_frame(GENERIC_DASH_BASE_ID, self._make_g5_frame(1, 800, 200, 1000))
+        bridge.update_generic_dash_1.assert_not_called()
+        bridge.update_generic_dash_2.assert_called_once()  # iat_c now known
+
+    def test_wrong_can_id_not_dispatched(self):
+        """A frame on an unrelated ID does not touch bridge or parser."""
+        from can.can_config import GENERIC_DASH_BASE_ID
+        listener, bridge = self._make_listener()
+        data = self._make_g5_frame(0, 1000, 1000, 500)
+        listener._dispatch_frame(GENERIC_DASH_BASE_ID + 100, data)  # wrong ID
+        bridge.update_generic_dash_1.assert_not_called()
+        bridge.update_generic_dash_2.assert_not_called()
+        bridge.update_generic_dash_3.assert_not_called()
+
+    def test_malformed_frame_not_dispatched(self):
+        """A frame with incorrect byte[1] (non-zero reserved) is rejected by parser."""
+        from can.can_config import GENERIC_DASH_BASE_ID
+        listener, bridge = self._make_listener()
+        # byte[1] should be 0x00 — use 0xFF to trigger rejection
+        bad_data = bytes([0, 0xFF]) + struct.pack('<hhh', 1000, 1000, 500)
+        listener._dispatch_frame(GENERIC_DASH_BASE_ID, bad_data)
+        bridge.update_generic_dash_1.assert_not_called()
