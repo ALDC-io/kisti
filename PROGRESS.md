@@ -1,5 +1,38 @@
 # KiSTI - Progress
 
+## Session: 2026-04-03 (kisti-24 — G5 Parser Dispatch Integration)
+
+### Status: COMPLETE
+
+### Completed
+- **G5GenericDashParser integrated into live CAN dispatch** — `CanListenerThread._dispatch_frame()` now routes 0x3E8 frames through the parser instead of the old wrong decode_generic_dash_1/2/3 (big-endian, sequential IDs). Parser gates bridge calls on sub-frame availability. MOCK_ENABLED = True so live path is dormant until CAN sniff confirms ID.
+- **Old decode functions kept** — decode_generic_dash_1/2/3 remain in kisti_can.py (test count must only go up). GD1/GD2/GD3 constants in can_config.py kept for import compat.
+- **6 new dispatch integration tests** — TestG5DispatchIntegration: partial frame gating, full 4-frame cycle, gd1-not-called-before-frame0, wrong ID rejection, malformed frame rejection.
+- **991 tests passing** (was 985, +6 dispatch integration tests). 1 pre-existing failure: test_timing_after_lap.
+
+### Files Changed
+- `can/kisti_can.py` — Added G5GenericDashParser import, `_g5_parser` instance in CanListenerThread.__init__, replaced dispatch lines 684-692 with parser-based dispatch
+- `can/can_config.py` — Updated deprecation comment to reflect new reality
+- `tests/test_can_decode.py` — Added TestG5DispatchIntegration (6 tests)
+
+### Key Decisions
+- **Keep old decode functions** — Tests cover them; can't remove. Live path uses parser, test path uses old functions. Both coexist cleanly.
+- **Gate gd1/gd2/gd3 calls on sub-frame availability** — `if p.rpm is not None` prevents calling bridge before frame 0 arrives. Avoids bridge seeing all-zero data during first partial cycle.
+- **Don't flip MOCK_ENABLED or CAN_INTERFACE** — Still deferred until CAN sniff confirms ID=0x3E8 and LE int16 byte order.
+
+### Don't Repeat
+- Don't batch all 3 bridge updates unconditionally per frame — gate each group on its primary field being non-None first
+- Old sequential IDs (0x3E9, 0x3EA) are NOT in KISTI_CAN_IDS — removing those dispatch branches was correct
+- CanListenerThread can be instantiated with a Mock bridge for unit tests (no Qt required for __init__)
+
+### Next Session (kisti-25)
+1. **Order CAN hardware** — JK action: PN 101-5104 ($75), DB9 breakout ($14), 120Ω terminator ($13)
+2. **CAN sniff** — Verify CAN ID (expect 0x3E8), byte[0] cycles 0-13, LE int16 signals
+3. **Flip to live** — `CAN_INTERFACE = "can1"`, `MOCK_ENABLED = False`, test with G5 running
+4. **Post-Boost Barn: SC-6 session trends** — Do NOT start until after real ECU data flowing
+
+---
+
 ## Session: 2026-04-03 (kisti-23 — usb_8dev Driver + G5 Generic Dash Parser)
 
 ### Status: COMPLETE

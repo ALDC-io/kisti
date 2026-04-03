@@ -193,10 +193,10 @@ DYN_BRAKE_SCALE: float = 0.1  # raw / 10 → bar
 # 4 signals per frame. The actual G5 Generic Dash protocol is:
 #   - Single CAN ID (0x3E8), multiplexed on byte[0], LE int16, 3 signals/frame
 #
-# These constants are KEPT to avoid import errors in kisti_can.py.
-# decode_generic_dash_1/2/3() in kisti_can.py are also incorrect and will be
-# replaced post-sniff when real frame IDs and byte order are confirmed.
-# Use g5_generic_dash.py (G5GenericDashParser) for new code.
+# These constants and decode_generic_dash_1/2/3() in kisti_can.py are KEPT
+# because tests cover those functions (test count must only go up).
+# The live dispatch in CanListenerThread now uses G5GenericDashParser.
+# Use g5_generic_dash.py (G5GenericDashParser) for all new code.
 
 GD1_RPM_OFFSET: int = 0
 GD1_RPM_SCALE: float = 1.0
