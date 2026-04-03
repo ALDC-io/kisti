@@ -802,8 +802,8 @@ def main():
             ecu = "ECU online" if listener else "No ECU"
             ambient = "Conditions good" if ambient_source else "No sensors"
             voice_mgr.speak(f"Online. Headless mode. {ecu}. {ambient}.")
-        from PySide6.QtCore import QTimer
-        QTimer.singleShot(3000, _headless_boot)
+        from PySide6.QtCore import QTimer as _QTimer
+        _QTimer.singleShot(3000, _headless_boot)
 
     # Run Qt event loop
     exit_code = app.exec()
