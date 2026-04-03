@@ -127,6 +127,7 @@ class IntelligentScreenWidget(QWidget):
         super().__init__(parent)
         self._snap: DiffState | None = None
         self._cached_ir_image: QImage | None = None
+        self._prev_frame: np.ndarray | None = None  # temporal smoothing
 
         # Tell Qt we paint our entire rect every frame (compositorless X11)
         self.setAttribute(Qt.WA_OpaquePaintEvent)
@@ -172,12 +173,29 @@ class IntelligentScreenWidget(QWidget):
         self._coaching_level = level
 
     def _on_frame_updated(self, frame) -> None:
-        """Receive raw uint16 thermal frame — apply colormap and cache QImage."""
-        mn, mx = float(frame.min()), float(frame.max())
+        """Receive raw uint16 thermal frame — smooth, enhance contrast, colormap, cache."""
+        f32 = frame.astype(np.float32)
+
+        # Temporal smoothing: 70% new + 30% previous → stable thermal zones
+        if self._prev_frame is not None and self._prev_frame.shape == f32.shape:
+            f32 = 0.7 * f32 + 0.3 * self._prev_frame
+        self._prev_frame = f32
+
+        # Normalize to uint8
+        mn, mx = float(f32.min()), float(f32.max())
         if mx == mn:
-            norm = np.zeros(frame.shape, dtype=np.uint8)
+            norm = np.zeros(f32.shape, dtype=np.uint8)
         else:
-            norm = ((frame.astype(np.float32) - mn) / (mx - mn) * 255.0).astype(np.uint8)
+            norm = ((f32 - mn) / (mx - mn) * 255.0).astype(np.uint8)
+
+        # CLAHE — adaptive histogram equalization for thermal contrast
+        try:
+            import cv2
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4))
+            norm = clahe.apply(norm)
+        except ImportError:
+            pass
+
         rgb = self._INFERNO_LUT[norm]  # single LUT index — fast
         h, w = rgb.shape[:2]
         self._cached_ir_image = QImage(
