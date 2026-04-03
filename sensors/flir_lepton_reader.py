@@ -122,8 +122,12 @@ class FLIRLeptonReader(QObject):
                 log.warning("Could not open /dev/video%d", self._device_index)
                 return False
 
-        # Configure for raw 16-bit radiometric output
+        # Configure for raw 16-bit radiometric output (Y16 = centi-Kelvin)
         self._cap.set(self._cv2.CAP_PROP_CONVERT_RGB, 0)
+        y16_fourcc = self._cv2.VideoWriter_fourcc('Y', '1', '6', ' ')
+        self._cap.set(self._cv2.CAP_PROP_FOURCC, y16_fourcc)
+        self._cap.set(self._cv2.CAP_PROP_FRAME_WIDTH, 160)
+        self._cap.set(self._cv2.CAP_PROP_FRAME_HEIGHT, 120)
 
         self._available = True
         self._timer.start()
