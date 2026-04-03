@@ -54,7 +54,7 @@ def evaluate(
     if snap.surface_state == SurfaceState.LOW_GRIP:
         candidates.append((
             0, 1,
-            "Low grip — extend braking zones, smooth throttle",
+            "Extend braking zones, smooth throttle",
             "amber",
         ))
 

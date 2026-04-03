@@ -52,11 +52,12 @@ class TestConditionRules:
         assert result is None
 
     def test_low_grip_always(self):
-        """Low grip shows at all levels."""
+        """Low grip shows at all levels with action-only coaching (no redundant label)."""
         snap = _snap(surface_state=SurfaceState.LOW_GRIP)
         result = evaluate(snap, 0)
         assert result is not None
-        assert "low grip" in result[0].lower()
+        assert "braking" in result[0].lower()
+        assert result[1] == "amber"
 
     def test_oil_temp_warning(self):
         """High oil temp warning at MODERATE+."""

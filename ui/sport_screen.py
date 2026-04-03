@@ -495,7 +495,7 @@ class SportScreenWidget(QWidget):
         p.setPen(color)
         p.setFont(QFont("Helvetica", 13, QFont.Weight.Bold))
         p.drawText(
-            QRectF(360, 398, 430, 20),
+            QRectF(0, 398, 800, 20),
             Qt.AlignmentFlag.AlignCenter, self._coaching_text,
         )
 
