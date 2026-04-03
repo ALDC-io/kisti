@@ -626,7 +626,7 @@ class DiffStateBridge(QObject):
             # Derive surface_state from FLIR + ambient when no CAN data
             if self._state.is_diff_stale():
                 avg = (left + center + right) / 3.0
-                if avg > 0:  # only infer when temps are real (not 0.0/stale)
+                if left != 0.0 or center != 0.0 or right != 0.0:  # skip only if all zero (stale)
                     ambient = self._state.ambient_temp_c
                     delta = ambient - avg  # positive = road colder than air
                     if avg < 0:
