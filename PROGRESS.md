@@ -1,5 +1,48 @@
 # KiSTI - Progress
 
+## Session: 2026-04-03 (kisti-26 — FLIR Road Surface Integration Complete)
+
+### Status: COMPLETE
+
+### Completed
+- **FLIR road surface refactor** — `BrakeTemps` → `RoadSurfaceTemps(left, center, right)` with 3 horizontal ROI strips. `frame_updated` signal emits raw uint16 numpy frames.
+- **DiffState road_temp fields** — Added `road_temp_left/center/right/road_surface_ts`, `update_road_surface()` bridge method, `is_road_surface_stale(timeout=2.0)` helper. Old `brake_temp_fl/fr/rl/rr` + `update_flir()` kept for future ECU/CAN.
+- **VideoModeWidget** — `LiveThermalFeed` (uint16→inferno colormap→QImage, staleness indicator) added to main window stack as index 3, key `4` shortcut.
+- **3-zone displays on all 3 screens** — Intelligent, Sport, and Sharp all show L/CTR/R heat-colored road temps with full-page background tint (alpha=15).
+- **Timing ms fix** — `int()` → `max(1, round())` in `timing_manager.py:get_timing_data()` — sub-ms lap times in tests now show as ≥1ms (resolves pre-existing `test_timing_after_lap` failure).
+- **20 new tests** — `tests/test_flir_lepton.py` covering RoadSurfaceTemps, ROI strips, frame_updated signal, DiffState bridge, staleness.
+- **1006 tests passing, 0 failed** (was 985 + timing failure). Committed and deployed to Jetson.
+
+### Files Changed
+- `sensors/flir_lepton_reader.py` — New data model + frame_updated signal
+- `model/vehicle_state.py` — road_temp_* fields + update_road_surface() + is_road_surface_stale()
+- `main.py` — Signal rewire + flir_reader to MainWindow
+- `ui/widgets/camera_feeds.py` — LiveThermalFeed replaces IRCameraFeed
+- `ui/video_mode.py` — flir_reader param, LiveThermalFeed wired to frame_updated
+- `ui/main_window.py` — VideoModeWidget in stack, key 4
+- `ui/intelligent_screen.py` — 3-zone L/CTR/R heat-colored cards + background tint
+- `ui/sport_screen.py` — 3-column compact L/CTR/R display + background tint
+- `ui/sharp_screen.py` — 3-zone horizontal display, safety vitals use road_temp_center
+- `timing/timing_manager.py` — round() fix for best_lap_ms
+- `tests/test_flir_lepton.py` — NEW: 20 tests
+
+### Key Decisions
+- **Road surface not brakes** — FLIR is forward-facing camera reading road surface (L/CTR/R strips), not 4 individual brake temps. Old brake fields kept for future ECU/CAN.
+- **`_brake_heat_color` scale** — blue(≤5°C) → green(15°C) → yellow(40°C) → red(≥55°C). Road surface thermal range vs old brake range (150-500°C).
+- **frame_updated signal on raw frames** — Emit before ROI processing so video mode gets full 160×120 for display while thermal reader gets cropped strips for temps.
+
+### Don't Repeat
+- Old `brake_temp_fl/fr/rl/rr` fields in DiffState are intentionally untouched — reserved for ECU/CAN brake data. Don't remove them.
+- `is_road_surface_stale()` lives on DiffState itself, not on the bridge.
+- Background tint alpha=15 (6% opacity) — anything higher visually competes with data.
+
+### Next Session (kisti-27)
+1. **Jetson live thermal verification** — Press `4` to confirm 160×120 inferno-mapped thermal in VideoMode. FLIR sensor must be connected via USB.
+2. **CAN hardware order** — JK action: PN 101-5104 ($75), DB9 breakout ($14), 120Ω terminator ($13)
+3. **Post-Boost Barn validation** — Do NOT tune SC-6 session trends until after real ECU data flowing (Boost Barn tune WO #15562, Aaron)
+
+---
+
 ## Session: 2026-04-03 (kisti-24 — G5 Parser Dispatch Integration)
 
 ### Status: COMPLETE
