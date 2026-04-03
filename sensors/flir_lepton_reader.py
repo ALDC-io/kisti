@@ -166,6 +166,13 @@ class FLIRLeptonReader(QObject):
                 log.info("FLIR frame: dtype=%s, shape=%s, mean=%.0f",
                          frame.dtype, frame.shape, float(self._np.mean(frame)))
 
+            # OpenCV Y16 bug: may return uint16 data as flattened uint8 (120,320,1)
+            if frame.dtype == self._np.uint8 and frame.shape != (120, 160):
+                try:
+                    frame = frame.view(self._np.uint16).reshape(120, 160)
+                except (ValueError, AttributeError):
+                    pass  # fall through to normal handling
+
             # Frame may be uint16 (radiometric) or uint8 (non-radiometric)
             if frame.dtype == self._np.uint16:
                 thermal = frame
