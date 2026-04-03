@@ -1,88 +1,61 @@
-# KiSTI Next Session Handoff — kisti-23
+# KiSTI Next Session Handoff — kisti-24
 
 **Repo**: `/home/aldc/repos/kisti/` | **Branch**: `kisti-headless`
 **Jetson**: `192.168.22.131` (SSH user: `aldc`, pw: `aldc1234`)
-**942 tests passing** — `python3 -m pytest tests/ -x -q`
+**985 tests passing** — `python3 -m pytest tests/ -q` (1 pre-existing failure: `test_timing_after_lap`)
 
 ---
 
-## What Was Done (This Session — kisti-22)
+## What Was Done (This Session — kisti-23)
 
-### Coaching Upgrades Batch 2 — ALL 4 SCs SHIPPED (commits 3e577bd, ac4664c, dc9877e)
+### kisti-23a: usb_8dev kernel module — DONE
 
-| SC | Change | Status |
-|----|--------|--------|
-| SC-1 | `SessionLapTracker`: lap trend voice summaries after lap 2+ | DONE |
-| SC-2 | Sport screen condition override: ICE/LOW_GRIP replaces technique text in `_coaching_tick()` | DONE |
-| SC-3 | Sharp screen sector insight: 9pt → 11pt, rect height 14 → 16 | DONE |
-| SC-4 | Sport coaching font: 13pt → 14pt | DONE |
+- Built `usb_8dev` OOT kernel module on Jetson against Tegra 5.15.148 headers
+- Installed to `/lib/modules/5.15.148-tegra/updates/usb_8dev.ko`
+- Auto-loads on boot: `/etc/modules-load.d/usb_8dev.conf`
+- Udev rule auto-brings up `can1` at 1Mbit/s on plug-in: `/etc/udev/rules.d/80-can-usb.rules`
+- Loopback test passed: `0x600 [8] 12345678abcdef00` — hardware works
+- KiSTI restarted; running on PID ~94583
 
-**New files:** `coaching/session_lap_tracker.py`, `tests/test_session_lap_tracker.py` (7 tests)
-**Modified:** `main.py`, `ui/sport_screen.py`, `ui/sharp_screen.py`
-**Project:** `/home/aldc/projects/active/2026-04-02-kisti-coaching-upgrades/` — COMPLETE
+### kisti-23b: Sector strip fix — DONE (commit d139dd7)
 
-### Korlan USB2CAN Investigation
+- `ui/sharp_screen.py:449`: Added `and sector_times[i] > 0` guard
+- Unrun sectors (time=0) now stay dark, not pre-populated as red blocks
 
-**Hardware confirmed:** `0483:1234 STMicroelectronics / 8devices Korlan USB2CAN DB9`
+### kisti-23c: G5 Generic Dash parser — DONE (commit 38ccf36)
 
-**Critical finding:** The Korlan is a **native USB CAN device** — NOT serial/slcan.
-- It does NOT create `/dev/ttyUSB0`
-- `slcand` / `slcan` will NOT work for this device
-- Correct driver: **`usb_8dev`** (SocketCAN, mainline since kernel 3.9)
-- The Tegra 5.15.148 kernel has `usb_8dev` disabled (`# CONFIG_CAN_8DEV_USB is not set`)
-- Must build as out-of-tree module — script is ready
+**Critical protocol correction**: G5 Generic Dash is NOT sequential IDs 0x360-0x362 (big-endian).
+Actual protocol: single CAN ID (default 0x3E8), multiplexed on byte[0], LE int16, 3 signals/frame.
 
-**Build script:** `scripts/jetson/install-gs-usb.sh` (updated — now fetches `usb_8dev.c`)
-
-**CAN bus specs:**
-- Link G5 Voodoo Neo 4: 1 Mbit/s (default), CAN base address `0x600`
-- AiM GPS09 IMU/GPS: 1 Mbit/s, CAN IDs `0x6A4–0x6A7`
-- `can0` (onboard mttcan) is already at 1 Mbit/s — correct
-- USB adapter will appear as `can1` once driver is loaded
+| File | Change |
+|------|--------|
+| `can/can_config.py` | GENERIC_DASH_BASE_ID 0x360→0x3E8, COUNT 3→14, _G5_INPUT_IDS single ID, GD_FRAME_* constants, GD1/GD2/GD3 deprecated (kept for import compat) |
+| `can/g5_generic_dash.py` | **NEW**: G5GenericDashParser — mux decode, 6 sub-frames, all properties, stale detection |
+| `tests/test_g5_generic_dash.py` | **NEW**: 44 tests (rejection, None-before-recv, all signals, stale, custom ID, reset) |
 
 ---
 
-## Priority 1: Run USB2CAN Driver Install on Jetson
+## Priority 1: Order CAN Hardware (JK Action Required)
 
-This requires sudo on the Jetson — must be run interactively.
+Cannot do a real CAN sniff until this hardware arrives:
 
-```bash
-ssh aldc@192.168.22.131
-cd ~/repos/kisti && git pull --ff-only
-bash scripts/jetson/install-gs-usb.sh
-```
+| Item | Part # | Est. Cost |
+|------|--------|-----------|
+| Link G5 CAN cable | PN 101-5104 | ~$75 CAD |
+| DB9 breakout board | generic | ~$14 CAD |
+| 120Ω DB9 terminator | generic | ~$13 CAD |
 
-Script does: download `usb_8dev.c` from kernel 5.15.148 → OOT build → install →
-`modprobe usb_8dev` → udev rule (auto-bringup at 1Mbit/s on plug-in) → bring up `can1`.
-
-**Expected output ends with:**
-```
-2: can0: ... mttcan ... bitrate 1000000 ... state UP
-3: can1: ... usb_8dev ... bitrate 1000000 ... state UP
-```
-
-If the build fails, paste the error — the kernel tree is at
-`/lib/modules/5.15.148-tegra/build` and the source goes in `~/usb_8dev_build/`.
+**DTM4 wiring (once cable arrives)**:
+- Pin 4 → DB9 Pin 7 (CAN H)
+- Pin 3 → DB9 Pin 2 (CAN L)
+- Pin 2 → DB9 Pin 3 (GND)
+- Pin 1 = 12V — **DO NOT CONNECT** to DB9
 
 ---
 
-## Priority 2: Wire KiSTI to Read ECU Data via can1
+## Priority 2: CAN Sniff → Confirm G5 Frame Layout
 
-Once `can1` is up, KiSTI needs to read from it. Check current CAN interface binding:
-
-```bash
-grep -n 'can0\|can_bus\|channel' /home/aldc/repos/kisti/bridge/can_bus.py | head -20
-```
-
-The Link G5 CAN stream (base address `0x600`) needs a parser. This is new territory —
-no existing KiSTI code handles ECU CAN frames. Key questions to answer first:
-
-1. What CAN IDs does the G5 actually broadcast? (PC Link help file → CAN setup → generic dash stream)
-2. Does KiSTI use `can0` or auto-detect? Check `bridge/can_bus.py`
-3. Link G5 default CAN output frame layout (bytes 0-7 per message ID)
-
-**Do NOT wire main.py to can1 until we know the G5 frame layout.** Start with a raw
-listener first:
+Once CAN cable arrives, connect G5 to Korlan (can1), then:
 
 ```python
 import can
@@ -91,11 +64,34 @@ for msg in bus:
     print(f"0x{msg.arbitration_id:03X} [{msg.dlc}] {msg.data.hex()}")
 ```
 
-Run this with the G5 powered and CAN connected — paste the output to identify frame IDs.
+**What to verify**:
+1. The CAN ID printed — should be `0x3E8` (1000 decimal) if PCLink default. If different, update `GENERIC_DASH_BASE_ID` in `can/can_config.py`
+2. That byte[0] cycles 0–13 on repeating messages
+3. That byte[1] is always 0x00
+4. Pick one frame (e.g. frame 0 at idle — byte[0]=0x00) and decode: `struct.unpack('<hhh', data[2:8])` should give ~[idle_rpm, idle_map, 0] which confirms LE int16
 
 ---
 
-## Priority 3: Post-Boost Barn — SC-6 Session Trends
+## Priority 3: Integrate G5GenericDashParser into kisti_can.py
+
+**Only after sniff confirms CAN ID and byte order.**
+
+Steps:
+1. `can/can_config.py`: change `CAN_INTERFACE: str = "can0"` → `"can1"`
+2. `can/kisti_can.py`: import `G5GenericDashParser` from `can.g5_generic_dash`
+3. Replace `decode_generic_dash_1/2/3()` calls with `parser.feed()` in the CAN listener loop
+4. Bridge the parser properties into DiffStateBridge (check which fields it exposes)
+5. Change `MOCK_ENABLED: bool = True` → `False`
+6. Test live with G5 running
+
+**kisti_can.py current state** (do NOT touch until post-sniff):
+- Lines 59-100: imports all GD1/GD2/GD3 deprecated constants by name — will need cleanup
+- Has `decode_generic_dash_1()`, `decode_generic_dash_2()`, `decode_generic_dash_3()` — big-endian, wrong
+- These functions are used in the CAN dispatch; replace the calls, not just the imports
+
+---
+
+## Priority 4: Post-Boost Barn — SC-6 Session Trends
 
 **Do NOT implement until after Boost Barn tune (WO #15562, Aaron).**
 Real ECU brake_pressure data must be flowing into DuckDB first.
@@ -106,34 +102,42 @@ Real ECU brake_pressure data must be flowing into DuckDB first.
 
 ---
 
+## Priority 5: RS3 Theme Flash
+
+Flash cfg_20260401_152932 to MXG Strada. Requires Windows + physical access to car.
+Separate from software track — no Jetson/code work involved.
+
+---
+
 ## Key Files
 
 | File | Role |
 |------|------|
-| `scripts/jetson/install-gs-usb.sh` | **Run this first** — builds usb_8dev OOT module |
-| `bridge/can_bus.py` | CAN interface binding — check for hardcoded `can0` |
-| `coaching/session_lap_tracker.py` | New: within-session lap trend tracker (kisti-22) |
-| `coaching/condition_rules.py` | Condition rules, now includes LOW_GRIP action text |
-| `ui/sport_screen.py` | Coaching: 14pt bold, full-width QRectF(0,398,800,20) |
-| `ui/sharp_screen.py` | Sector insight: 11pt, rect height 16 |
-| `main.py` | `_coaching_tick()` now overrides with conditions; `_on_lap_complete()` appends trend |
-| `data/duckdb_store.py` | Telemetry table — brake_pressure/steering per session |
+| `can/can_config.py` | CAN constants — GENERIC_DASH_BASE_ID now 0x3E8, GD_FRAME_* added |
+| `can/g5_generic_dash.py` | **NEW**: G5GenericDashParser (use this, not old decode_ functions) |
+| `can/kisti_can.py` | CAN listener — still uses old decode_generic_dash_1/2/3 (pre-sniff) |
+| `scripts/jetson/install-gs-usb.sh` | usb_8dev OOT build script — DONE, not needed again |
+| `ui/sharp_screen.py` | Sector strip fix at line 449 |
+| `coaching/session_lap_tracker.py` | Within-session lap trend tracker (kisti-22) |
 | `data/build_record.py` | Alert thresholds (single source of truth) |
 
 ## Architecture Reminders
+
 - Paint pattern: coaching cached in instance vars (1Hz), painted at 20Hz
 - No Qt in coaching modules — pure Python, fully testable
-- Tests baseline: **942** (was 935, +7 session_lap_tracker tests). Must not regress.
-- **1 pre-existing test failure**: `test_timing_after_lap` in `test_timing_manager.py` — NOT our regression, pre-dates this branch
+- Tests baseline: **985** (was 942, +44 g5_generic_dash tests, +1 sector_insight from kisti-23)
+- **1 pre-existing test failure**: `test_timing_after_lap` in `test_timing_manager.py` — NOT our regression
 - **Deploy command**: `ssh aldc@192.168.22.131 "cd ~/repos/kisti && git pull --ff-only && ~/k"`
 - **DuckDB path on Jetson**: `/data/duckdb/kisti.duckdb` (not in repo dir)
 - **NEVER use `systemctl restart gdm`** — breaks headless display setup
+- **MOCK_ENABLED = True**: KiSTI running on mock data. Flip False after CAN sniff + integration
+- **G5 Generic Dash CAN ID**: default 0x3E8 — VERIFY against actual PCLink config before flip
 
-## Context on the Korlan Setup Notes
-JK has a separate setup script for a `~/can-bridge` standalone Claude Code project on the Jetson.
-That script uses `slcand`/`slcan0` — **this will not work** for the Korlan (0483:1234).
-The corrected approach is `can1` via `usb_8dev`. The python-can call is:
-```python
-bus = can.interface.Bus(channel='can1', bustype='socketcan')
-```
-Everything else in that script (python-can install, CLAUDE.md structure, systemd concept) is fine.
+## Korlan USB2CAN Setup (COMPLETE)
+
+- Driver: `usb_8dev` at `/lib/modules/5.15.148-tegra/updates/usb_8dev.ko`
+- Auto-loads: `/etc/modules-load.d/usb_8dev.conf`
+- Auto-bringup: `/etc/udev/rules.d/80-can-usb.rules` (1Mbit/s on plug-in)
+- Interface appears as `can1` when Korlan plugged in
+- python-can call: `can.interface.Bus(channel='can1', bustype='socketcan')`
+- **NOT slcand/slcan** — Korlan 0483:1234 is native USB CAN, not serial
