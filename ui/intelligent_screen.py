@@ -326,7 +326,7 @@ class IntelligentScreenWidget(QWidget):
         p.setFont(_font(10, bold=True))
         p.setPen(QPen(QColor(GRAY)))
         p.drawText(QRectF(cols[3], 6, prs_right - cols[3], 16),
-                   Qt.AlignRight | Qt.AlignVCenter, "PRESSURE")
+                   Qt.AlignRight | Qt.AlignVCenter, "BARO")
 
         if available:
             prs_text = f"{snap.ambient_pressure_hpa:.0f}"
