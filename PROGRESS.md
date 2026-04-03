@@ -25,6 +25,9 @@
 - Old sequential IDs (0x3E9, 0x3EA) are NOT in KISTI_CAN_IDS — removing those dispatch branches was correct
 - CanListenerThread can be instantiated with a Mock bridge for unit tests (no Qt required for __init__)
 
+### Learnings Captured
+- ✅ cce_success_log: kisti-24 session summary (G5 dispatch integration, parser architecture, 6 tests)
+
 ### Next Session (kisti-25)
 1. **Order CAN hardware** — JK action: PN 101-5104 ($75), DB9 breakout ($14), 120Ω terminator ($13)
 2. **CAN sniff** — Verify CAN ID (expect 0x3E8), byte[0] cycles 0-13, LE int16 signals
