@@ -221,8 +221,9 @@ class SportSharpScreenWidget(QWidget):
 
         # Subtle full-screen tint from road surface FLIR
         snap = self._snap
-        if snap is not None and snap.flir_available and not snap.is_flir_stale():
-            tint = QColor(_brake_heat_color(snap.brake_temp_fl))
+        if snap is not None and not snap.is_road_surface_stale():
+            road_avg = (snap.road_temp_left + snap.road_temp_center + snap.road_temp_right) / 3.0
+            tint = QColor(_brake_heat_color(road_avg))
             tint.setAlpha(15)
             p.fillRect(0, 0, _W, _H, tint)
 
@@ -517,31 +518,45 @@ class SportSharpScreenWidget(QWidget):
     def _draw_flir_strip(self, p: QPainter) -> None:
         """Road surface temp strip — fills sector area when no timing active."""
         snap = self._snap
-        flir_ok = snap is not None and snap.flir_available and not snap.is_flir_stale()
+        road_ok = snap is not None and not snap.is_road_surface_stale()
 
         y0 = _SECTOR_Y0
         strip_h = _SECTOR_Y1 - _SECTOR_Y0
 
-        if not flir_ok:
+        if not road_ok:
             p.fillRect(QRectF(10, y0, _W - 20, strip_h), QColor(BG_PANEL))
             p.setFont(QFont("Helvetica", 14))
             p.setPen(QColor(GRAY))
             p.drawText(QRectF(0, y0 + 30, _W, 40), Qt.AlignCenter, "FLIR NOT CONNECTED")
             return
 
-        road_temp = snap.brake_temp_fl  # Forward FLIR = road surface
-        heat_col = _brake_heat_color(road_temp)
+        # 3-zone horizontal display: L | CTR | R
+        zones = [
+            ("L", snap.road_temp_left),
+            ("CTR", snap.road_temp_center),
+            ("R", snap.road_temp_right),
+        ]
+        zone_w = _W / 3.0
 
-        # Label — left
+        # Section label
         p.setFont(QFont("Helvetica", 12, QFont.Bold))
         p.setPen(QColor(GRAY))
-        p.drawText(QRectF(24, y0 + 8, 120, 18), Qt.AlignLeft | Qt.AlignVCenter, "ROAD SURFACE")
+        p.drawText(QRectF(24, y0 + 4, 200, 18), Qt.AlignLeft | Qt.AlignVCenter, "ROAD SURFACE")
 
-        # Temperature — large, left, heat-colored text (color = condition)
-        p.setFont(QFont("Helvetica", 40, QFont.Bold))
-        p.setPen(heat_col)
-        p.drawText(QRectF(24, y0 + 28, 250, 56),
-                   Qt.AlignLeft | Qt.AlignVCenter, f"{road_temp:.0f}\u00b0C")
+        for i, (label, temp) in enumerate(zones):
+            zx = i * zone_w
+            heat_col = _brake_heat_color(temp)
+
+            # Zone label
+            p.setFont(QFont("Helvetica", 11, QFont.Bold))
+            p.setPen(QColor(GRAY))
+            p.drawText(QRectF(zx, y0 + 22, zone_w, 16), Qt.AlignCenter, label)
+
+            # Temperature — large, heat-colored
+            p.setFont(QFont("Helvetica", 34, QFont.Bold))
+            p.setPen(heat_col)
+            p.drawText(QRectF(zx, y0 + 38, zone_w, 52),
+                       Qt.AlignCenter, f"{temp:.0f}\u00b0C")
 
     # ------------------------------------------------------------------
     # Safety vitals (y=380..480) — 5 zones, DIM until warning
@@ -560,8 +575,8 @@ class SportSharpScreenWidget(QWidget):
         stale = snap.is_engine_stale() if snap else True
 
         # Road surface from forward FLIR
-        flir_ok = snap is not None and snap.flir_available and not snap.is_flir_stale()
-        road_temp = snap.brake_temp_fl if flir_ok else 0.0
+        flir_ok = snap is not None and not snap.is_road_surface_stale()
+        road_temp = snap.road_temp_center if flir_ok else 0.0
 
         # 4 safety zones: OIL | COOL | OIL T | ROAD
         zone_w = _W / 4

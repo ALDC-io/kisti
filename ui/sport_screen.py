@@ -151,8 +151,9 @@ class SportScreenWidget(QWidget):
         snap = self._snap if self._snap is not None else DiffState()
 
         # Subtle full-screen tint from road surface FLIR
-        if snap.flir_available and not snap.is_flir_stale():
-            tint = QColor(_brake_heat_color(snap.brake_temp_fl))
+        if not snap.is_road_surface_stale():
+            road_avg = (snap.road_temp_left + snap.road_temp_center + snap.road_temp_right) / 3.0
+            tint = QColor(_brake_heat_color(road_avg))
             tint.setAlpha(15)
             p.fillRect(0, 0, w, h, tint)
         diff_stale = True if self._snap is None else snap.is_diff_stale()
@@ -271,30 +272,41 @@ class SportScreenWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _paint_flir_summary(self, p: QPainter, snap: DiffState) -> None:
-        flir_ok = snap.flir_available and not snap.is_flir_stale()
+        road_ok = not snap.is_road_surface_stale()
 
         rect = QRectF(510, 6, 280, 86)
 
-        if flir_ok:
-            road_temp = snap.brake_temp_fl  # Forward FLIR = road surface
-            heat_col = _brake_heat_color(road_temp)
-
-            # Label
-            p.setFont(QFont("Helvetica", 10, QFont.Weight.Bold))
-            p.setPen(QColor(GRAY))
-            p.drawText(QRectF(520, 10, 100, 16), Qt.AlignmentFlag.AlignLeft, "ROAD")
-
-            # Temperature — large, heat-colored text (color = condition)
-            p.setFont(QFont("Helvetica", 36, QFont.Weight.Bold))
-            p.setPen(heat_col)
-            p.drawText(QRectF(520, 24, 200, 50),
-                       Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                       f"{road_temp:.0f}\u00b0C")
-        else:
+        if not road_ok:
             p.fillRect(rect, QColor(BG_PANEL))
             p.setFont(QFont("Helvetica", 12))
             p.setPen(QColor(DIM))
             p.drawText(rect, Qt.AlignmentFlag.AlignCenter, "ROAD ---")
+            return
+
+        # 3-zone road surface: L | CTR | R
+        zones = [
+            ("L", snap.road_temp_left),
+            ("CTR", snap.road_temp_center),
+            ("R", snap.road_temp_right),
+        ]
+        zone_w = 280.0 / 3.0
+
+        for i, (label, temp) in enumerate(zones):
+            zx = 510 + i * zone_w
+            heat_col = _brake_heat_color(temp)
+
+            # Zone label
+            p.setFont(QFont("Helvetica", 9, QFont.Weight.Bold))
+            p.setPen(QColor(GRAY))
+            p.drawText(QRectF(zx, 8, zone_w, 14),
+                       Qt.AlignmentFlag.AlignCenter, label)
+
+            # Temperature — heat-colored
+            p.setFont(QFont("Helvetica", 26, QFont.Weight.Bold))
+            p.setPen(heat_col)
+            p.drawText(QRectF(zx, 22, zone_w, 44),
+                       Qt.AlignmentFlag.AlignCenter,
+                       f"{temp:.0f}\u00b0C")
 
     # ------------------------------------------------------------------
     # Middle band: Performance bars (left, 0..350)

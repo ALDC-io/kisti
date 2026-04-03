@@ -184,18 +184,18 @@ def main():
             )
         )
 
-    # FLIR Lepton thermal camera (brake disc temps)
+    # FLIR Lepton thermal camera (road surface temps — forward-facing)
     flir_reader = None
     try:
         from sensors.flir_lepton_reader import FLIRLeptonReader
         flir_reader = FLIRLeptonReader()
         if flir_reader.start():
             flir_reader.temps_updated.connect(
-                lambda t: bridge.update_flir(t.fl, t.fr, t.rl, t.rr)
+                lambda t: bridge.update_road_surface(t.left, t.center, t.right)
             )
-            log.info("FLIR Lepton online: brake disc thermal imaging")
+            log.info("FLIR Lepton online: road surface thermal imaging")
         else:
-            log.info("No FLIR Lepton found — brake temps unavailable")
+            log.info("No FLIR Lepton found — road surface temps unavailable")
             flir_reader = None
     except Exception as exc:
         log.info("FLIR Lepton unavailable: %s", exc)
@@ -608,6 +608,7 @@ def main():
             fullscreen=args.fullscreen,
             bridge=bridge,
             mode_manager=mode_mgr,
+            flir_reader=flir_reader,
         )
 
         # Feed DiffState snapshots to the active screen at 20Hz

@@ -47,7 +47,7 @@ def _placeholder(text: str) -> QLabel:
 class MainWindow(QMainWindow):
     """800x480 fixed-size main window. SI-Drive selects between 3 screens."""
 
-    def __init__(self, fullscreen=False, bridge=None, mode_manager=None):
+    def __init__(self, fullscreen=False, bridge=None, mode_manager=None, flir_reader=None):
         super().__init__()
         self.setWindowTitle("KiSTI")
         if fullscreen:
@@ -84,14 +84,16 @@ class MainWindow(QMainWindow):
         self._track_mode = TrackModeWidget(self)
         self._track_mode.hide()
 
-        # === 3 SI-Drive screens ===
+        # === 3 SI-Drive screens + VIDEO overlay ===
         self._intelligent_screen = IntelligentScreenWidget(self)
         self._sport_screen = SportScreenWidget(self)
         self._sharp_screen = SportSharpScreenWidget(self)
+        self._video_mode = VideoModeWidget(flir_reader=flir_reader, parent=self)
 
         self._stack.addWidget(self._intelligent_screen)  # index 0: Intelligent
         self._stack.addWidget(self._sport_screen)        # index 1: Sport
         self._stack.addWidget(self._sharp_screen)        # index 2: Sport Sharp
+        self._stack.addWidget(self._video_mode)          # index 3: VIDEO (thermal + cameras)
 
         self._current_si_drive: int = 1  # Default: Sport (car starts in Sport)
         self._stack.setCurrentIndex(1)
@@ -110,10 +112,10 @@ class MainWindow(QMainWindow):
         shortcut = QShortcut(QKeySequence(Qt.Key_F11), self)
         shortcut.activated.connect(self._toggle_fullscreen)
 
-        # 1/2/3 keys to switch SI-Drive screens (dev/demo use)
-        for key, idx in [(Qt.Key_1, 0), (Qt.Key_2, 1), (Qt.Key_3, 2)]:
+        # 1/2/3/4 keys to switch screens (dev/demo use; 4 = VIDEO/thermal)
+        for key, idx in [(Qt.Key_1, 0), (Qt.Key_2, 1), (Qt.Key_3, 2), (Qt.Key_4, 3)]:
             sc = QShortcut(QKeySequence(key), self)
-            sc.activated.connect(lambda i=idx: self._on_si_drive_changed(i))
+            sc.activated.connect(lambda i=idx: self._stack.setCurrentIndex(i))
 
         # Mock data generator — disabled, only real hardware
         self._generator = None

@@ -1,22 +1,20 @@
-"""KiSTI - Simulated Camera Feed Widgets
+"""KiSTI - Camera Feed Widgets
 
-Mock visualizations of front sensor array:
+Simulated feeds for RGB/LiDAR/Weather views and live thermal from FLIR Lepton 3.5.
   - RGB: Canyon road with fall foliage (Duffey Lake Road, BC)
-  - Teledyne IR: False-color thermal view
+  - FLIR Lepton: Live 160x120 thermal image, INFERNO colormap
   - LiDAR: Point cloud / depth wireframe
   - Weather: Conditions overlay
-
-All scenes depict a fall day canyon drive on Duffey Lake Road.
 """
 
 import math
 import random
 import time
 
-from PySide6.QtCore import Qt, QPointF, QRectF
+from PySide6.QtCore import Qt, QPointF, QRectF, Slot
 from PySide6.QtGui import (
     QPainter, QPen, QColor, QFont, QLinearGradient, QRadialGradient,
-    QPolygonF, QPainterPath,
+    QPolygonF, QPainterPath, QImage,
 )
 from PySide6.QtWidgets import QWidget
 
@@ -185,101 +183,99 @@ class RGBCameraFeed(_BaseCameraFeed):
         p.end()
 
 
-class IRCameraFeed(_BaseCameraFeed):
-    """Simulated Teledyne IR - false-color thermal view of the same scene."""
+class LiveThermalFeed(QWidget):
+    """Live FLIR Lepton 3.5 thermal feed — 160x120, INFERNO colormap.
+
+    Receives raw uint16 numpy frames via on_frame() slot (connected to
+    FLIRLeptonReader.frame_updated signal). Normalizes to 8-bit, applies
+    cv2.COLORMAP_INFERNO, and scales to widget size with aspect ratio preserved.
+    Falls back to a dark NO SIGNAL panel if no frame received.
+    """
 
     def __init__(self, parent=None):
-        super().__init__("TELEDYNE IR  640x480  30fps", parent)
-        self._heat_spots = [(random.uniform(0.1, 0.9), random.uniform(0.3, 0.9),
-                             random.uniform(0.3, 0.8)) for _ in range(8)]
+        super().__init__(parent)
+        self._qimage = None          # last rendered QImage (RGB888)
+        self._last_frame_ts = 0.0    # monotonic timestamp of last received frame
+        self._frame_count = 0
+        self._cv2 = None
+        self._np = None
+        try:
+            import cv2
+            import numpy as np
+            self._cv2 = cv2
+            self._np = np
+        except ImportError:
+            pass
 
-    def paintEvent(self, event):
+    @Slot(object)
+    def on_frame(self, np_frame) -> None:
+        """Receive a raw uint16 numpy frame and convert to displayable QImage."""
+        if self._cv2 is None or self._np is None:
+            return
+        try:
+            frame = self._np.array(np_frame, dtype=self._np.uint16)
+            if frame.size == 0:
+                return
+
+            # Normalize 16-bit to 8-bit
+            f_min = float(frame.min())
+            f_max = float(frame.max())
+            if f_max > f_min:
+                norm = ((frame.astype(self._np.float32) - f_min) / (f_max - f_min) * 255.0)
+            else:
+                norm = self._np.zeros_like(frame, dtype=self._np.float32)
+            gray8 = norm.astype(self._np.uint8)
+
+            # Apply INFERNO colormap (BGR output from cv2)
+            colored = self._cv2.applyColorMap(gray8, self._cv2.COLORMAP_INFERNO)
+            # Convert BGR -> RGB
+            rgb = self._cv2.cvtColor(colored, self._cv2.COLOR_BGR2RGB)
+
+            h, w, _ = rgb.shape
+            self._qimage = QImage(rgb.tobytes(), w, h, w * 3, QImage.Format_RGB888).copy()
+            self._last_frame_ts = time.monotonic()
+            self._frame_count += 1
+            self.update()
+        except Exception:
+            pass
+
+    def advance_frame(self) -> None:
+        """No-op — this feed is signal-driven, not timer-driven."""
+        pass
+
+    def paintEvent(self, event) -> None:
         p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
         w, h = self.width(), self.height()
 
-        # IR base - deep purple/blue (cold scene - fall day ~8C)
-        bg = QLinearGradient(0, 0, 0, h)
-        bg.setColorAt(0.0, QColor("#0D0030"))
-        bg.setColorAt(0.4, QColor("#1A0050"))
-        bg.setColorAt(1.0, QColor("#220066"))
-        p.fillRect(0, 0, w, h, bg)
+        staleness_ms = int((time.monotonic() - self._last_frame_ts) * 1000) if self._last_frame_ts else -1
 
-        # Road surface - slightly warmer (residual heat)
-        road = QPainterPath()
-        vx, vy = w * 0.48, h * 0.42
-        curve = math.sin(self._frame * 0.02) * w * 0.03
-        road.moveTo(w * 0.15, h)
-        road.lineTo(vx - 8 + curve, vy)
-        road.lineTo(vx + 8 + curve, vy)
-        road.lineTo(w * 0.85, h)
-        road.closeSubpath()
-        road_grad = QLinearGradient(0, vy, 0, h)
-        road_grad.setColorAt(0.0, QColor("#442200"))
-        road_grad.setColorAt(0.5, QColor("#664400"))
-        road_grad.setColorAt(1.0, QColor("#885500"))
-        p.fillPath(road, road_grad)
+        if self._qimage is not None and staleness_ms < 2000:
+            # Scale with aspect ratio preserved, centered
+            scaled = self._qimage.scaled(w, h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            x_off = (w - scaled.width()) // 2
+            y_off = (h - scaled.height()) // 2
+            p.fillRect(0, 0, w, h, QColor(BG_DARK))
+            p.drawImage(x_off, y_off, scaled)
+        else:
+            # NO SIGNAL panel
+            p.fillRect(0, 0, w, h, QColor("#0A0A0A"))
+            p.setPen(QColor(CHROME_DARK))
+            p.setFont(QFont("Helvetica", 9, QFont.Bold))
+            p.drawText(0, 0, w, h, Qt.AlignCenter, "NO SIGNAL")
 
-        # Engine heat ahead (simulated vehicle ahead in distance)
-        if self._frame % 60 < 45:
-            eng_x = w * 0.48 + curve
-            eng_y = h * 0.50
-            rad = QRadialGradient(eng_x, eng_y, 30)
-            rad.setColorAt(0.0, QColor("#FF4400"))
-            rad.setColorAt(0.3, QColor("#CC2200"))
-            rad.setColorAt(0.7, QColor("#661100"))
-            rad.setColorAt(1.0, QColor(0, 0, 0, 0))
-            p.setBrush(rad)
-            p.setPen(Qt.NoPen)
-            p.drawEllipse(int(eng_x) - 30, int(eng_y) - 15, 60, 30)
-
-        # Tree canopy thermal signatures (slightly warm from sun absorption)
-        for tx, ty, intensity in self._heat_spots:
-            cx, cy = int(tx * w), int(ty * h)
-            sz = int(12 + intensity * 20)
-            rad = QRadialGradient(cx, cy, sz)
-            r = int(80 + intensity * 100)
-            g = int(40 + intensity * 60)
-            rad.setColorAt(0.0, QColor(r, g, 0, 180))
-            rad.setColorAt(0.5, QColor(r // 2, g // 2, 20, 100))
-            rad.setColorAt(1.0, QColor(0, 0, 0, 0))
-            p.setBrush(rad)
-            p.setPen(Qt.NoPen)
-            p.drawEllipse(cx - sz, cy - sz, sz * 2, sz * 2)
-
-        # Guardrail (metal - reflects ambient, cool)
-        p.setPen(QPen(QColor("#332266"), 1))
-        for i in range(6):
-            t = 0.2 + i * 0.13
-            gx = w * 0.15 + (vx - 8 - w * 0.15) * t + curve * t
-            gy = h - (h - vy) * t
-            p.drawLine(int(gx), int(gy), int(gx), int(gy) - 8)
-
-        # IR temperature scale bar (right edge)
-        scale_x = w - 12
-        scale_h = h - 30
-        for i in range(int(scale_h)):
-            t = i / scale_h
-            r = int(255 * t)
-            g = int(180 * t * (1 - t) * 4)
-            b = int(255 * (1 - t))
-            p.setPen(QColor(r, g, b))
-            p.drawLine(scale_x, 20 + i, scale_x + 6, 20 + i)
-
+        # Label bar
+        p.fillRect(0, 0, w, 16, QColor(0, 0, 0, 160))
         p.setPen(QColor(WHITE))
-        p.setFont(QFont("Helvetica", 6))
-        p.drawText(scale_x - 12, 18, "35°")
-        p.drawText(scale_x - 10, h - 8, "-5°")
+        p.setFont(QFont("Helvetica", 8, QFont.Bold))
+        p.drawText(4, 12, "FLIR LEPTON 3.5  160x120  9fps")
 
-        # Crosshair center
-        cx, cy = w // 2, h // 2
-        p.setPen(QPen(QColor(WHITE), 1))
-        p.drawLine(cx - 8, cy, cx - 3, cy)
-        p.drawLine(cx + 3, cy, cx + 8, cy)
-        p.drawLine(cx, cy - 8, cx, cy - 3)
-        p.drawLine(cx, cy + 3, cx, cy + 8)
+        # Staleness indicator (top-right)
+        if staleness_ms >= 0:
+            stale_color = WHITE if staleness_ms < 500 else (YELLOW if staleness_ms < 2000 else RED)
+            p.setPen(QColor(stale_color))
+            p.setFont(QFont("Helvetica", 7))
+            p.drawText(w - 48, 12, f"+{staleness_ms}ms")
 
-        self._draw_label(p, w, h)
         p.end()
 
 

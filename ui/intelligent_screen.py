@@ -176,8 +176,9 @@ class IntelligentScreenWidget(QWidget):
 
         # Subtle full-screen tint from road surface FLIR
         snap = self._snap
-        if snap is not None and snap.flir_available and not snap.is_flir_stale():
-            tint = QColor(_brake_heat_color(snap.brake_temp_fl))
+        if snap is not None and not snap.is_road_surface_stale():
+            road_avg = (snap.road_temp_left + snap.road_temp_center + snap.road_temp_right) / 3.0
+            tint = QColor(_brake_heat_color(road_avg))
             tint.setAlpha(15)
             p.fillRect(0, 0, _W, _H, tint)
 
@@ -303,8 +304,7 @@ class IntelligentScreenWidget(QWidget):
 
     def _draw_flir_panel(self, p: QPainter) -> None:
         snap = self._snap
-        stale = snap is None or snap.is_flir_stale()
-        flir_ok = snap is not None and snap.flir_available and not stale
+        stale = snap is None or snap.is_road_surface_stale()
 
         y0 = 160
         panel_h = 180  # y=160..340
@@ -318,48 +318,54 @@ class IntelligentScreenWidget(QWidget):
         # Warm-up badge (top-right, always shown)
         self._draw_warmup_badge(p, y0)
 
-        if not flir_ok:
+        if stale:
             p.setFont(_font(16))
             p.setPen(QPen(QColor(GRAY)))
             p.drawText(QRectF(0, y0 + 60, _W, 40), Qt.AlignCenter,
                        "FLIR NOT CONNECTED")
             return
 
-        # Road surface temp — single large reading from forward FLIR
-        # Uses brake_temp_fl as road surface proxy (single camera)
-        road_temp = snap.brake_temp_fl
-        heat_col = _brake_heat_color(road_temp)
-
-        # Large temperature card — centered
-        card_x = 20
+        # 3-zone road surface display: LEFT | CENTER | RIGHT
+        zones = [
+            ("L", snap.road_temp_left),
+            ("CTR", snap.road_temp_center),
+            ("R", snap.road_temp_right),
+        ]
+        zone_w = (_W - 40) / 3.0
+        zone_x = 20.0
         card_y = y0 + 30
-        card_w = _W - 40
-        card_h = 130
+        card_h = 115
 
-        # Heat-colored background
-        bg = QColor(heat_col)
-        bg.setAlpha(40)
-        p.fillRect(QRectF(card_x, card_y, card_w, card_h), bg)
+        for label, temp in zones:
+            heat_col = _brake_heat_color(temp)
 
-        # Big temperature — left-aligned to match weather text above
-        p.setFont(_font(56, bold=True))
-        p.setPen(QPen(heat_col))
-        p.drawText(QRectF(20, card_y + 10, 300, 80),
-                   Qt.AlignLeft | Qt.AlignVCenter, f"{road_temp:.0f}\u00b0C")
+            # Heat-colored background per zone
+            bg = QColor(heat_col)
+            bg.setAlpha(40)
+            p.fillRect(QRectF(zone_x + 2, card_y, zone_w - 4, card_h), bg)
 
-        # Coaching text replaces sublabel when active
+            # Zone label
+            p.setFont(_font(11, bold=True))
+            p.setPen(QPen(QColor(GRAY)))
+            p.drawText(QRectF(zone_x + 2, card_y + 4, zone_w - 4, 18),
+                       Qt.AlignCenter, label)
+
+            # Temperature — large, heat-colored
+            p.setFont(_font(44, bold=True))
+            p.setPen(QPen(heat_col))
+            p.drawText(QRectF(zone_x + 2, card_y + 22, zone_w - 4, 68),
+                       Qt.AlignCenter, f"{temp:.0f}\u00b0C")
+
+            zone_x += zone_w
+
+        # Coaching text below zones
         if self._coaching_text:
             sentiment_colors = {"green": GREEN, "amber": YELLOW, "dim": GRAY}
             coach_color = QColor(sentiment_colors.get(self._coaching_sentiment, GRAY))
             p.setFont(_font(14, bold=True))
             p.setPen(QPen(coach_color))
-            p.drawText(QRectF(20, card_y + 90, card_w, 24),
+            p.drawText(QRectF(20, y0 + panel_h - 30, _W - 40, 24),
                        Qt.AlignLeft | Qt.AlignVCenter, self._coaching_text)
-        else:
-            p.setFont(_font(14))
-            p.setPen(QPen(QColor(GRAY)))
-            p.drawText(QRectF(20, card_y + 90, 200, 24),
-                       Qt.AlignLeft | Qt.AlignVCenter, "ROAD TEMPERATURE")
 
     def _draw_warmup_badge(self, p: QPainter, y0: int) -> None:
         """Draw warm-up state badge (COLD / WARMING / READY) overlaid on FLIR panel."""

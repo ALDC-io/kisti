@@ -220,12 +220,18 @@ class DiffState:
     timing_mode: str = ""                 # 'circuit' | 'point_to_point' | ''
     lap_distance_m: float = 0.0
 
-    # FLIR thermal camera — brake temps per corner (°C)
+    # FLIR thermal camera — brake temps per corner (°C) — reserved for future ECU/CAN data
     brake_temp_fl: float = 0.0
     brake_temp_fr: float = 0.0
     brake_temp_rl: float = 0.0
     brake_temp_rr: float = 0.0
     flir_available: bool = False
+
+    # FLIR Lepton 3.5 — road surface temperatures, 3 horizontal zones (°C)
+    road_temp_left: float = 0.0
+    road_temp_center: float = 0.0
+    road_temp_right: float = 0.0
+    road_surface_ts: float = 0.0
 
     # Ambient weather (Yoctopuce Yocto-Meteo-V2, exterior)
     ambient_temp_c: float = 0.0           # °C
@@ -313,6 +319,13 @@ class DiffState:
             return True
         t = now if now is not None else time.monotonic()
         return (t - self.flir_frame_ts) > timeout
+
+    def is_road_surface_stale(self, now: Optional[float] = None, timeout: float = 2.0) -> bool:
+        """True if no road surface thermal frame received within timeout seconds."""
+        if self.road_surface_ts == 0.0:
+            return True
+        t = now if now is not None else time.monotonic()
+        return (t - self.road_surface_ts) > timeout
 
     def is_any_stale(self, now: Optional[float] = None, timeout: float = 0.5) -> bool:
         return self.is_diff_stale(now, timeout) or self.is_context_stale(now, timeout)
@@ -591,6 +604,15 @@ class DiffStateBridge(QObject):
             self._state.brake_temp_rr = rr
             self._state.flir_available = True
             self._state.flir_frame_ts = time.monotonic()
+        self.state_changed.emit()
+
+    def update_road_surface(self, left: float, center: float, right: float) -> None:
+        """Called from FLIR Lepton reader with road surface temps for 3 horizontal zones (°C)."""
+        with self._lock:
+            self._state.road_temp_left = left
+            self._state.road_temp_center = center
+            self._state.road_temp_right = right
+            self._state.road_surface_ts = time.monotonic()
         self.state_changed.emit()
 
     def update_ambient(

@@ -1,16 +1,14 @@
 """KiSTI - FLIR Lepton Thermal Camera Reader
 
-Reads brake disc temperatures from a FLIR Lepton module via PureThermal
-USB breakout board. Appears as a V4L2 device (/dev/videoX) and is read
-with OpenCV.
+Reads road surface temperatures from a FLIR Lepton module via PureThermal 3
+USB board. Appears as a V4L2 device (/dev/videoX) and is read with OpenCV.
 
 Polls at ~9 Hz (Lepton native frame rate) via QTimer. Falls back
 gracefully if the camera is unplugged or OpenCV is unavailable.
 
-The Lepton captures a 160x120 thermal image. Four ROI (Region of
-Interest) rectangles map to the four brake disc positions. The camera
-must be mounted with a known field of view pointing at the car's
-underside or wheel wells. ROI coordinates are configurable.
+The Lepton captures a 160x120 thermal image. Three horizontal ROI strips
+map to left/center/right road surface zones as seen from a forward-facing
+camera pointing at the road ahead.
 
 Temperature conversion: Lepton 3.x radiometric mode outputs raw
 centi-Kelvin values (uint16). Convert: temp_C = raw / 100.0 - 273.15
@@ -31,28 +29,27 @@ DEVICE_INDEX_AUTO = -1   # auto-detect
 
 
 @dataclass
-class BrakeTemps:
-    """Brake disc temperatures per corner (°C)."""
-    fl: float = 0.0
-    fr: float = 0.0
-    rl: float = 0.0
-    rr: float = 0.0
+class RoadSurfaceTemps:
+    """Road surface temperatures across left/center/right zones (°C)."""
+    left: float = 0.0
+    center: float = 0.0
+    right: float = 0.0
 
 
 @dataclass
 class ROIConfig:
-    """Region of Interest rectangles for each brake disc in the 160x120 frame.
+    """Region of Interest rectangles for road surface zones in the 160x120 frame.
 
     Each ROI is (x, y, w, h) in pixel coordinates. The mean temperature
-    within each ROI is reported as that corner's brake temp.
+    within each ROI is reported as that zone's road surface temp.
 
-    Default ROIs assume a forward-facing underbody camera with the car
-    centered in frame. Adjust via config or calibration.
+    Default ROIs assume a forward-facing camera viewing the road ahead,
+    with three horizontal strips covering left tire track, center, and
+    right tire track zones.
     """
-    fl: tuple[int, int, int, int] = (10, 10, 30, 30)
-    fr: tuple[int, int, int, int] = (120, 10, 30, 30)
-    rl: tuple[int, int, int, int] = (10, 80, 30, 30)
-    rr: tuple[int, int, int, int] = (120, 80, 30, 30)
+    left:   tuple[int, int, int, int] = (5,   45, 45, 30)  # left tire track zone
+    center: tuple[int, int, int, int] = (58,  45, 45, 30)  # center / between tracks
+    right:  tuple[int, int, int, int] = (110, 45, 45, 30)  # right tire track zone
 
 
 def _raw_to_celsius(raw_value: float) -> float:
@@ -61,12 +58,13 @@ def _raw_to_celsius(raw_value: float) -> float:
 
 
 class FLIRLeptonReader(QObject):
-    """Polls FLIR Lepton via PureThermal USB for brake disc temperatures.
+    """Polls FLIR Lepton via PureThermal USB for road surface temperatures.
 
     Follows the same QObject + QTimer + Signal pattern as YoctopuceReader.
     """
 
-    temps_updated = Signal(object)  # emits BrakeTemps
+    temps_updated = Signal(object)   # emits RoadSurfaceTemps
+    frame_updated = Signal(object)   # emits raw uint16 numpy frame (before ROI processing)
 
     def __init__(
         self,
@@ -79,7 +77,7 @@ class FLIRLeptonReader(QObject):
         self._roi = roi or ROIConfig()
         self._cap = None  # cv2.VideoCapture
         self._available = False
-        self._last_temps = BrakeTemps()
+        self._last_temps = RoadSurfaceTemps()
         self._np = None   # numpy module reference
         self._cv2 = None  # cv2 module reference
 
@@ -145,11 +143,11 @@ class FLIRLeptonReader(QObject):
     def available(self) -> bool:
         return self._available
 
-    def last_temps(self) -> BrakeTemps:
+    def last_temps(self) -> RoadSurfaceTemps:
         return self._last_temps
 
     def _poll(self) -> None:
-        """Read a frame and extract brake temps from ROI regions."""
+        """Read a frame, emit raw frame, then extract road surface temps from ROI regions."""
         if not self._available or self._cap is None:
             return
 
@@ -164,18 +162,20 @@ class FLIRLeptonReader(QObject):
             elif len(frame.shape) == 3:
                 # RGB/BGR frame — convert to grayscale, treat as relative temp
                 thermal = self._cv2.cvtColor(frame, self._cv2.COLOR_BGR2GRAY).astype(self._np.uint16)
-                # Scale 0-255 to rough brake temp range (100-600°C)
+                # Scale 0-255 to rough surface temp range
                 thermal = (thermal.astype(self._np.float32) / 255.0 * 500 + 100)
                 thermal = thermal.astype(self._np.uint16)
             else:
                 thermal = frame.astype(self._np.uint16)
 
-            fl_temp = self._roi_mean_temp(thermal, self._roi.fl)
-            fr_temp = self._roi_mean_temp(thermal, self._roi.fr)
-            rl_temp = self._roi_mean_temp(thermal, self._roi.rl)
-            rr_temp = self._roi_mean_temp(thermal, self._roi.rr)
+            # Emit raw frame for live display before ROI averaging
+            self.frame_updated.emit(thermal)
 
-            self._last_temps = BrakeTemps(fl=fl_temp, fr=fr_temp, rl=rl_temp, rr=rr_temp)
+            left_temp   = self._roi_mean_temp(thermal, self._roi.left)
+            center_temp = self._roi_mean_temp(thermal, self._roi.center)
+            right_temp  = self._roi_mean_temp(thermal, self._roi.right)
+
+            self._last_temps = RoadSurfaceTemps(left=left_temp, center=center_temp, right=right_temp)
             self.temps_updated.emit(self._last_temps)
 
         except Exception as exc:
@@ -210,5 +210,5 @@ class FLIRLeptonReader(QObject):
     def set_roi(self, roi: ROIConfig) -> None:
         """Update ROI configuration (e.g., after camera repositioning)."""
         self._roi = roi
-        log.info("FLIR ROI updated: FL=%s FR=%s RL=%s RR=%s",
-                 roi.fl, roi.fr, roi.rl, roi.rr)
+        log.info("FLIR ROI updated: left=%s center=%s right=%s",
+                 roi.left, roi.center, roi.right)

@@ -147,12 +147,12 @@ class TimingManager(QObject):
         predicted = timer.get_predicted_lap()
         theoretical = timer.get_theoretical_best()
 
-        # Best lap time (ms)
+        # Best lap time (ms) — use round() not int() to handle sub-ms precision
+        # in tests where monotonic timestamps are microseconds apart
         best_lap_ms = 0
         if timer._completed_laps:
-            best_lap_ms = int(
-                min(lap.total_time for lap in timer._completed_laps) * 1000
-            )
+            best_s = min(lap.total_time for lap in timer._completed_laps)
+            best_lap_ms = max(1, round(best_s * 1000)) if best_s > 0 else 0
 
         # Current sector times (seconds → ms)
         sector_times = [
