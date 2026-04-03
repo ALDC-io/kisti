@@ -629,6 +629,7 @@ def main():
             )
 
         # --- Voice activity ticker (all 3 screens) ---
+        from PySide6.QtCore import QTimer
         from collections import deque as _deque
         _voice_ticker_deque = _deque(maxlen=3)
 
