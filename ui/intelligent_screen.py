@@ -246,79 +246,61 @@ class IntelligentScreenWidget(QWidget):
         p.setBrush(QColor(BG_ACCENT))
         p.drawRoundedRect(QRectF(6, 4, _W - 12, 108), 6, 6)
 
-        # Section label
-        p.setFont(_font(11, bold=True))
+        # 4-column layout: WEATHER | ROAD | HUMIDITY | PRESSURE
+        col_w = (_W - 40) / 4.0  # ~190px each
+        cols = [20, 20 + col_w, 20 + col_w * 2, 20 + col_w * 3]
+
+        # --- Col 1: WEATHER (ambient temp) ---
+        p.setFont(_font(10, bold=True))
         p.setPen(QPen(QColor(MODE_I_ACCENT)))
-        p.drawText(QRectF(20, 6, 200, 16),
+        p.drawText(QRectF(cols[0], 6, col_w, 16),
                    Qt.AlignLeft | Qt.AlignVCenter, "WEATHER")
 
-        # --- Temperature: left ---
         if available:
-            temp_text = f"{snap.ambient_temp_c:.1f}"
+            temp_text = f"{snap.ambient_temp_c:.1f}\u00b0"
             temp_color = QColor(WHITE)
         else:
             temp_text = "---"
             temp_color = QColor(GRAY)
 
-        p.setFont(_font(44, bold=True))
+        p.setFont(_font(38, bold=True))
         p.setPen(QPen(temp_color))
-        p.drawText(QRectF(20, 22, 260, 66),
+        p.drawText(QRectF(cols[0], 24, col_w, 56),
                    Qt.AlignLeft | Qt.AlignVCenter, temp_text)
 
-        # Degree + C unit
-        p.setFont(_font(44, bold=True))
-        temp_width = p.fontMetrics().horizontalAdvance(temp_text)
-        p.setFont(_font(22, bold=True))
-        p.setPen(QPen(QColor(GRAY)))
-        p.drawText(QRectF(20 + temp_width + 4, 22, 60, 66),
-                   Qt.AlignLeft | Qt.AlignTop, "\u00b0C")
-
-        # Small "TEMP" label
         p.setFont(_font(10))
         p.setPen(QPen(QColor(GRAY)))
-        p.drawText(QRectF(20, 90, 120, 16),
-                   Qt.AlignLeft | Qt.AlignVCenter, "TEMPERATURE")
+        p.drawText(QRectF(cols[0], 82, col_w, 16),
+                   Qt.AlignLeft | Qt.AlignVCenter, "AIR TEMP")
 
-        # --- Road temp: right of ambient temp ---
-        road_x = 220
+        # --- Col 2: ROAD (FLIR surface temp) ---
+        p.setFont(_font(10, bold=True))
+        p.setPen(QPen(QColor(MODE_I_ACCENT)))
+        p.drawText(QRectF(cols[1], 6, col_w, 16),
+                   Qt.AlignLeft | Qt.AlignVCenter, "ROAD")
+
         if snap is not None and not snap.is_road_surface_stale():
             road_avg = (snap.road_temp_left + snap.road_temp_center + snap.road_temp_right) / 3.0
-            road_text = f"{road_avg:.1f}"
+            road_text = f"{road_avg:.1f}\u00b0"
             road_color = _brake_heat_color(road_avg)
         else:
             road_text = "---"
             road_color = QColor(GRAY)
 
-        p.setFont(_font(10, bold=True))
-        p.setPen(QPen(QColor(MODE_I_ACCENT)))
-        p.drawText(QRectF(road_x, 6, 100, 16),
-                   Qt.AlignLeft | Qt.AlignVCenter, "ROAD")
-
-        p.setFont(_font(44, bold=True))
+        p.setFont(_font(38, bold=True))
         p.setPen(QPen(road_color))
-        p.drawText(QRectF(road_x, 22, 200, 66),
+        p.drawText(QRectF(cols[1], 24, col_w, 56),
                    Qt.AlignLeft | Qt.AlignVCenter, road_text)
-
-        # Road degree unit
-        p.setFont(_font(44, bold=True))
-        road_tw = p.fontMetrics().horizontalAdvance(road_text)
-        p.setFont(_font(22, bold=True))
-        p.setPen(QPen(QColor(GRAY)))
-        p.drawText(QRectF(road_x + road_tw + 4, 22, 60, 66),
-                   Qt.AlignLeft | Qt.AlignTop, "\u00b0C")
 
         p.setFont(_font(10))
         p.setPen(QPen(QColor(GRAY)))
-        p.drawText(QRectF(road_x, 90, 120, 16),
+        p.drawText(QRectF(cols[1], 82, col_w, 16),
                    Qt.AlignLeft | Qt.AlignVCenter, "ROAD SURFACE")
 
-        # --- Humidity: right column, top ---
-        hum_x = 440
-        hum_y = 16
-
+        # --- Col 3: HUMIDITY ---
         p.setFont(_font(10, bold=True))
         p.setPen(QPen(QColor(GRAY)))
-        p.drawText(QRectF(hum_x, hum_y, 160, 16),
+        p.drawText(QRectF(cols[2], 6, col_w, 16),
                    Qt.AlignLeft | Qt.AlignVCenter, "HUMIDITY")
 
         if available:
@@ -328,46 +310,44 @@ class IntelligentScreenWidget(QWidget):
             hum_text = "---"
             hum_color = QColor(GRAY)
 
-        p.setFont(_font(26, bold=True))
+        p.setFont(_font(38, bold=True))
         p.setPen(QPen(hum_color))
-        p.drawText(QRectF(hum_x, hum_y + 14, 200, 36),
+        p.drawText(QRectF(cols[2], 24, col_w, 56),
                    Qt.AlignLeft | Qt.AlignVCenter, hum_text)
 
-        # --- Pressure: right column, bottom ---
-        prs_y = hum_y + 52
+        p.setFont(_font(10))
+        p.setPen(QPen(QColor(GRAY)))
+        p.drawText(QRectF(cols[2], 82, col_w, 16),
+                   Qt.AlignLeft | Qt.AlignVCenter, "RELATIVE")
 
+        # --- Col 4: PRESSURE ---
         p.setFont(_font(10, bold=True))
         p.setPen(QPen(QColor(GRAY)))
-        p.drawText(QRectF(hum_x, prs_y, 160, 16),
+        p.drawText(QRectF(cols[3], 6, col_w, 16),
                    Qt.AlignLeft | Qt.AlignVCenter, "PRESSURE")
 
         if available:
             prs_text = f"{snap.ambient_pressure_hpa:.0f}"
             prs_color = QColor(WHITE)
-            prs_unit = " hPa"
         else:
             prs_text = "---"
             prs_color = QColor(GRAY)
-            prs_unit = ""
 
-        p.setFont(_font(26, bold=True))
+        p.setFont(_font(38, bold=True))
         p.setPen(QPen(prs_color))
-        p.drawText(QRectF(hum_x, prs_y + 14, 200, 36),
+        p.drawText(QRectF(cols[3], 24, col_w, 56),
                    Qt.AlignLeft | Qt.AlignVCenter, prs_text)
 
-        # Unit label for pressure
-        if prs_unit:
-            prs_num_w = p.fontMetrics().horizontalAdvance(prs_text)
-            p.setFont(_font(14))
-            p.setPen(QPen(QColor(GRAY)))
-            p.drawText(QRectF(hum_x + prs_num_w + 4, prs_y + 14, 80, 36),
-                       Qt.AlignLeft | Qt.AlignVCenter, prs_unit)
+        p.setFont(_font(10))
+        p.setPen(QPen(QColor(GRAY)))
+        p.drawText(QRectF(cols[3], 82, col_w, 16),
+                   Qt.AlignLeft | Qt.AlignVCenter, "hPa")
 
         # "NO SENSOR" overlay when unavailable
-        if not available:
+        if not available and (snap is None or snap.is_road_surface_stale()):
             p.setFont(_font(13))
             p.setPen(QPen(QColor(GRAY)))
-            p.drawText(QRectF(0, 40, _W, 30), Qt.AlignCenter, "NO WEATHER SENSOR")
+            p.drawText(QRectF(0, 40, _W, 30), Qt.AlignCenter, "NO SENSORS")
 
     # ==================================================================
     # ROAD SURFACE (y=160..340)
