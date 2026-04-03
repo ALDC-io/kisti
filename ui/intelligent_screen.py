@@ -279,6 +279,39 @@ class IntelligentScreenWidget(QWidget):
         p.drawText(QRectF(20, 90, 120, 16),
                    Qt.AlignLeft | Qt.AlignVCenter, "TEMPERATURE")
 
+        # --- Road temp: right of ambient temp ---
+        road_x = 220
+        if snap is not None and not snap.is_road_surface_stale():
+            road_avg = (snap.road_temp_left + snap.road_temp_center + snap.road_temp_right) / 3.0
+            road_text = f"{road_avg:.1f}"
+            road_color = _brake_heat_color(road_avg)
+        else:
+            road_text = "---"
+            road_color = QColor(GRAY)
+
+        p.setFont(_font(10, bold=True))
+        p.setPen(QPen(QColor(MODE_I_ACCENT)))
+        p.drawText(QRectF(road_x, 6, 100, 16),
+                   Qt.AlignLeft | Qt.AlignVCenter, "ROAD")
+
+        p.setFont(_font(44, bold=True))
+        p.setPen(QPen(road_color))
+        p.drawText(QRectF(road_x, 22, 200, 66),
+                   Qt.AlignLeft | Qt.AlignVCenter, road_text)
+
+        # Road degree unit
+        p.setFont(_font(44, bold=True))
+        road_tw = p.fontMetrics().horizontalAdvance(road_text)
+        p.setFont(_font(22, bold=True))
+        p.setPen(QPen(QColor(GRAY)))
+        p.drawText(QRectF(road_x + road_tw + 4, 22, 60, 66),
+                   Qt.AlignLeft | Qt.AlignTop, "\u00b0C")
+
+        p.setFont(_font(10))
+        p.setPen(QPen(QColor(GRAY)))
+        p.drawText(QRectF(road_x, 90, 120, 16),
+                   Qt.AlignLeft | Qt.AlignVCenter, "ROAD SURFACE")
+
         # --- Humidity: right column, top ---
         hum_x = 440
         hum_y = 16
