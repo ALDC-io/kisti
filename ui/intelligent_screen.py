@@ -126,7 +126,7 @@ class IntelligentScreenWidget(QWidget):
     def __init__(self, flir_reader=None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._snap: DiffState | None = None
-        self._last_thermal_frame = None
+        self._cached_ir_image: QImage | None = None
 
         # Tell Qt we paint our entire rect every frame (compositorless X11)
         self.setAttribute(Qt.WA_OpaquePaintEvent)
@@ -172,8 +172,17 @@ class IntelligentScreenWidget(QWidget):
         self._coaching_level = level
 
     def _on_frame_updated(self, frame) -> None:
-        """Receive raw uint16 thermal frame from FLIR reader."""
-        self._last_thermal_frame = frame
+        """Receive raw uint16 thermal frame — apply colormap and cache QImage."""
+        mn, mx = float(frame.min()), float(frame.max())
+        if mx == mn:
+            norm = np.zeros(frame.shape, dtype=np.uint8)
+        else:
+            norm = ((frame.astype(np.float32) - mn) / (mx - mn) * 255.0).astype(np.uint8)
+        rgb = self._INFERNO_LUT[norm]  # single LUT index — fast
+        h, w = rgb.shape[:2]
+        self._cached_ir_image = QImage(
+            rgb.tobytes(), w, h, w * 3, QImage.Format_RGB888
+        )
         self.update()
 
     # ------------------------------------------------------------------
@@ -309,38 +318,15 @@ class IntelligentScreenWidget(QWidget):
     # ==================================================================
 
     # ---------------------------------------------------------------------------
-    # Inferno colormap (5-stop, no matplotlib dependency)
+    # Inferno colormap — precomputed 256-entry LUT (no per-frame np.interp)
     # 0 → black, 64 → deep purple, 128 → orange, 192 → yellow, 255 → white
     # ---------------------------------------------------------------------------
-    _INFERNO_STOPS = np.array([
-        [0,   0,   0],    # 0   black
-        [59,  7, 100],    # 64  deep purple  (#3B0764)
-        [249, 115, 22],   # 128 orange       (#F97316)
-        [253, 224, 71],   # 192 yellow       (#FDE047)
-        [255, 255, 255],  # 255 white
-    ], dtype=np.float32)
-    _INFERNO_KEYS = np.array([0, 64, 128, 192, 255], dtype=np.float32)
-
-    @staticmethod
-    def _apply_inferno(frame_uint16: np.ndarray) -> np.ndarray:
-        """Normalize uint16 frame → uint8, apply inferno colormap → H×W×3 uint8."""
-        mn, mx = float(frame_uint16.min()), float(frame_uint16.max())
-        if mx == mn:
-            norm = np.zeros(frame_uint16.shape, dtype=np.uint8)
-        else:
-            norm = ((frame_uint16.astype(np.float32) - mn) / (mx - mn) * 255.0).astype(np.uint8)
-
-        stops = IntelligentScreenWidget._INFERNO_STOPS
-        keys = IntelligentScreenWidget._INFERNO_KEYS
-        flat = norm.flatten().astype(np.float32)
-
-        # Vectorized linear interpolation across 5 stops
-        r = np.interp(flat, keys, stops[:, 0]).astype(np.uint8)
-        g = np.interp(flat, keys, stops[:, 1]).astype(np.uint8)
-        b = np.interp(flat, keys, stops[:, 2]).astype(np.uint8)
-
-        return np.stack([r, g, b], axis=1).reshape(frame_uint16.shape[0],
-                                                    frame_uint16.shape[1], 3)
+    _INFERNO_LUT = np.zeros((256, 3), dtype=np.uint8)
+    _stops = np.array([[0,0,0],[59,7,100],[249,115,22],[253,224,71],[255,255,255]], dtype=np.float32)
+    _keys = np.array([0, 64, 128, 192, 255], dtype=np.float32)
+    for _ch in range(3):
+        _INFERNO_LUT[:, _ch] = np.interp(np.arange(256), _keys, _stops[:, _ch]).astype(np.uint8)
+    del _stops, _keys, _ch
 
     def _draw_flir_panel(self, p: QPainter) -> None:
         y0 = 118
@@ -349,13 +335,9 @@ class IntelligentScreenWidget(QWidget):
         # Warm-up badge (top-right, always shown)
         self._draw_warmup_badge(p, y0)
 
-        frame = self._last_thermal_frame
-        if frame is not None:
-            # Render live thermal image filling the full-width band
-            rgb = self._apply_inferno(frame)
-            h, w = rgb.shape[:2]
-            img = QImage(rgb.data, w, h, w * 3, QImage.Format_RGB888).copy()
-            p.drawImage(QRectF(0, y0, _W, panel_h), img)
+        if self._cached_ir_image is not None:
+            # Blit cached QImage (colormap applied in _on_frame_updated)
+            p.drawImage(QRectF(0, y0, _W, panel_h), self._cached_ir_image)
 
             # Semi-transparent "ROAD SURFACE" label overlay
             p.setFont(_font(12, bold=True))
