@@ -123,7 +123,6 @@ from can.can_config import (
     MOCK_DIFF_HZ,
     MOCK_DYNAMICS_HZ,
     MOCK_ENABLED,
-    MOCK_FLIR_HZ,
     MOCK_GENERIC_DASH_HZ,
     MOCK_GPS_HZ,
     MOCK_IMU_HZ,
@@ -931,14 +930,6 @@ class MockCanGenerator(QObject):
         self._imu_gz = 0.0
         self._prev_heading = 135.0
 
-        # FLIR brake temp state (°C)
-        # Forward FLIR = road surface temp (single camera in grill)
-        # fl used as road surface reading; fr/rl/rr unused but kept for API compat
-        self._flir_fl = 18.0   # Road surface ~ambient
-        self._flir_fr = 18.0
-        self._flir_rl = 18.0
-        self._flir_rr = 18.0
-
         # Mock ambient weather
         self._amb_temp = 18.0
         self._amb_humidity = 55.0
@@ -988,10 +979,6 @@ class MockCanGenerator(QObject):
         self._imu_timer.setInterval(1000 // MOCK_IMU_HZ)
         self._imu_timer.timeout.connect(self._imu_tick)
 
-        self._flir_timer = QTimer(self)
-        self._flir_timer.setInterval(1000 // MOCK_FLIR_HZ)
-        self._flir_timer.timeout.connect(self._flir_tick)
-
         self._amb_timer = QTimer(self)
         self._amb_timer.setInterval(1000)  # 1 Hz — weather changes slowly
         self._amb_timer.timeout.connect(self._ambient_tick)
@@ -1007,7 +994,6 @@ class MockCanGenerator(QObject):
             self._sens_timer.start()
             self._gps_timer.start()
             self._imu_timer.start()
-        self._flir_timer.start()
         self._amb_timer.start()
         log.info("Mock CAN generator started (ECU: %s)", ACTIVE_ECU)
 
@@ -1021,7 +1007,6 @@ class MockCanGenerator(QObject):
         self._sens_timer.stop()
         self._gps_timer.stop()
         self._imu_timer.stop()
-        self._flir_timer.stop()
         self._amb_timer.stop()
 
     def _diff_tick(self) -> None:
@@ -1361,27 +1346,6 @@ class MockCanGenerator(QObject):
             gyro_x=self._imu_gx,
             gyro_y=self._imu_gy,
             gyro_z=self._imu_gz,
-        )
-
-    def _flir_tick(self) -> None:
-        """Mock forward FLIR — road surface temp tracks near ambient."""
-        # Road surface drifts slowly around ambient temp (±5°C)
-        # Sun exposure can warm road above ambient; shade/rain cools it
-        target = self._amb_temp + random.uniform(-3.0, 5.0)
-        self._flir_fl += (target - self._flir_fl) * 0.02 + random.uniform(-0.3, 0.3)
-
-        # Clamp to plausible road surface range (-20°C to 60°C)
-        self._flir_fl = max(-20.0, min(60.0, self._flir_fl))
-        # Mirror to other fields for API compat
-        self._flir_fr = self._flir_fl
-        self._flir_rl = self._flir_fl
-        self._flir_rr = self._flir_fl
-
-        self._bridge.update_flir(
-            fl=self._flir_fl,
-            fr=self._flir_fr,
-            rl=self._flir_rl,
-            rr=self._flir_rr,
         )
 
     def _ambient_tick(self) -> None:

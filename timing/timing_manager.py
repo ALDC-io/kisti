@@ -178,6 +178,7 @@ class TimingManager(QObject):
             "current_sector": timer._sector_index,
             "sector_times": sector_times,
             "best_sector_times": best_sector_times,
+            "lap_in_progress": timer._lap_start_ts is not None,
         }
 
     # ── Internal ──────────────────────────────────────────────────────

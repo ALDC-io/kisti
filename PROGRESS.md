@@ -1,5 +1,55 @@
 # KiSTI - Progress
 
+## Session: 2026-04-03 (kisti-27 — FLIR UI Overhaul + Mock Cleanup)
+
+### Status: COMPLETE
+
+### Completed
+- **400°C bug fixed** — BGR fallback in `flir_lepton_reader.py` was scaling uint8 pixels to fake 100–600°C range. Fix: emit `frame_updated` from BGR path then `return` (skip temps). `_roi_mean_temp` fallback now returns `0.0` instead of raw non-radiometric value.
+- **Mock FLIR removed entirely** — Removed `_flir_fl/fr/rl/rr` state vars, `_flir_timer` setup, start/stop calls, and `_flir_tick()` method from `can/kisti_can.py`. Also removed `MOCK_FLIR_HZ` import reference. Road surface data now comes ONLY from the real FLIR sensor.
+- **`lap_in_progress` flag added** — `timing_manager.py:get_timing_data()` now includes `"lap_in_progress": timer._lap_start_ts is not None`. Sector strip gates on this flag.
+- **Intelligent screen: live IR image** — `IntelligentScreenWidget` now accepts `flir_reader` param. `frame_updated` signal connected → `_on_frame_updated`. `_draw_flir_panel` rewritten: renders 160×120 uint16 frame as inferno-colormap QImage scaled to full 800×180px band. 5-stop numpy vectorized colormap (black→purple→orange→yellow→white), no matplotlib. Semi-transparent overlay labels.
+- **Sport screen: no numeric FLIR** — `_paint_flir_summary` simplified to just `fillRect(BG_PANEL)`. Background tint (existing, alpha=15) is the road temp visual signal.
+- **Sharp screen: sectors black until lap active** — `_draw_sector_strip` now checks `lap_in_progress`; draws black `BG_DARK` placeholder blocks when no lap is active. No more red fills from previous lap showing during canyon cruise.
+- **Sharp screen: FLIR gradient bar** — `_draw_flir_strip` replaces large `{temp:.0f}°C` text with 3-zone heat-colored gradient bar (alpha=80, no text). Clean visual without distracting numbers.
+- **BGR test added** — `test_poll_bgr_frame_emits_frame_updated_but_not_temps` verifies signal separation.
+- **1006 tests passing, 0 failed** (baseline maintained).
+
+### Files Changed
+- `can/kisti_can.py` — Removed mock FLIR entirely (state vars + timer + _flir_tick)
+- `sensors/flir_lepton_reader.py` — BGR fallback fix (emit frame, return early, 0.0 fallback in _roi_mean_temp)
+- `timing/timing_manager.py` — Added `lap_in_progress` to get_timing_data()
+- `ui/main_window.py` — Pass `flir_reader=flir_reader` to IntelligentScreenWidget
+- `ui/intelligent_screen.py` — flir_reader param, _on_frame_updated slot, live IR image in _draw_flir_panel, inferno colormap
+- `ui/sport_screen.py` — _paint_flir_summary → fillRect only (background tint is signal)
+- `ui/sharp_screen.py` — lap_in_progress gate in _draw_sector_strip; gradient bar in _draw_flir_strip
+- `tests/test_flir_lepton.py` — test_non_radiometric_passthrough → test_non_radiometric_returns_zero; added BGR test
+- `tests/test_timing_manager.py` — test_all_keys_present: added lap_in_progress to expected_keys
+
+### Key Decisions
+- **No temps from BGR frames** — Non-radiometric AGC mode (PureThermal default) gives relative contrast, not Celsius. Emit frame for display, emit nothing for temps. Road temp stays stale (correct) rather than garbage.
+- **Inferno colormap in-code** — 5 numpy stops avoids matplotlib dependency on Jetson. 3ms/frame worst case for 160×120.
+- **Sector black vs invisible** — Black `BG_DARK` blocks communicate "sector tracking available but not active" better than hiding the strip entirely.
+- **Background tint = FLIR signal in Sport/Sharp** — Full-screen alpha=15 tint provides at-a-glance road temp context without numbers cluttering the display.
+
+### Don't Repeat
+- BGR AGC frame dtype is NOT uint16 — it's uint8 with 3 channels. Can't use `frame.dtype == np.uint16` to detect it; must check `len(frame.shape) == 3`.
+- `return mean_raw` in `_roi_mean_temp` for non-radiometric values (0–16383) was the source of 400°C readings. Always gate on `> 20000`.
+- Mock FLIR was calling `update_flir()` (OLD brake API), NOT `update_road_surface()` — it was polluting the wrong bridge fields entirely.
+
+### Learnings to Capture
+- cce_success_log: FLIR 400°C fix + mock removal + live IR on Intelligent screen
+- cce_decision_log: Non-radiometric BGR → emit frame, return early (no temps), 0.0 fallback
+
+### Next Session (kisti-28)
+1. **Deploy to Jetson** — `ssh aldc@192.168.22.131 "cd ~/repos/kisti && git pull --ff-only && ~/k"`
+2. **Verify on Jetson** — Press `1`: should see live inferno IR image in middle band (y=160-340). Press `2`/`3`: background tint only, no FLIR numbers. Start timing: S1/S2/S3 should be black; press lap → activates.
+3. **Confirm 400°C gone** — kisti-session.log should NOT show road temp warnings; values should be 0 (stale) or real radiometric Celsius.
+4. **CAN hardware order** — JK action: PN 101-5104 ($75), DB9 breakout ($14), 120Ω terminator ($13)
+5. **Boost Barn tune** — Aaron @ Boost Barn, WO #15562. KiSTI must be in-car with mic working.
+
+---
+
 ## Session: 2026-04-03 (kisti-26 — FLIR Road Surface Integration Complete)
 
 ### Status: COMPLETE

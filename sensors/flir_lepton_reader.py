@@ -160,11 +160,10 @@ class FLIRLeptonReader(QObject):
             if frame.dtype == self._np.uint16:
                 thermal = frame
             elif len(frame.shape) == 3:
-                # RGB/BGR frame — convert to grayscale, treat as relative temp
+                # BGR/RGB frame — non-radiometric AGC mode, no absolute temps
                 thermal = self._cv2.cvtColor(frame, self._cv2.COLOR_BGR2GRAY).astype(self._np.uint16)
-                # Scale 0-255 to rough surface temp range
-                thermal = (thermal.astype(self._np.float32) / 255.0 * 500 + 100)
-                thermal = thermal.astype(self._np.uint16)
+                self.frame_updated.emit(thermal)
+                return  # cannot extract reliable Celsius from non-radiometric frame
             else:
                 thermal = frame.astype(self._np.uint16)
 
@@ -204,8 +203,8 @@ class FLIRLeptonReader(QObject):
         # If values are in centi-Kelvin range (> 20000 = ~-73°C), convert
         if mean_raw > 20000:
             return _raw_to_celsius(mean_raw)
-        # Otherwise assume already in rough Celsius scale
-        return mean_raw
+        # Non-radiometric values — cannot be converted to Celsius
+        return 0.0
 
     def set_roi(self, roi: ROIConfig) -> None:
         """Update ROI configuration (e.g., after camera repositioning)."""

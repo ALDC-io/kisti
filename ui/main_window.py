@@ -85,7 +85,7 @@ class MainWindow(QMainWindow):
         self._track_mode.hide()
 
         # === 3 SI-Drive screens + VIDEO overlay ===
-        self._intelligent_screen = IntelligentScreenWidget(self)
+        self._intelligent_screen = IntelligentScreenWidget(flir_reader=flir_reader, parent=self)
         self._sport_screen = SportScreenWidget(self)
         self._sharp_screen = SportSharpScreenWidget(self)
         self._video_mode = VideoModeWidget(flir_reader=flir_reader, parent=self)

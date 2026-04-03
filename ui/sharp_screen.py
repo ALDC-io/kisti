@@ -434,6 +434,17 @@ class SportSharpScreenWidget(QWidget):
             self._draw_flir_strip(p)
             return
 
+        lap_in_progress = self._timing.get("lap_in_progress", False)
+        if not lap_in_progress:
+            # No active lap — show black placeholders (no stale red fills)
+            sector_w = _BAR_W / sector_count
+            gap = 3
+            for i in range(sector_count):
+                sx = _BAR_X + i * sector_w
+                rect = QRectF(sx + gap / 2, _SECTOR_Y0 + 3, sector_w - gap, strip_h - 6)
+                p.fillRect(rect, QColor(BG_DARK))
+            return
+
         self._paint_count += 1
 
         current_sector = self._timing.get("current_sector", 0)
@@ -525,38 +536,19 @@ class SportSharpScreenWidget(QWidget):
 
         if not road_ok:
             p.fillRect(QRectF(10, y0, _W - 20, strip_h), QColor(BG_PANEL))
-            p.setFont(QFont("Helvetica", 14))
-            p.setPen(QColor(GRAY))
-            p.drawText(QRectF(0, y0 + 30, _W, 40), Qt.AlignCenter, "FLIR NOT CONNECTED")
             return
 
-        # 3-zone horizontal display: L | CTR | R
-        zones = [
-            ("L", snap.road_temp_left),
-            ("CTR", snap.road_temp_center),
-            ("R", snap.road_temp_right),
-        ]
+        # 3-zone gradient bar — heat colors only, no numbers
+        zones = [snap.road_temp_left, snap.road_temp_center, snap.road_temp_right]
         zone_w = _W / 3.0
+        bar_y = y0 + 22
+        bar_h = strip_h - 28
 
-        # Section label
-        p.setFont(QFont("Helvetica", 12, QFont.Bold))
-        p.setPen(QColor(GRAY))
-        p.drawText(QRectF(24, y0 + 4, 200, 18), Qt.AlignLeft | Qt.AlignVCenter, "ROAD SURFACE")
-
-        for i, (label, temp) in enumerate(zones):
+        for i, temp in enumerate(zones):
             zx = i * zone_w
-            heat_col = _brake_heat_color(temp)
-
-            # Zone label
-            p.setFont(QFont("Helvetica", 11, QFont.Bold))
-            p.setPen(QColor(GRAY))
-            p.drawText(QRectF(zx, y0 + 22, zone_w, 16), Qt.AlignCenter, label)
-
-            # Temperature — large, heat-colored
-            p.setFont(QFont("Helvetica", 34, QFont.Bold))
-            p.setPen(heat_col)
-            p.drawText(QRectF(zx, y0 + 38, zone_w, 52),
-                       Qt.AlignCenter, f"{temp:.0f}\u00b0C")
+            heat_col = QColor(_brake_heat_color(temp))
+            heat_col.setAlpha(80)
+            p.fillRect(QRectF(zx + 2, bar_y, zone_w - 4, bar_h), heat_col)
 
     # ------------------------------------------------------------------
     # Safety vitals (y=380..480) — 5 zones, DIM until warning

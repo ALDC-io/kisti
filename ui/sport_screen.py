@@ -272,41 +272,9 @@ class SportScreenWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _paint_flir_summary(self, p: QPainter, snap: DiffState) -> None:
-        road_ok = not snap.is_road_surface_stale()
-
-        rect = QRectF(510, 6, 280, 86)
-
-        if not road_ok:
-            p.fillRect(rect, QColor(BG_PANEL))
-            p.setFont(QFont("Helvetica", 12))
-            p.setPen(QColor(DIM))
-            p.drawText(rect, Qt.AlignmentFlag.AlignCenter, "ROAD ---")
-            return
-
-        # 3-zone road surface: L | CTR | R
-        zones = [
-            ("L", snap.road_temp_left),
-            ("CTR", snap.road_temp_center),
-            ("R", snap.road_temp_right),
-        ]
-        zone_w = 280.0 / 3.0
-
-        for i, (label, temp) in enumerate(zones):
-            zx = 510 + i * zone_w
-            heat_col = _brake_heat_color(temp)
-
-            # Zone label
-            p.setFont(QFont("Helvetica", 9, QFont.Weight.Bold))
-            p.setPen(QColor(GRAY))
-            p.drawText(QRectF(zx, 8, zone_w, 14),
-                       Qt.AlignmentFlag.AlignCenter, label)
-
-            # Temperature — heat-colored
-            p.setFont(QFont("Helvetica", 26, QFont.Weight.Bold))
-            p.setPen(heat_col)
-            p.drawText(QRectF(zx, 22, zone_w, 44),
-                       Qt.AlignmentFlag.AlignCenter,
-                       f"{temp:.0f}\u00b0C")
+        # Road surface data feeds the full-screen background tint (see paintEvent).
+        # No numeric display — background tint is the at-a-glance visual signal.
+        p.fillRect(QRectF(510, 6, 280, 86), QColor(BG_PANEL))
 
     # ------------------------------------------------------------------
     # Middle band: Performance bars (left, 0..350)

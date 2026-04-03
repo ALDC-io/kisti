@@ -14,10 +14,12 @@ Layout:
 
 from __future__ import annotations
 
+import numpy as np
 from PySide6.QtCore import Qt, QRectF
 from PySide6.QtGui import (
     QColor,
     QFont,
+    QImage,
     QPainter,
     QPen,
 )
@@ -121,9 +123,10 @@ class IntelligentScreenWidget(QWidget):
       - Status strip (DCCD bar + surface badge + slip delta)
     """
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, flir_reader=None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._snap: DiffState | None = None
+        self._last_thermal_frame = None
 
         # Tell Qt we paint our entire rect every frame (compositorless X11)
         self.setAttribute(Qt.WA_OpaquePaintEvent)
@@ -142,6 +145,9 @@ class IntelligentScreenWidget(QWidget):
         self._repaint_timer.setInterval(1000)
         self._repaint_timer.timeout.connect(self.update)
         self._repaint_timer.start()
+
+        if flir_reader is not None:
+            flir_reader.frame_updated.connect(self._on_frame_updated)
 
     # ------------------------------------------------------------------
     # Public API
@@ -164,6 +170,11 @@ class IntelligentScreenWidget(QWidget):
     def set_coaching_level(self, level: int) -> None:
         """Update coaching level from ModeManager (K5 button)."""
         self._coaching_level = level
+
+    def _on_frame_updated(self, frame) -> None:
+        """Receive raw uint16 thermal frame from FLIR reader."""
+        self._last_thermal_frame = frame
+        self.update()
 
     # ------------------------------------------------------------------
     # Paint
@@ -302,66 +313,80 @@ class IntelligentScreenWidget(QWidget):
     # Forward-facing FLIR (grill-mounted) — road surface temp + warm-up.
     # ==================================================================
 
-    def _draw_flir_panel(self, p: QPainter) -> None:
-        snap = self._snap
-        stale = snap is None or snap.is_road_surface_stale()
+    # ---------------------------------------------------------------------------
+    # Inferno colormap (5-stop, no matplotlib dependency)
+    # 0 → black, 64 → deep purple, 128 → orange, 192 → yellow, 255 → white
+    # ---------------------------------------------------------------------------
+    _INFERNO_STOPS = np.array([
+        [0,   0,   0],    # 0   black
+        [59,  7, 100],    # 64  deep purple  (#3B0764)
+        [249, 115, 22],   # 128 orange       (#F97316)
+        [253, 224, 71],   # 192 yellow       (#FDE047)
+        [255, 255, 255],  # 255 white
+    ], dtype=np.float32)
+    _INFERNO_KEYS = np.array([0, 64, 128, 192, 255], dtype=np.float32)
 
+    @staticmethod
+    def _apply_inferno(frame_uint16: np.ndarray) -> np.ndarray:
+        """Normalize uint16 frame → uint8, apply inferno colormap → H×W×3 uint8."""
+        mn, mx = float(frame_uint16.min()), float(frame_uint16.max())
+        if mx == mn:
+            norm = np.zeros(frame_uint16.shape, dtype=np.uint8)
+        else:
+            norm = ((frame_uint16.astype(np.float32) - mn) / (mx - mn) * 255.0).astype(np.uint8)
+
+        stops = IntelligentScreenWidget._INFERNO_STOPS
+        keys = IntelligentScreenWidget._INFERNO_KEYS
+        flat = norm.flatten().astype(np.float32)
+
+        # Vectorized linear interpolation across 5 stops
+        r = np.interp(flat, keys, stops[:, 0]).astype(np.uint8)
+        g = np.interp(flat, keys, stops[:, 1]).astype(np.uint8)
+        b = np.interp(flat, keys, stops[:, 2]).astype(np.uint8)
+
+        return np.stack([r, g, b], axis=1).reshape(frame_uint16.shape[0],
+                                                    frame_uint16.shape[1], 3)
+
+    def _draw_flir_panel(self, p: QPainter) -> None:
         y0 = 160
         panel_h = 180  # y=160..340
-
-        # Section label
-        p.setFont(_font(12, bold=True))
-        p.setPen(QPen(QColor(MODE_I_ACCENT)))
-        p.drawText(QRectF(20, y0 + 4, 200, 20),
-                   Qt.AlignLeft | Qt.AlignVCenter, "ROAD SURFACE")
 
         # Warm-up badge (top-right, always shown)
         self._draw_warmup_badge(p, y0)
 
-        if stale:
+        frame = self._last_thermal_frame
+        if frame is not None:
+            # Render live thermal image filling the full-width band
+            rgb = self._apply_inferno(frame)
+            h, w = rgb.shape[:2]
+            img = QImage(rgb.data, w, h, w * 3, QImage.Format_RGB888).copy()
+            p.drawImage(QRectF(0, y0, _W, panel_h), img)
+
+            # Semi-transparent "ROAD SURFACE" label overlay
+            p.setFont(_font(12, bold=True))
+            p.setPen(QPen(QColor(255, 255, 255, 160)))
+            p.drawText(QRectF(20, y0 + 4, 200, 20),
+                       Qt.AlignLeft | Qt.AlignVCenter, "ROAD SURFACE")
+        else:
+            # Section label
+            p.setFont(_font(12, bold=True))
+            p.setPen(QPen(QColor(MODE_I_ACCENT)))
+            p.drawText(QRectF(20, y0 + 4, 200, 20),
+                       Qt.AlignLeft | Qt.AlignVCenter, "ROAD SURFACE")
+
             p.setFont(_font(16))
             p.setPen(QPen(QColor(GRAY)))
             p.drawText(QRectF(0, y0 + 60, _W, 40), Qt.AlignCenter,
                        "FLIR NOT CONNECTED")
             return
 
-        # 3-zone road surface display: LEFT | CENTER | RIGHT
-        zones = [
-            ("L", snap.road_temp_left),
-            ("CTR", snap.road_temp_center),
-            ("R", snap.road_temp_right),
-        ]
-        zone_w = (_W - 40) / 3.0
-        zone_x = 20.0
-        card_y = y0 + 30
-        card_h = 115
-
-        for label, temp in zones:
-            heat_col = _brake_heat_color(temp)
-
-            # Heat-colored background per zone
-            bg = QColor(heat_col)
-            bg.setAlpha(40)
-            p.fillRect(QRectF(zone_x + 2, card_y, zone_w - 4, card_h), bg)
-
-            # Zone label
-            p.setFont(_font(11, bold=True))
-            p.setPen(QPen(QColor(GRAY)))
-            p.drawText(QRectF(zone_x + 2, card_y + 4, zone_w - 4, 18),
-                       Qt.AlignCenter, label)
-
-            # Temperature — large, heat-colored
-            p.setFont(_font(44, bold=True))
-            p.setPen(QPen(heat_col))
-            p.drawText(QRectF(zone_x + 2, card_y + 22, zone_w - 4, 68),
-                       Qt.AlignCenter, f"{temp:.0f}\u00b0C")
-
-            zone_x += zone_w
-
-        # Coaching text below zones
+        # Coaching text overlay at bottom of panel
         if self._coaching_text:
             sentiment_colors = {"green": GREEN, "amber": YELLOW, "dim": GRAY}
             coach_color = QColor(sentiment_colors.get(self._coaching_sentiment, GRAY))
+            # Semi-transparent backing strip
+            backing = QColor(0, 0, 0, 120)
+            p.fillRect(QRectF(0, y0 + panel_h - 32, _W, 32), backing)
             p.setFont(_font(14, bold=True))
             p.setPen(QPen(coach_color))
             p.drawText(QRectF(20, y0 + panel_h - 30, _W - 40, 24),

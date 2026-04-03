@@ -159,12 +159,12 @@ class TestROIMeanTemp:
         temp = reader._roi_mean_temp(frame, (5, 45, 45, 30))
         assert abs(temp - 30.0) < 0.5
 
-    def test_non_radiometric_passthrough(self):
-        """Values <= 20000 are returned as-is (already in Celsius scale)."""
+    def test_non_radiometric_returns_zero(self):
+        """Values <= 20000 (non-radiometric) return 0.0 — cannot be converted to Celsius."""
         reader, np = self._make_reader()
-        frame = np.full((120, 160), 100, dtype=np.uint16)  # 100°C, no conversion
+        frame = np.full((120, 160), 100, dtype=np.uint16)
         temp = reader._roi_mean_temp(frame, (5, 45, 45, 30))
-        assert abs(temp - 100.0) < 0.1
+        assert temp == 0.0
 
     def test_oob_roi_clamped(self):
         """Out-of-bounds ROI is clamped to frame edges, not an error."""
@@ -325,3 +325,39 @@ class TestFLIRPoll:
         assert abs(emitted.left - 30.0) < 1.0
         assert abs(emitted.center - 30.0) < 1.0
         assert abs(emitted.right - 30.0) < 1.0
+
+    def test_poll_bgr_frame_emits_frame_updated_but_not_temps(self):
+        """BGR (non-radiometric AGC) frame: frame_updated fires, temps_updated does NOT."""
+        RoadSurfaceTemps, ROIConfig, FLIRLeptonReader, _ = _import_module()
+        try:
+            import numpy as np
+            import cv2 as cv2_real
+        except ImportError:
+            pytest.skip("numpy/cv2 not available")
+
+        mock_cv2 = MagicMock()
+        mock_cv2.COLOR_BGR2GRAY = cv2_real.COLOR_BGR2GRAY if hasattr(cv2_real, 'COLOR_BGR2GRAY') else 6
+        mock_cv2.cvtColor.side_effect = lambda f, code: np.mean(f, axis=2).astype(np.uint8)
+
+        # Simulate a BGR uint8 frame (3-channel)
+        bgr_frame = np.zeros((120, 160, 3), dtype=np.uint8)
+        bgr_frame[:, :] = [100, 120, 80]  # some BGR values
+
+        mock_cap = MagicMock()
+        mock_cap.read.return_value = (True, bgr_frame)
+
+        reader = FLIRLeptonReader.__new__(FLIRLeptonReader)
+        reader._device_index = 0
+        reader._roi = ROIConfig()
+        reader._cap = mock_cap
+        reader._available = True
+        reader._last_temps = RoadSurfaceTemps()
+        reader._np = np
+        reader._cv2 = mock_cv2
+        reader.temps_updated = MagicMock()
+        reader.frame_updated = MagicMock()
+
+        reader._poll()
+
+        assert reader.frame_updated.emit.called, "frame_updated should fire for BGR frame"
+        assert not reader.temps_updated.emit.called, "temps_updated must NOT fire for non-radiometric BGR frame"
