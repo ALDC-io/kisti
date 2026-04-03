@@ -193,11 +193,13 @@ class IntelligentScreenWidget(QWidget):
             norm = ((f32 - mn) / (mx - mn) * 255.0).astype(np.uint8)
 
         # CLAHE — adaptive histogram equalization for thermal contrast
+        # Reuse cached CLAHE object (cv2.createCLAHE is cheap but no need to recreate)
         try:
-            import cv2
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4))
-            norm = clahe.apply(norm)
-        except ImportError:
+            if not hasattr(self, '_clahe'):
+                import cv2
+                self._clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4))
+            norm = self._clahe.apply(norm)
+        except (ImportError, AttributeError):
             pass
 
         rgb = self._INFERNO_LUT[norm]  # single LUT index — fast
