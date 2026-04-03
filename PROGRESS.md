@@ -1,5 +1,35 @@
 # KiSTI - Progress
 
+## Session: 2026-04-02 (kisti-27 — Coaching Deploy + SC Assessment)
+
+### Status: COMPLETE
+
+### Completed
+- **Deployed coaching phases 2-5 to Jetson** — commit a3eb24c, 14 files, 1009 insertions. Voice ticker, TechniqueAnalyzer, ConditionRules, sector insight all live.
+- **SC-1 through SC-6 assessment** — 33/60 = 55%. Coaches in the moment but has no memory. SC-6 (session trends) is the differentiator — not built.
+- **GNOME broke on Jetson** — `systemctl restart gdm` clobbered headless setup. Next session must fix before KiSTI displays on Excelon.
+- **Fresh session handoff written** — NEXT_SESSION_PROMPT.md updated and pushed (749cd5d).
+
+### Files Changed
+- `NEXT_SESSION_PROMPT.md` — Full handoff with GNOME fix instructions, SC scores, SC-2 fix plan
+
+### Key Decisions
+- **SC-6 deferred** — Don't build session trends until after Boost Barn real-data validation. Mock data thresholds (brake_pressure std dev) need real-world calibration first.
+- **SC-2 fix next** — Shrink TechniqueAnalyzer window 30s→10s, min_samples 10→5. 5-min change, high coaching value.
+
+### Learnings Captured
+- ⚠️ Zeus API unreachable during exit — learnings in NEXT_SESSION_PROMPT.md only
+
+### Don't Repeat
+- **NEVER use `systemctl restart gdm` for Jetson deploy restart** — re-enables GNOME, breaks headless Excelon display. Use `~/k` wrapper instead.
+
+### Next Session (kisti-28)
+1. **Fix GNOME** — disable GDM, restore bash_profile startx line, reboot, verify Excelon display
+2. **Fix SC-2** — `coaching/technique_analyzer.py` line 37: `_WINDOW = 30→10`, line 38: `_MIN_SAMPLES = 10→5`
+3. **Check DuckDB sessions on Jetson** — query to see if real telemetry has been recorded
+
+---
+
 ## Session: 2026-04-02 (kisti-25b — Grip Pills Removed + Full-Page FLIR Tint)
 
 ### Status: COMPLETE
