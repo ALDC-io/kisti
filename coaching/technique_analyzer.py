@@ -33,8 +33,8 @@ class _Sample:
 _BRAKE_ACTIVE = 5.0       # bar — minimum to count as braking
 _STEER_ACTIVE = 20.0      # deg — minimum to count as cornering
 _TRAIL_STEER = 30.0       # deg — steering threshold for trail braking
-_MIN_SAMPLES = 10         # need at least this many for analysis
-_WINDOW = 30              # 30s at 1Hz
+_MIN_SAMPLES = 5          # need at least this many for analysis
+_WINDOW = 10              # 10s at 1Hz — real-time feedback, not forensics
 
 
 class TechniqueAnalyzer:
