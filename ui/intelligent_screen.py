@@ -128,6 +128,7 @@ class IntelligentScreenWidget(QWidget):
         self._snap: DiffState | None = None
         self._cached_ir_image: QImage | None = None
         self._prev_frame: np.ndarray | None = None  # temporal smoothing
+        self._frame_skip: int = 0  # process every 3rd frame (~3 Hz)
 
         # Tell Qt we paint our entire rect every frame (compositorless X11)
         self.setAttribute(Qt.WA_OpaquePaintEvent)
@@ -174,6 +175,9 @@ class IntelligentScreenWidget(QWidget):
 
     def _on_frame_updated(self, frame) -> None:
         """Receive raw uint16 thermal frame — smooth, enhance contrast, colormap, cache."""
+        self._frame_skip += 1
+        if self._frame_skip % 3 != 0:
+            return  # skip 2 of every 3 frames (~3 Hz effective)
         f32 = frame.astype(np.float32)
 
         # Temporal smoothing: 70% new + 30% previous → stable thermal zones
