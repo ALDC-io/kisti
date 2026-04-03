@@ -160,6 +160,12 @@ class FLIRLeptonReader(QObject):
             if not ret or frame is None:
                 return
 
+            # Log frame format once for diagnostics
+            if not hasattr(self, '_logged_format'):
+                self._logged_format = True
+                log.info("FLIR frame: dtype=%s, shape=%s, mean=%.0f",
+                         frame.dtype, frame.shape, float(self._np.mean(frame)))
+
             # Frame may be uint16 (radiometric) or uint8 (non-radiometric)
             if frame.dtype == self._np.uint16:
                 thermal = frame
