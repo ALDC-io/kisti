@@ -108,6 +108,13 @@ class SportScreenWidget(QWidget):
         # G-force dot trail
         self._g_trail: deque[tuple[float, float]] = deque(maxlen=100)
 
+        # Voice ticker (fed from main.py at 1Hz)
+        self._voice_ticker: list[str] = []
+
+        # Coaching text (fed from TechniqueAnalyzer at 1Hz)
+        self._coaching_text: str = ""
+        self._coaching_sentiment: str = "dim"
+
         self.setMinimumSize(800, 440)
 
     # ------------------------------------------------------------------
@@ -119,6 +126,15 @@ class SportScreenWidget(QWidget):
         self._snap = snap
         self._g_trail.append((snap.imu_accel_y, snap.imu_accel_x))
         self.update()
+
+    def update_voice_ticker(self, lines: list[str]) -> None:
+        """Cache voice ticker lines (called at 1Hz from main.py)."""
+        self._voice_ticker = lines
+
+    def update_coaching(self, text: str, sentiment: str = "dim") -> None:
+        """Cache coaching text from TechniqueAnalyzer (1Hz)."""
+        self._coaching_text = text
+        self._coaching_sentiment = sentiment
 
     # ------------------------------------------------------------------
     # Paint
@@ -152,6 +168,8 @@ class SportScreenWidget(QWidget):
         # --- Middle + bottom band (y=100..440) ---
         self._paint_performance_bars(p, snap, diff_stale, dynamics_stale)
         self._paint_g_force_circle(p, snap)
+        self._paint_coaching(p)
+        self._paint_voice_ticker(p)
 
         p.end()
 
@@ -420,12 +438,12 @@ class SportScreenWidget(QWidget):
         p.setBrush(QColor(CYAN))
         p.drawEllipse(QPointF(px, py), 5, 5)
 
-        # Current G magnitude below circle
+        # G magnitude — inside circle, lower third (reads as part of gauge)
         g_mag = math.sqrt(lat_g ** 2 + lon_g ** 2)
         p.setFont(QFont("Helvetica", 22, QFont.Weight.Bold))
-        p.setPen(QPen(QColor(GRAY)))
+        p.setPen(QPen(QColor(WHITE)))
         p.drawText(
-            QRectF(cx - 60, cy + r1 + 8, 120, 30),
+            QRectF(cx - 60, cy + r1 * 0.45, 120, 30),
             Qt.AlignmentFlag.AlignCenter, f"{g_mag:.2f}g",
         )
 
@@ -442,6 +460,44 @@ class SportScreenWidget(QWidget):
         px = cx + (lat_g / _G_MAX) * r_px
         py = cy - (lon_g / _G_MAX) * r_px
         return px, py
+
+    # ------------------------------------------------------------------
+    # Color helpers
+    # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # Voice ticker (top-right of G-force panel, y=104..150)
+    # ------------------------------------------------------------------
+
+    def _paint_voice_ticker(self, p: QPainter) -> None:
+        if not self._voice_ticker:
+            return
+        p.setFont(QFont("Helvetica", 11))
+        alphas = [120, 70, 40]
+        x, y0, w = 360, 106, 430
+        for i, line in enumerate(self._voice_ticker):
+            color = QColor(WHITE)
+            color.setAlpha(alphas[min(i, 2)])
+            p.setPen(color)
+            elided = p.fontMetrics().elidedText(line, Qt.TextElideMode.ElideRight, w)
+            p.drawText(QRectF(x, y0 + i * 15, w, 15),
+                       Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, elided)
+
+    # ------------------------------------------------------------------
+    # Coaching text (below G circle, y=398..418)
+    # ------------------------------------------------------------------
+
+    def _paint_coaching(self, p: QPainter) -> None:
+        if not self._coaching_text:
+            return
+        sentiment_colors = {"green": GREEN, "amber": YELLOW, "dim": DIM}
+        color = QColor(sentiment_colors.get(self._coaching_sentiment, DIM))
+        p.setPen(color)
+        p.setFont(QFont("Helvetica", 13, QFont.Weight.Bold))
+        p.drawText(
+            QRectF(360, 398, 430, 20),
+            Qt.AlignmentFlag.AlignCenter, self._coaching_text,
+        )
 
     # ------------------------------------------------------------------
     # Color helpers

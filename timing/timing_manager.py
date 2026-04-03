@@ -126,6 +126,60 @@ class TimingManager(QObject):
             return self._timer._track.name
         return ""
 
+    def get_timing_data(self) -> dict:
+        """Build timing dict for SportSharpScreenWidget.update_timing().
+
+        Returns keys expected by sharp_screen: lap_count, current_lap_time_ms,
+        delta_ms, predicted_lap_ms, best_lap_ms, theoretical_best_ms,
+        track_name, sector_count, current_sector, sector_times, best_sector_times.
+        """
+        timer = self._timer
+
+        # Current lap elapsed time (ms)
+        current_lap_ms = 0
+        if timer._lap_start_ts is not None and timer._prev_ts is not None:
+            current_lap_ms = int(
+                (timer._prev_ts - timer._lap_start_ts) * 1000
+            )
+
+        # Delta and predicted (seconds → ms)
+        delta = timer.get_delta()
+        predicted = timer.get_predicted_lap()
+        theoretical = timer.get_theoretical_best()
+
+        # Best lap time (ms)
+        best_lap_ms = 0
+        if timer._completed_laps:
+            best_lap_ms = int(
+                min(lap.total_time for lap in timer._completed_laps) * 1000
+            )
+
+        # Current sector times (seconds → ms)
+        sector_times = [
+            int(t * 1000) for t in timer._current_sector_times
+        ]
+
+        # Best sector times (seconds → ms, None → None)
+        best_sectors_s = timer.get_best_sector_times()
+        best_sector_times = [
+            int(t * 1000) if t is not None else None
+            for t in best_sectors_s
+        ]
+
+        return {
+            "lap_count": timer._lap_number,
+            "current_lap_time_ms": current_lap_ms,
+            "delta_ms": int(delta * 1000) if delta is not None else 0,
+            "predicted_lap_ms": int(predicted * 1000) if predicted is not None else 0,
+            "best_lap_ms": best_lap_ms,
+            "theoretical_best_ms": int(theoretical * 1000) if theoretical is not None else 0,
+            "track_name": timer._track.name if timer._track else "",
+            "sector_count": len(timer._sectors),
+            "current_sector": timer._sector_index,
+            "sector_times": sector_times,
+            "best_sector_times": best_sector_times,
+        }
+
     # ── Internal ──────────────────────────────────────────────────────
 
     def _on_state_changed(self) -> None:

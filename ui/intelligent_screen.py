@@ -128,6 +128,14 @@ class IntelligentScreenWidget(QWidget):
         # Tell Qt we paint our entire rect every frame (compositorless X11)
         self.setAttribute(Qt.WA_OpaquePaintEvent)
 
+        # Voice ticker (fed from main.py at 1Hz)
+        self._voice_ticker: list[str] = []
+
+        # Coaching text (fed from ConditionRuleEngine at 1Hz)
+        self._coaching_text: str = ""
+        self._coaching_sentiment: str = "dim"
+        self._coaching_level: int = 2  # CoachingLevel.FULL
+
         # Force periodic repaint even without data (1 Hz)
         from PySide6.QtCore import QTimer
         self._repaint_timer = QTimer(self)
@@ -143,6 +151,19 @@ class IntelligentScreenWidget(QWidget):
         """Called at 20 Hz from MainWindow with the latest DiffState snapshot."""
         self._snap = snap
         self.update()  # schedule repaint
+
+    def update_voice_ticker(self, lines: list[str]) -> None:
+        """Cache voice ticker lines (called at 1Hz from main.py)."""
+        self._voice_ticker = lines
+
+    def update_coaching(self, text: str, sentiment: str = "dim") -> None:
+        """Cache coaching text from ConditionRuleEngine (1Hz)."""
+        self._coaching_text = text
+        self._coaching_sentiment = sentiment
+
+    def set_coaching_level(self, level: int) -> None:
+        """Update coaching level from ModeManager (K5 button)."""
+        self._coaching_level = level
 
     # ------------------------------------------------------------------
     # Paint
@@ -163,6 +184,7 @@ class IntelligentScreenWidget(QWidget):
         self._draw_weather(p)
         self._draw_flir_panel(p)
         self._draw_status_strip(p)
+        self._paint_voice_ticker(p)
         p.end()
 
     # ==================================================================
@@ -325,11 +347,19 @@ class IntelligentScreenWidget(QWidget):
         p.drawText(QRectF(20, card_y + 10, 300, 80),
                    Qt.AlignLeft | Qt.AlignVCenter, f"{road_temp:.0f}\u00b0C")
 
-        # "ROAD TEMP" sublabel
-        p.setFont(_font(14))
-        p.setPen(QPen(QColor(GRAY)))
-        p.drawText(QRectF(20, card_y + 90, 200, 24),
-                   Qt.AlignLeft | Qt.AlignVCenter, "ROAD TEMPERATURE")
+        # Coaching text replaces sublabel when active
+        if self._coaching_text:
+            sentiment_colors = {"green": GREEN, "amber": YELLOW, "dim": GRAY}
+            coach_color = QColor(sentiment_colors.get(self._coaching_sentiment, GRAY))
+            p.setFont(_font(14, bold=True))
+            p.setPen(QPen(coach_color))
+            p.drawText(QRectF(20, card_y + 90, card_w, 24),
+                       Qt.AlignLeft | Qt.AlignVCenter, self._coaching_text)
+        else:
+            p.setFont(_font(14))
+            p.setPen(QPen(QColor(GRAY)))
+            p.drawText(QRectF(20, card_y + 90, 200, 24),
+                       Qt.AlignLeft | Qt.AlignVCenter, "ROAD TEMPERATURE")
 
     def _draw_warmup_badge(self, p: QPainter, y0: int) -> None:
         """Draw warm-up state badge (COLD / WARMING / READY) overlaid on FLIR panel."""
@@ -498,3 +528,21 @@ class IntelligentScreenWidget(QWidget):
         p.setPen(QPen(pct_color))
         p.drawText(QRectF(dccd_x, dccd_bar_y + dccd_bar_h + 4, dccd_bar_w, 22),
                    Qt.AlignLeft | Qt.AlignVCenter, pct_text)
+
+    # ==================================================================
+    # VOICE TICKER (y=448..478, left side)
+    # ==================================================================
+
+    def _paint_voice_ticker(self, p: QPainter) -> None:
+        if not self._voice_ticker:
+            return
+        p.setFont(_font(11))
+        alphas = [120, 70, 40]
+        x, y0, w = 20, 448, 380
+        for i, line in enumerate(self._voice_ticker):
+            color = QColor(WHITE)
+            color.setAlpha(alphas[min(i, 2)])
+            p.setPen(QPen(color))
+            elided = p.fontMetrics().elidedText(line, Qt.ElideRight, w)
+            p.drawText(QRectF(x, y0 + i * 15, w, 15),
+                       Qt.AlignLeft | Qt.AlignVCenter, elided)

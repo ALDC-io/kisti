@@ -628,6 +628,67 @@ def main():
                 if hasattr(window, '_track_mode') else None
             )
 
+        # --- Voice activity ticker (all 3 screens) ---
+        from collections import deque as _deque
+        _voice_ticker_deque = _deque(maxlen=3)
+
+        if voice_mgr:
+            def _on_speaking_text(text: str):
+                _voice_ticker_deque.appendleft(text)
+            voice_mgr.speaking_text.connect(_on_speaking_text)
+
+        _ticker_timer = QTimer()
+        _ticker_timer.setInterval(1000)
+
+        def _push_ticker():
+            lines = list(_voice_ticker_deque)
+            for screen in (window._intelligent_screen, window._sport_screen,
+                           window._sharp_screen):
+                screen.update_voice_ticker(lines)
+
+        _ticker_timer.timeout.connect(_push_ticker)
+        _ticker_timer.start()
+
+        # --- Technique analyzer (Sport screen coaching at 1Hz) ---
+        from coaching.technique_analyzer import TechniqueAnalyzer
+        _technique_analyzer = TechniqueAnalyzer()
+
+        _coaching_timer = QTimer()
+        _coaching_timer.setInterval(1000)
+
+        def _coaching_tick():
+            snap = bridge.snapshot()
+            _technique_analyzer.feed(snap)
+            text, sentiment = _technique_analyzer.analyze()
+            window._sport_screen.update_coaching(text, sentiment)
+
+        _coaching_timer.timeout.connect(_coaching_tick)
+        _coaching_timer.start()
+
+        # --- Condition rules (Intelligent screen coaching at 1Hz) ---
+        from coaching.condition_rules import evaluate as _eval_conditions
+
+        _condition_timer = QTimer()
+        _condition_timer.setInterval(1000)
+
+        def _condition_tick():
+            snap = bridge.snapshot()
+            level = mode_mgr.coaching_level
+            result = _eval_conditions(snap, level)
+            if result:
+                text, sentiment = result
+                window._intelligent_screen.update_coaching(text, sentiment)
+            else:
+                window._intelligent_screen.update_coaching("", "dim")
+
+        _condition_timer.timeout.connect(_condition_tick)
+        _condition_timer.start()
+
+        # Wire coaching level changes from K5 button
+        mode_mgr.coaching_changed.connect(
+            window._intelligent_screen.set_coaching_level
+        )
+
     # Helper: speak through voice_mgr directly (headless) or window AudioPlayer (UI)
     def _speak(text, urgency="normal"):
         if window:

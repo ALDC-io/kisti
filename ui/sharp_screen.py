@@ -183,6 +183,9 @@ class SportSharpScreenWidget(QWidget):
         # Sector pulse animation
         self._paint_count: int = 0
 
+        # Voice ticker (fed from main.py at 1Hz)
+        self._voice_ticker: list[str] = []
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -192,6 +195,10 @@ class SportSharpScreenWidget(QWidget):
         self._snap = snap
         self._g_trail.append((snap.imu_accel_y, snap.imu_accel_x))
         self.update()
+
+    def update_voice_ticker(self, lines: list[str]) -> None:
+        """Cache voice ticker lines (called at 1Hz from main.py)."""
+        self._voice_ticker = lines
 
     def update_timing(self, timing_data: dict) -> None:
         """Accept timing data from TimingManager.
@@ -224,6 +231,7 @@ class SportSharpScreenWidget(QWidget):
         self._draw_g_force_circle(p)
         self._draw_sector_strip(p)
         self._draw_safety_vitals(p)
+        self._paint_voice_ticker(p)
         p.end()
 
     # ------------------------------------------------------------------
@@ -455,9 +463,21 @@ class SportSharpScreenWidget(QWidget):
                 p.setFont(QFont("Helvetica", FONT_HEADER, QFont.Bold))
                 p.drawText(rect, Qt.AlignCenter, time_str)
 
-                # Delta vs best — smaller, below the time
+                # Sector insight + delta vs best — below the time
                 if best_ms is not None:
                     diff_ms = sector_ms - best_ms
+
+                    # Mini-insight text (between time and delta)
+                    insight_text, insight_color = self._sector_insight(sector_ms, best_ms)
+                    if insight_text:
+                        p.setPen(insight_color)
+                        p.setFont(QFont("Helvetica", 9))
+                        insight_rect = QRectF(
+                            rect.x(), rect.y() + rect.height() * 0.48,
+                            rect.width(), 14)
+                        p.drawText(insight_rect, Qt.AlignCenter, insight_text)
+
+                    # Delta string
                     diff_str = _fmt_delta_ms(diff_ms)
                     diff_color = QColor(WHITE)
                     diff_color.setAlpha(200)
@@ -626,3 +646,50 @@ class SportSharpScreenWidget(QWidget):
         p.setFont(QFont("Helvetica", 12))
         unit_rect = QRectF(x, _VITALS_Y0 + 72, w, 18)
         p.drawText(unit_rect, Qt.AlignCenter, unit)
+
+    # ------------------------------------------------------------------
+    # Sector insight helper
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _sector_insight(sector_ms: int, best_ms: int | None) -> tuple[str, QColor]:
+        """Generate mini-insight text for a completed sector.
+
+        Returns (text, color) based on delta magnitude vs best.
+        """
+        if best_ms is None or best_ms <= 0:
+            return ("", QColor(DIM))
+
+        delta_ms = sector_ms - best_ms
+        delta_pct = (delta_ms / best_ms) * 100
+
+        if delta_ms <= -500:
+            return ("big gain", QColor(GREEN))
+        elif delta_ms <= -100:
+            return ("faster", QColor(GREEN))
+        elif delta_ms <= 0:
+            return ("matched", QColor(WHITE))
+        elif delta_pct < 2:
+            return ("close", QColor(WHITE))
+        elif delta_pct < 5:
+            return ("a bit slow", QColor(YELLOW))
+        else:
+            return ("lost time", QColor(RED))
+
+    # ------------------------------------------------------------------
+    # Voice ticker (bottom of vitals strip, y=458..478)
+    # ------------------------------------------------------------------
+
+    def _paint_voice_ticker(self, p: QPainter) -> None:
+        if not self._voice_ticker:
+            return
+        p.setFont(QFont("Helvetica", 11))
+        alphas = [120, 70, 40]
+        x, y0, w = 20, 458, 380
+        for i, line in enumerate(self._voice_ticker):
+            color = QColor(WHITE)
+            color.setAlpha(alphas[min(i, 2)])
+            p.setPen(color)
+            elided = p.fontMetrics().elidedText(line, Qt.ElideRight, w)
+            p.drawText(QRectF(x, y0 + i * 15, w, 15),
+                       Qt.AlignLeft | Qt.AlignVCenter, elided)

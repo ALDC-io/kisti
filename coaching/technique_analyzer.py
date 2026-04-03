@@ -1,0 +1,121 @@
+"""Driving technique analyzer — 1Hz sample rate, 30s rolling window.
+
+Pure Python (no Qt). Receives DiffState snapshots, computes technique
+metrics, returns a single coaching string + sentiment color.
+
+Metrics:
+  - Brake consistency: std dev of brake pressure during braking events
+  - Steering smoothness: std dev of steering rate (jerk proxy)
+  - Trail braking quality: % of braking samples with simultaneous steering
+"""
+
+from __future__ import annotations
+
+import math
+from collections import deque
+from dataclasses import dataclass
+from typing import Optional
+
+from model.vehicle_state import DiffState
+
+
+@dataclass
+class _Sample:
+    speed_kph: float
+    brake_pressure: float
+    steering_angle: float
+    steering_rate: float
+    lateral_g: float
+    throttle_pct: float
+
+
+# Thresholds
+_BRAKE_ACTIVE = 5.0       # bar — minimum to count as braking
+_STEER_ACTIVE = 20.0      # deg — minimum to count as cornering
+_TRAIL_STEER = 30.0       # deg — steering threshold for trail braking
+_MIN_SAMPLES = 10         # need at least this many for analysis
+_WINDOW = 30              # 30s at 1Hz
+
+
+class TechniqueAnalyzer:
+    """Analyze driving technique from a rolling window of telemetry."""
+
+    def __init__(self) -> None:
+        self._samples: deque[_Sample] = deque(maxlen=_WINDOW)
+        self._prev_steering: float = 0.0
+
+    def feed(self, snap: DiffState) -> None:
+        """Accept a 1Hz DiffState snapshot."""
+        steering_rate = snap.steering_angle - self._prev_steering
+        self._samples.append(_Sample(
+            speed_kph=snap.speed_kph,
+            brake_pressure=snap.brake_pressure,
+            steering_angle=snap.steering_angle,
+            steering_rate=steering_rate,
+            lateral_g=snap.imu_accel_y,
+            throttle_pct=snap.throttle_pct,
+        ))
+        self._prev_steering = snap.steering_angle
+
+    def analyze(self) -> tuple[str, str]:
+        """Return (coaching_text, sentiment) from the rolling window.
+
+        sentiment: 'green' | 'amber' | 'dim'
+        Returns ('', 'dim') if insufficient data.
+        """
+        if len(self._samples) < _MIN_SAMPLES:
+            return ("", "dim")
+
+        issues: list[tuple[int, str, str]] = []  # (priority, text, sentiment)
+
+        # --- Brake consistency ---
+        braking = [s for s in self._samples if s.brake_pressure > _BRAKE_ACTIVE]
+        if len(braking) >= 3:
+            pressures = [s.brake_pressure for s in braking]
+            std = _std_dev(pressures)
+            if std > 12:
+                issues.append((0, "Inconsistent brake pressure", "amber"))
+            elif std > 8:
+                issues.append((1, "Brake pressure varies — try smoother inputs", "amber"))
+            elif std <= 4:
+                issues.append((10, "Smooth braking", "green"))
+
+        # --- Steering smoothness ---
+        cornering = [s for s in self._samples if abs(s.steering_angle) > _STEER_ACTIVE]
+        if len(cornering) >= 3:
+            rates = [s.steering_rate for s in cornering]
+            std = _std_dev(rates)
+            if std > 30:
+                issues.append((0, "Abrupt steering corrections", "amber"))
+            elif std > 20:
+                issues.append((2, "Tighten steering inputs", "amber"))
+            elif std <= 12:
+                issues.append((10, "Smooth steering", "green"))
+
+        # --- Trail braking ---
+        if len(braking) >= 5:
+            trail_count = sum(
+                1 for s in braking if abs(s.steering_angle) > _TRAIL_STEER
+            )
+            trail_ratio = trail_count / len(braking)
+            if trail_ratio > 0.3:
+                issues.append((10, "Good trail braking", "green"))
+            elif trail_ratio < 0.1 and len(cornering) >= 3:
+                issues.append((3, "Try trail braking at corner entry", "dim"))
+
+        if not issues:
+            return ("", "dim")
+
+        # Return highest priority (lowest number = most urgent)
+        issues.sort(key=lambda x: x[0])
+        _, text, sentiment = issues[0]
+        return (text, sentiment)
+
+
+def _std_dev(values: list[float]) -> float:
+    """Population standard deviation."""
+    if len(values) < 2:
+        return 0.0
+    mean = sum(values) / len(values)
+    variance = sum((v - mean) ** 2 for v in values) / len(values)
+    return math.sqrt(variance)
