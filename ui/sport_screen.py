@@ -493,7 +493,7 @@ class SportScreenWidget(QWidget):
         sentiment_colors = {"green": GREEN, "amber": YELLOW, "dim": DIM}
         color = QColor(sentiment_colors.get(self._coaching_sentiment, DIM))
         p.setPen(color)
-        p.setFont(QFont("Helvetica", 13, QFont.Weight.Bold))
+        p.setFont(QFont("Helvetica", 14, QFont.Weight.Bold))
         p.drawText(
             QRectF(0, 398, 800, 20),
             Qt.AlignmentFlag.AlignCenter, self._coaching_text,

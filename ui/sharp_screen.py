@@ -471,10 +471,10 @@ class SportSharpScreenWidget(QWidget):
                     insight_text, insight_color = self._sector_insight(sector_ms, best_ms)
                     if insight_text:
                         p.setPen(insight_color)
-                        p.setFont(QFont("Helvetica", 9))
+                        p.setFont(QFont("Helvetica", 11))
                         insight_rect = QRectF(
                             rect.x(), rect.y() + rect.height() * 0.48,
-                            rect.width(), 14)
+                            rect.width(), 16)
                         p.drawText(insight_rect, Qt.AlignCenter, insight_text)
 
                     # Delta string

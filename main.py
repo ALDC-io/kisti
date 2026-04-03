@@ -390,26 +390,34 @@ def main():
                     t = e["time_s"]
                     delta = e["delta_s"]
                     tb = e.get("theoretical_best_s")
+                    trend = _session_lap_tracker.complete_lap(lap, t) if _session_lap_tracker else ""
 
                     if mode == SIDriveMode.SPORT_SHARP:
                         # S# — PBs only (new best lap)
                         if delta < 0:
-                            voice_mgr.speak(f"P B. {t:.1f}.")
+                            msg = f"P B. {t:.1f}."
+                            if trend:
+                                msg += f" {trend}"
+                            voice_mgr.speak(msg)
                     elif mode == SIDriveMode.SPORT:
-                        # S — lap + delta
+                        # S — lap + delta + trend
                         msg = f"{t:.1f}."
                         if delta != 0:
                             d = "plus" if delta > 0 else "minus"
                             msg += f" {d} {abs(delta):.1f}."
+                        if trend:
+                            msg += f" {trend}"
                         voice_mgr.speak(msg)
                     else:
-                        # I — full detail
+                        # I — full detail + trend
                         msg = f"Lap {lap}: {t:.1f} seconds."
                         if delta != 0:
                             d = "plus" if delta > 0 else "minus"
                             msg += f" {d} {abs(delta):.1f}."
                         if tb and tb > 0:
                             msg += f" Theoretical best: {tb:.1f}."
+                        if trend:
+                            msg += f" {trend}"
                         voice_mgr.speak(msg)
 
                 timing_mgr.lap_completed.connect(_on_lap_complete)
@@ -652,7 +660,10 @@ def main():
 
         # --- Technique analyzer (Sport screen coaching at 1Hz) ---
         from coaching.technique_analyzer import TechniqueAnalyzer
+        from coaching.condition_rules import evaluate as _eval_conditions
+        from coaching.session_lap_tracker import SessionLapTracker as _SessionLapTracker
         _technique_analyzer = TechniqueAnalyzer()
+        _session_lap_tracker = _SessionLapTracker()
 
         _coaching_timer = QTimer()
         _coaching_timer.setInterval(1000)
@@ -661,13 +672,17 @@ def main():
             snap = bridge.snapshot()
             _technique_analyzer.feed(snap)
             text, sentiment = _technique_analyzer.analyze()
+            # SC-3: safety conditions override technique coaching on Sport screen
+            cond = _eval_conditions(snap, 0)  # level 0 = ICE + LOW_GRIP only
+            if cond:
+                text, sentiment = cond
             window._sport_screen.update_coaching(text, sentiment)
+            _session_lap_tracker.record_tick(text, sentiment)
 
         _coaching_timer.timeout.connect(_coaching_tick)
         _coaching_timer.start()
 
         # --- Condition rules (Intelligent screen coaching at 1Hz) ---
-        from coaching.condition_rules import evaluate as _eval_conditions
 
         _condition_timer = QTimer()
         _condition_timer.setInterval(1000)
