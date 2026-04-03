@@ -229,6 +229,7 @@ class IntelligentScreenWidget(QWidget):
         self._draw_weather(p)
         self._draw_flir_panel(p)
         self._draw_status_strip(p)
+        self._draw_coaching_bar(p)
         self._paint_voice_ticker(p)
         p.end()
 
@@ -390,17 +391,7 @@ class IntelligentScreenWidget(QWidget):
                        "FLIR NOT CONNECTED")
             return
 
-        # Coaching text overlay at bottom of panel
-        if self._coaching_text:
-            sentiment_colors = {"green": GREEN, "amber": YELLOW, "dim": GRAY}
-            coach_color = QColor(sentiment_colors.get(self._coaching_sentiment, GRAY))
-            # Semi-transparent backing strip
-            backing = QColor(0, 0, 0, 120)
-            p.fillRect(QRectF(0, y0 + panel_h - 32, _W, 32), backing)
-            p.setFont(_font(14, bold=True))
-            p.setPen(QPen(coach_color))
-            p.drawText(QRectF(20, y0 + panel_h - 30, _W - 40, 24),
-                       Qt.AlignLeft | Qt.AlignVCenter, self._coaching_text)
+        # Coaching text moved to _draw_coaching_bar (below status strip)
 
     def _draw_warmup_badge(self, p: QPainter, y0: int) -> None:
         """Draw warm-up state badge (COLD / WARMING / READY) overlaid on FLIR panel."""
@@ -573,6 +564,18 @@ class IntelligentScreenWidget(QWidget):
     # ==================================================================
     # VOICE TICKER (y=448..478, left side)
     # ==================================================================
+
+    def _draw_coaching_bar(self, p: QPainter) -> None:
+        """Coaching/warning text at the very bottom of the screen (y=456..480)."""
+        if not self._coaching_text:
+            return
+        sentiment_colors = {"green": GREEN, "amber": YELLOW, "dim": GRAY}
+        coach_color = QColor(sentiment_colors.get(self._coaching_sentiment, GRAY))
+        p.fillRect(QRectF(0, 456, _W, 24), QColor(BG_PANEL))
+        p.setFont(_font(13, bold=True))
+        p.setPen(QPen(coach_color))
+        p.drawText(QRectF(20, 456, _W - 40, 24),
+                   Qt.AlignLeft | Qt.AlignVCenter, self._coaching_text)
 
     def _paint_voice_ticker(self, p: QPainter) -> None:
         if not self._voice_ticker:
