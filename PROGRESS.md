@@ -31,7 +31,14 @@
 - **`_brake_heat_color` scale** — blue(≤5°C) → green(15°C) → yellow(40°C) → red(≥55°C). Road surface thermal range vs old brake range (150-500°C).
 - **frame_updated signal on raw frames** — Emit before ROI processing so video mode gets full 160×120 for display while thermal reader gets cropped strips for temps.
 
+### Learnings Captured
+- ⚠️ Zeus API unreachable — captured in PROGRESS.md only
+- cce_success_log: FLIR road surface integration (11 files, 20 tests, 1006 passing, timing fix)
+- cce_decision_log: is_road_surface_stale() on DiffState + round() for ms timing conversions
+- cce_failed_approach: int() truncation → 0 for sub-ms monotonic timestamps; fix = round()
+
 ### Don't Repeat
+- `int(seconds * 1000)` silently truncates sub-ms timing values → 0. Use `max(1, round(best_s * 1000)) if best_s > 0 else 0`.
 - Old `brake_temp_fl/fr/rl/rr` fields in DiffState are intentionally untouched — reserved for ECU/CAN brake data. Don't remove them.
 - `is_road_surface_stale()` lives on DiffState itself, not on the bridge.
 - Background tint alpha=15 (6% opacity) — anything higher visually competes with data.
