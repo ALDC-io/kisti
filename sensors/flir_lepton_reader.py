@@ -160,6 +160,9 @@ class FLIRLeptonReader(QObject):
         self._cap.set(self._cv2.CAP_PROP_FOURCC, y16_fourcc)
         self._cap.set(self._cv2.CAP_PROP_FRAME_WIDTH, 160)
         self._cap.set(self._cv2.CAP_PROP_FRAME_HEIGHT, 120)
+        # Short read timeout so UI doesn't freeze on PureThermal lockup
+        self._cap.set(self._cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 2000)
+        self._cap.set(self._cv2.CAP_PROP_READ_TIMEOUT_MSEC, 2000)
 
         self._available = True
         self._timer.start()
@@ -230,12 +233,14 @@ class FLIRLeptonReader(QObject):
                     if w == 160 and h == 120:
                         self._cap = cap
                         self._device_index = idx
-                        # Re-configure Y16
+                        # Re-configure Y16 + timeout
                         cap.set(self._cv2.CAP_PROP_CONVERT_RGB, 0)
                         y16 = self._cv2.VideoWriter_fourcc('Y', '1', '6', ' ')
                         cap.set(self._cv2.CAP_PROP_FOURCC, y16)
                         cap.set(self._cv2.CAP_PROP_FRAME_WIDTH, 160)
                         cap.set(self._cv2.CAP_PROP_FRAME_HEIGHT, 120)
+                        cap.set(self._cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 2000)
+                        cap.set(self._cv2.CAP_PROP_READ_TIMEOUT_MSEC, 2000)
                         self._consecutive_failures = 0
                         self._available = True
                         if hasattr(self, '_logged_format'):
