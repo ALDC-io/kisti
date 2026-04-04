@@ -344,8 +344,6 @@ class FLIRLeptonReader(QObject):
             blob_pixels=best_size,
         )
         self.warm_object_detected.emit(detection)
-        log.info("Warm object detected: %s, peak=%.1f°C, %dpx",
-                 position, peak_c, best_size)
 
 
 def _label_blobs(mask: 'numpy.ndarray', np) -> tuple:

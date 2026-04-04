@@ -298,17 +298,22 @@ def main():
         except Exception as exc:
             log.warning("Voice pipeline failed to start: %s", exc)
 
-    # Warm object detection → voice alert + coaching bar
+    # Warm object detection → voice alert (30s cooldown to prevent spam)
     if flir_reader is not None:
+        _warm_obj_last_speak = [0.0]
+
         def _on_warm_object(det):
-            msg = f"Warm object ahead, {det.position.lower()}"
-            if voice_mgr is not None:
-                voice_mgr.speak_alert(msg, "warning")
-            log.info("WARM OBJECT %s: peak=%.1f°C, %dpx",
-                     det.position, det.peak_temp_c, det.blob_pixels)
+            import time as _wtime
+            now = _wtime.monotonic()
+            if now - _warm_obj_last_speak[0] >= 30.0:
+                _warm_obj_last_speak[0] = now
+                if voice_mgr is not None:
+                    voice_mgr.speak_alert(f"Object ahead, {det.position.lower()}", "warning")
+                log.info("WARM OBJECT %s: peak=%.1f°C, %dpx",
+                         det.position, det.peak_temp_c, det.blob_pixels)
 
         flir_reader.warm_object_detected.connect(_on_warm_object)
-        log.info("Warm object detection enabled (FLIR → voice alerts)")
+        log.info("Warm object detection enabled (FLIR → voice, 30s cooldown)")
 
     # DuckDB session recording (optional)
     db_store = None
