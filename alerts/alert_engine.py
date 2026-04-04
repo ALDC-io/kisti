@@ -155,10 +155,11 @@ class AlertEngine(QObject):
         # Once-per-session: each alert type fires voice ONCE then never again
         self._fired_types: set[str] = set()
 
-        # Smart grip: rolling 60s window (2Hz × 120 = 120 samples)
-        # Only announces genuine condition transitions (>60% dominance)
+        # Smart grip: rolling 10s window (2Hz × 20 = 20 samples)
+        # Announces when >50% of window shifts to new dominant state.
+        # 10s = responsive enough for mountain passes, filters single-frame noise.
         from collections import deque as _deque
-        self._surface_history: _deque = _deque(maxlen=120)
+        self._surface_history: _deque = _deque(maxlen=20)
         self._announced_grip: Optional[SurfaceState] = None
 
         # Check timer (2 Hz)
@@ -359,14 +360,14 @@ class AlertEngine(QObject):
 
         self._surface_history.append(state.surface_state)
 
-        if len(self._surface_history) < 20:  # need 10s of data minimum
+        if len(self._surface_history) < 10:  # need 5s of data minimum
             return
 
         counts = Counter(self._surface_history)
         dominant, count = counts.most_common(1)[0]
         pct = count / len(self._surface_history)
 
-        if pct < 0.6:
+        if pct < 0.5:
             return  # no clear dominant state — mixed conditions
 
         if dominant == self._announced_grip:
