@@ -2,7 +2,7 @@
 
 **Branch**: `kisti-headless` | **Dir**: `/home/aldc/repos/kisti` | **Jetson**: `ssh aldc@192.168.22.131` (pw: `aldc1234`)
 **Tests**: `python3 -m pytest tests/ -q --tb=short --ignore=tests/test_voice_integration.py --ignore=tests/test_voice_pipeline.py`
-**Baseline**: 1085 passed, 11 skipped → **1096 passed** (current, +11 new tests in prior commit 6a7efd2)
+**Baseline**: 1085 passed, 11 skipped
 
 ---
 
@@ -12,59 +12,76 @@
 
 ## kisti-flir-05 summary (what was built)
 
-### Phase 1 — PatternEngine + ParkedDebrief wired into main.py
-- **PatternEngine**: created inside `if db_store:` block with session_id getter lambda. Starts on session start, stops on session end. 1Hz analysis gated by active session.
-- **PatternEngine → voice**: `ice_risk_imminent` and `knock_burst` patterns route to `voice_mgr.speak_alert()` with mode-appropriate messages.
-- **ParkedDebrief**: created with ANTHROPIC_API_KEY from env. On session end, runs in background thread. Checks WiFi via `SyncManager._check_connectivity()`. If online, generates Haiku debrief and speaks first insight. Silent failure if no WiFi.
-- **voice_alert signal**: AlertEngine's `voice_alert` signal now wired to `voice_mgr.speak_alert()`. General `alert_fired` handler skips VOICE_ALERT_TYPES to prevent double-speak.
-- Files: `main.py` (lines 553-564 creation, 643-644 start, 689-711 stop+debrief, 735-753 pattern→voice wiring)
+### Threaded FLIR reader (major refactor)
+- **Complete rewrite** of `sensors/flir_lepton_reader.py` — `_FrameWorker(QThread)` owns `cap.read()` loop. Main thread NEVER blocks on V4L2 I/O. Eliminates 5-30s UI freezes on PureThermal lockup.
+- **Self-healing**: worker detects consecutive read failures → releases handle → USB-resets PureThermal via direct sysfs writes → re-opens device. All in worker thread, up to 10 attempts with 5s backoff.
+- **USB reset**: direct sysfs `echo 0/1 > authorized` (no shell injection). Falls back to `sudo -n` if no write permission. Sysfs path: `/sys/bus/usb/devices/*/authorized` matching "WebCam" or "PureThermal" product string.
 
-### Phase 2 — FLIR pipeline hardening
-- **Surface state hysteresis**: `DiffStateBridge.SURFACE_HYSTERESIS_N = 3` (at 3Hz = ~1s settling). DRY↔WET↔COLD transitions require N consecutive readings. LOW_GRIP transitions immediately (safety-critical, no delay).
-- Files: `model/vehicle_state.py` (lines 360-372 init, 637-660 hysteresis logic)
-- Y16 radiometric path validated — already solid (centi-Kelvin → Celsius, OpenCV uint8 bug guard, non-radiometric rejection)
-- Warm object 2-frame debounce confirmed working
+### PatternEngine + ParkedDebrief wired into main.py
+- **PatternEngine**: created inside `if db_store:` with session_id getter. Starts/stops on session toggle. 1Hz analysis cycle.
+- **Pattern → voice**: `ice_risk_imminent` → "Reduce speed. Ice risk." / `ice_risk_trending` → "Caution, road cooling toward dew point." / `knock_burst` → knock events.
+- **ParkedDebrief**: Haiku analysis on session end. Background thread, WiFi-gated. Speaks all 3 insights with 3s pauses. Cycles on Intelligent screen coaching bar (5s per insight, green `[1/3]` prefix).
+- **voice_alert signal**: AlertEngine's `voice_alert` wired to `voice_mgr.speak_alert()`. General handler skips VOICE_ALERT_TYPES to prevent double-speak.
 
-### Phase 3 — Ice risk voice alert
-- **`ice_risk_imminent`** added to `AlertEngine.VOICE_ALERT_TYPES`
-- **`_check_ice_risk()`** added to AlertEngine — fires CRITICAL when road temp within 1°C of dew point. Runs without ECU (sensor-independent). Guards: no ambient → skip, no FLIR (all zeros) → skip.
-- Files: `alerts/alert_engine.py` (lines 112 VOICE_ALERT_TYPES, 177 evaluate call, 335-353 _check_ice_risk)
+### Surface state hysteresis
+- `DiffStateBridge.SURFACE_HYSTERESIS_N = 3` (at 3Hz = ~1s settling). DRY↔WET↔COLD require N consecutive readings. LOW_GRIP immediate (safety-critical).
 
-### Phase 4 — Demo mode validation
-- Code review confirmed demo-compatible: PatternEngine works with mock CAN (no FLIR patterns without hardware, drivetrain/dynamics work). ParkedDebrief fails silently without WiFi.
+### Smart grip alert system
+- **Rolling 10s window** (20 samples at 2Hz) with 50% dominance threshold.
+- Only announces when dominant state genuinely shifts. Brief excursions (tunnel, bridge) filtered.
+- Manages its own lifecycle — bypasses `_fired_types` for re-entry alerts on multi-zone drives.
+- LOW_GRIP → "Low grip." / DRY after danger → "Grip restored."
 
-### Phase 5 — Tests
-- **+13 new tests** (1072 → 1085): 6 ice risk alert tests (test_alerts.py), 1 VOICE_ALERT_TYPES update (test_alert_routing.py), 8 hysteresis tests (test_surface_hysteresis.py — new file)
-- All tests verify behavior, not just existence
+### Ice risk alert
+- `_check_ice_risk()` in AlertEngine — fires when road temp within 1°C of dew point.
+- Uses `_ice_risk_active` flag: fires once on entry, resets when delta > 3°C.
+- Sensor-independent (no ECU required). `_check_grip` also moved to sensor-independent.
 
-## Suggested next phases
+### Alert UX overhaul
+- **Once per session**: `_fired_types` set replaces time-based debounce. Each alert type voices once.
+- **Action first**: "Reduce speed. Ice risk." not "Ice risk. Road temp..."
+- **VOICE_ALERT_TYPES**: oil_pressure_low/critical, coolant_critical, fuel_pressure_critical, ice_risk_imminent, grip_low_grip.
+- **Warm object voice disabled**: too many false positives stationary. Display-only.
 
-**Phase 1 — Jetson deploy + field test**
-Deploy to Jetson (`192.168.22.131`), run headless with FLIR attached. Test surface state hysteresis in real driving (warm parking garage → cold outdoor = DRY→COLD transition with 1s delay). Verify ice risk alert doesn't fire on warm days.
+### Demo mode
+- Auto-session start after 5s (`QTimer.singleShot` → `session_toggle.emit()`).
 
-**Phase 2 — Pattern engine tuning**
-- Adjust thermal pattern thresholds after field data from Rogers Pass
-- Add `afr_lean_under_boost` to voice routing if Link G5 CAN is active
-- Tune hysteresis N — may need N=5 (1.7s) if FLIR noise causes spurious transitions
+### Jetson deployment
+- **GDM session**: `kisti-session` runs from `~/repos/kisti`. Rsync target must be `~/repos/kisti` NOT `~/kisti`.
+- **USB speaker**: Jieli UACDemoV1.0 at card 0. Mono not supported — use `plughw:0`. PA default sink set to USB. Volume 60%.
+- **Piper TTS**: `/data/piper/piper`, model `/data/piper/en_US-danny-low.onnx`, sample rate 16000 Hz.
 
-**Phase 3 — Debrief UX**
-- Speak more than first sentence of debrief (queue all 3 insights with pauses)
-- Store debrief text in DuckDB `session_summaries` table (already implemented in `save_summary`)
-- Display debrief on Intelligent screen when parked
+## Pending from code review (kisti-flir-06 work)
 
-**Phase 4 — Ice risk trending voice**
-- Wire `ice_risk_trending` pattern (delta 1-3°C, decreasing trend) to voice with advisory message
-- Add Rogers Pass route tag for session naming
+### High priority
+1. **Test recovery path** — no tests exercise `_recover()` or `_FrameWorker`. Add integration tests with mock cap that simulates lockup → recovery.
+2. **Docstring accuracy** — `_check_grip` docstring says 60s/60% but code is 10s/50%. Fix docstrings.
+3. **Module-level imports** — `_check_grip` imports Counter and SurfaceState at 2Hz. Move to top of file.
+4. **GPS state in _last_alert** — `_gps_was_live` boolean stored in `dict[str, float]`. Add dedicated `_gps_was_live` attribute.
+5. **`_consecutive_warm` never resets** after detection fires — signal emits every frame while warm object visible.
+
+### Medium priority
+6. **Udev rule for FLIR USB** — `ACTION=="add", ATTR{idVendor}=="1e4e", RUN+="/bin/chmod a+w %S%p/authorized"`. Eliminates sudo dependency.
+7. **_label_blobs performance** — pure Python flood fill on 19K pixels. Add hot_count ceiling (>30% = skip) or use scipy.ndimage.label.
+8. **Auto-detect device safety** — opening all /dev/videoN can steal other sensor handles. Add VID check or --flir-device flag.
+9. **Two status lines on Intelligent screen** — user reported duplicate text at bottom. Investigate coaching bar vs voice ticker overlap.
+
+### Nice to have
+10. **Rogers Pass route tag** — auto-tag sessions with route name.
+11. **Debrief display on Intelligent screen** — currently coaching bar only (24px, single line). Could use larger overlay when parked.
 
 ## Key files
-`main.py:553-564` (PatternEngine/ParkedDebrief creation) | `main.py:643-644` (start on session) | `main.py:689-711` (stop+debrief on session end) | `main.py:735-753` (pattern→voice) | `model/vehicle_state.py:360-372` (hysteresis init) | `model/vehicle_state.py:637-660` (hysteresis logic) | `alerts/alert_engine.py:335-353` (_check_ice_risk) | `analysis/pattern_engine.py` (1Hz patterns) | `analysis/parked_debrief.py` (Haiku debrief)
+`sensors/flir_lepton_reader.py` (threaded reader + self-healing) | `alerts/alert_engine.py` (smart grip + ice risk + once-per-session) | `main.py` (PatternEngine/ParkedDebrief wiring, debrief UX, pattern→voice) | `model/vehicle_state.py` (surface hysteresis) | `tests/test_surface_hysteresis.py` (8 tests) | `tests/test_alerts.py` (ice risk tests)
 
 ## Don't Repeat
 - FLIR `temps_updated` sends `RoadSurfaceTemps` object, not 3 floats
 - `_last_emit` must be instance-level on PatternEngine, not class-level
-- `purge_synced` uses midnight cutoff — tests need backdating
-- `knock_count`/`iam` not yet on DiffState — use `getattr(snap, 'knock_count', None)`
 - `avg > 0` guard blocks sub-zero detection → use `!= 0.0`
-- Two KiSTI processes fight for `/dev/video0` → kill headless before fullscreen
-- Dew point in test fixtures: if dew_point=10.0 and road=3.0 → LOW_GRIP (not COLD). Use dew_point=0.0 for COLD tests
+- Two KiSTI processes fight for `/dev/video0` → kill ALL before restart
+- `CAP_PROP_READ_TIMEOUT_MSEC` is silently ignored by V4L2 backend — don't rely on it
+- PureThermal lockup can survive USB reset — worker thread retries with backoff
+- GDM auto-restarts kisti-session on process exit — don't `kill -9` the session itself
+- Dew point in test fixtures: dew_point=10.0 + road=3.0 → LOW_GRIP (not COLD). Use dew_point=0.0 for COLD tests
 - LOW_GRIP bypasses hysteresis (safety-critical) — tests must account for this
+- Rsync to `~/repos/kisti` on Jetson, NOT `~/kisti`
+- `_check_grip` must be in sensor-independent section (before `is_engine_stale` gate)
