@@ -73,6 +73,12 @@
 ## Key files
 `sensors/flir_lepton_reader.py` (threaded reader + self-healing) | `alerts/alert_engine.py` (smart grip + ice risk + once-per-session) | `main.py` (PatternEngine/ParkedDebrief wiring, debrief UX, pattern→voice) | `model/vehicle_state.py` (surface hysteresis) | `tests/test_surface_hysteresis.py` (8 tests) | `tests/test_alerts.py` (ice risk tests)
 
+## Late session additions (post-handoff)
+- **Worker sleep removed**: `cap.read()` is the natural rate limiter at 9Hz. Extra sleep halved frame rate.
+- **TTS pronunciation**: "Kissty" not "Keesty Eye" — updated in `voice/tts_engine.py` TTS_SUBSTITUTIONS.
+- **Ice test validated on hardware**: "Low grip." fires when ice held in front of FLIR for ~5s. "Grip restored." fires ~10s after removal. Screen updates immediately.
+- **Driving context**: At 100km/h, 10s rolling window = 280m. Entering danger = ~140m warning (5s). Clearing danger = ~280m (10s). Acceptable — screen shows state instantly, voice confirms.
+
 ## Don't Repeat
 - FLIR `temps_updated` sends `RoadSurfaceTemps` object, not 3 floats
 - `_last_emit` must be instance-level on PatternEngine, not class-level
@@ -85,3 +91,5 @@
 - LOW_GRIP bypasses hysteresis (safety-critical) — tests must account for this
 - Rsync to `~/repos/kisti` on Jetson, NOT `~/kisti`
 - `_check_grip` must be in sensor-independent section (before `is_engine_stale` gate)
+- Don't add `time.sleep()` in FLIR worker thread — `cap.read()` blocks at native frame rate
+- TTS pronunciation: "Kissty" not "Keesty Eye" (voice/tts_engine.py TTS_SUBSTITUTIONS)
