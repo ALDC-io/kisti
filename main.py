@@ -552,6 +552,7 @@ def main():
     _prev_knock_count = [0]  # track knock count changes
     pattern_eng = None
     parked_debrief = None
+    _pending_debrief = [None]  # debrief text from bg thread → UI coaching bar
 
     if db_store:
         # Pattern engine: 1Hz CPU-only analysis
@@ -699,11 +700,23 @@ def main():
                             from sync.sync_manager import SyncManager
                             if SyncManager._check_connectivity():
                                 result = parked_debrief.generate(sid)
-                                if result and voice_mgr:
+                                if result:
                                     insights = result.get("insights", "")
                                     if insights:
-                                        first_line = insights.split('.')[0] + '.'
-                                        voice_mgr.speak(f"Session debrief. {first_line}")
+                                        # Push to UI coaching bar (main thread picks up)
+                                        _pending_debrief[0] = insights
+                                        # Speak all insights with pauses
+                                        if voice_mgr:
+                                            import re
+                                            import time as _dtime
+                                            points = re.split(r'\d+[\.\)]\s+', insights.strip())
+                                            points = [p.strip() for p in points if len(p.strip()) > 10]
+                                            if not points:
+                                                points = [insights]
+                                            voice_mgr.speak("Session debrief.")
+                                            for p in points[:3]:
+                                                _dtime.sleep(3)
+                                                voice_mgr.speak(p)
                             else:
                                 log.info("No WiFi — debrief skipped")
                         except Exception as exc:
@@ -740,6 +753,12 @@ def main():
                         f"Ice risk. Road {p.context.get('road_temp', 0):.0f} degrees, "
                         f"dew point {p.context.get('dew_point', 0):.0f}. Reduce speed.",
                         "critical",
+                    )
+                elif p.pattern_type == "ice_risk_trending":
+                    voice_mgr.speak_alert(
+                        f"Ice risk trending. Road cooling toward dew point, "
+                        f"delta {p.value:.1f} degrees.",
+                        "warning",
                     )
                 elif p.pattern_type == "knock_burst":
                     voice_mgr.speak_alert(
@@ -836,12 +855,42 @@ def main():
         _coaching_timer.start()
 
         # --- Condition rules (Intelligent screen coaching at 1Hz) ---
+        # Debrief display state (bg thread writes _pending_debrief, this timer reads)
+        _debrief_items = []
+        _debrief_idx = [0]
+        _debrief_ticks = [0]
 
         _condition_timer = QTimer()
         _condition_timer.setInterval(1000)
 
         def _condition_tick():
             snap = bridge.snapshot()
+
+            # Check for new debrief from background thread
+            if _pending_debrief[0] is not None:
+                import re
+                raw = _pending_debrief[0]
+                _pending_debrief[0] = None
+                pts = re.split(r'\d+[\.\)]\s+', raw.strip())
+                _debrief_items.clear()
+                _debrief_items.extend([p.strip() for p in pts if len(p.strip()) > 10])
+                _debrief_idx[0] = 0
+                _debrief_ticks[0] = 0
+
+            # Cycle debrief insights (5s each, then resume normal coaching)
+            if _debrief_items:
+                _debrief_ticks[0] += 1
+                idx = _debrief_idx[0]
+                if idx < len(_debrief_items):
+                    window._intelligent_screen.update_coaching(
+                        f"[{idx+1}/{len(_debrief_items)}] {_debrief_items[idx]}", "green"
+                    )
+                    if _debrief_ticks[0] % 5 == 0:
+                        _debrief_idx[0] += 1
+                else:
+                    _debrief_items.clear()
+                return
+
             level = mode_mgr.coaching_level
             result = _eval_conditions(snap, level)
             if result:
