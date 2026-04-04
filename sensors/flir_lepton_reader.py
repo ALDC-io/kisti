@@ -109,6 +109,10 @@ class FLIRLeptonReader(QObject):
         self._consecutive_warm: int = 0       # consecutive frames with warm blob(s)
         self._last_warm_position: str = ""    # zone of last detected blob
 
+        # Self-healing: track consecutive read failures for auto-recovery
+        self._consecutive_failures: int = 0
+        self._recovery_attempts: int = 0
+
         self._timer = QTimer(self)
         self._timer.setInterval(POLL_INTERVAL_MS)
         self._timer.timeout.connect(self._poll)
@@ -178,6 +182,74 @@ class FLIRLeptonReader(QObject):
     def last_temps(self) -> RoadSurfaceTemps:
         return self._last_temps
 
+    def _recover(self) -> bool:
+        """Auto-recover from USB timeout: release, USB-reset, re-open.
+
+        Self-healing — no human intervention needed while driving.
+        """
+        self._recovery_attempts += 1
+        log.warning("FLIR recovery attempt %d — releasing device", self._recovery_attempts)
+
+        # Release stale handle
+        if self._cap is not None:
+            try:
+                self._cap.release()
+            except Exception:
+                pass
+            self._cap = None
+
+        # USB reset via sysfs (find PureThermal device)
+        try:
+            import subprocess, glob
+            for auth_path in glob.glob("/sys/bus/usb/devices/*/authorized"):
+                prod_path = auth_path.replace("authorized", "product")
+                try:
+                    with open(prod_path) as f:
+                        product = f.read().strip()
+                    if "WebCam" in product or "PureThermal" in product or "1e4e" in product:
+                        log.info("FLIR USB reset: %s", auth_path)
+                        subprocess.run(
+                            ["sudo", "-n", "bash", "-c",
+                             f"echo 0 > {auth_path} && sleep 1 && echo 1 > {auth_path}"],
+                            timeout=5, capture_output=True,
+                        )
+                        time.sleep(2)
+                        break
+                except (OSError, IOError):
+                    continue
+        except Exception as exc:
+            log.debug("USB reset failed (non-fatal): %s", exc)
+
+        # Re-open camera
+        try:
+            for idx in range(5):
+                cap = self._cv2.VideoCapture(idx)
+                if cap.isOpened():
+                    w = cap.get(self._cv2.CAP_PROP_FRAME_WIDTH)
+                    h = cap.get(self._cv2.CAP_PROP_FRAME_HEIGHT)
+                    if w == 160 and h == 120:
+                        self._cap = cap
+                        self._device_index = idx
+                        # Re-configure Y16
+                        cap.set(self._cv2.CAP_PROP_CONVERT_RGB, 0)
+                        y16 = self._cv2.VideoWriter_fourcc('Y', '1', '6', ' ')
+                        cap.set(self._cv2.CAP_PROP_FOURCC, y16)
+                        cap.set(self._cv2.CAP_PROP_FRAME_WIDTH, 160)
+                        cap.set(self._cv2.CAP_PROP_FRAME_HEIGHT, 120)
+                        self._consecutive_failures = 0
+                        self._available = True
+                        if hasattr(self, '_logged_format'):
+                            del self._logged_format
+                        log.info("FLIR recovered on /dev/video%d (attempt %d)",
+                                 idx, self._recovery_attempts)
+                        return True
+                    cap.release()
+        except Exception as exc:
+            log.warning("FLIR re-open failed: %s", exc)
+
+        log.warning("FLIR recovery failed — will retry next cycle")
+        return False
+
     def _poll(self) -> None:
         """Read a frame, emit raw frame, then extract road surface temps from ROI regions."""
         if not self._available or self._cap is None:
@@ -186,7 +258,13 @@ class FLIRLeptonReader(QObject):
         try:
             ret, frame = self._cap.read()
             if not ret or frame is None:
+                self._consecutive_failures += 1
+                if self._consecutive_failures >= 5:  # 5 failures at 9Hz ≈ 0.5s
+                    log.warning("FLIR: %d consecutive read failures — attempting recovery",
+                                self._consecutive_failures)
+                    self._recover()
                 return
+            self._consecutive_failures = 0
 
             # Log frame format once for diagnostics
             if not hasattr(self, '_logged_format'):
