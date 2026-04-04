@@ -2,7 +2,7 @@
 
 **Branch**: `kisti-headless` | **Dir**: `/home/aldc/repos/kisti` | **Jetson**: `ssh aldc@192.168.22.131` (pw: `aldc1234`)
 **Tests**: `python3 -m pytest tests/ -q --tb=short --ignore=tests/test_voice_integration.py --ignore=tests/test_voice_pipeline.py`
-**Baseline**: 1085 passed, 11 skipped
+**Baseline**: 1085 passed, 11 skipped → **1096 passed** (current, +11 new tests in prior commit 6a7efd2)
 
 ---
 

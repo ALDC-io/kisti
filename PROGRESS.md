@@ -1,5 +1,49 @@
 # KiSTI - Progress
 
+## Session: 2026-04-04 (kisti-flir-05 — PatternEngine + Ice Risk Voice Alert + Surface Hysteresis)
+
+### Status: COMPLETE
+
+### Completed
+- **PatternEngine + ParkedDebrief wired into main.py** — Pattern detection signals (ice_risk_imminent, knock_burst) routed to voice alerts. ParkedDebrief runs in background thread with WiFi connectivity gate. Enables coaching analysis during canyon driving with persistent state.
+- **Surface state hysteresis N=3** — DRY/WET/COLD transitions require 3 consecutive readings to prevent spurious flips from noisy FLIR. LOW_GRIP transitions fire immediately for safety. Prevents jittery state changes on radiometric sensor data.
+- **Ice risk voice alert sensor-independent** — AlertEngine._check_ice_risk() fires when road_temp within 1°C of dew_point. No ECU required. Example voice: "Road temp is 3°C, dew point is 2°C — ice forming now."
+- **Demo mode auto-session start** — QTimer.singleShot(5000) launches KiSTI at trade show startup. Loops SI-Drive modes, cycling voice alerts and pattern outputs. Jetson standalone on Excelon — no laptop required.
+- **Jetson live demo validation** — Confirmed on real hardware: FLIR Y16 mean=30137 (~28°C), Yocto ambient + humidity + dew point, DuckDB pattern memory, PatternEngine.match() on real data.
+- **Voice alert signal routing separated** — VOICE_ALERT_TYPES routed separately from alert_fired handler. Prevents double-speak when alert fires + routes to voice. AlertEngine.voice_alert only for critical+advisory.
+- **13 tests added** (1072→1085).
+
+### Files Changed
+- `alerts/alert_engine.py` — _check_ice_risk() method, voice_alert signal routing
+- `main.py` — PatternEngine + ParkedDebrief wiring, demo mode auto-start timer
+- `model/vehicle_state.py` — Surface state hysteresis (N=3) + immediate LOW_GRIP
+- `tests/test_surface_hysteresis.py` — NEW, 138 lines, surface state transition tests
+- `tests/test_alert_routing.py` — voice_alert routing verification
+- `tests/test_alerts.py` — +8 ice risk + hysteresis tests
+
+### Key Decisions
+- **Hysteresis N=3 with immediate LOW_GRIP** — Safety-critical ice detection can't wait for 3 readings. Dry/wet/cold can tolerate hysteresis; ice risk can't.
+- **Dew point ice detection** — road_temp ≤ dew_point is definitive "ice forming NOW" signal. More reliable than fixed <0°C thresholds.
+- **Demo mode with 5s startup delay** — Enough time for Jetson boot + display negotiation. Auto-loop lets passive viewers see all 3 SI-Drive modes without intervention.
+
+### Learnings Captured
+- ✅ 8 learnings posted to Zeus Memory (tenant 11111111, user jk)
+- 5x cce_success_log: PatternEngine wiring, surface hysteresis, ice risk alert, demo mode, Jetson validation
+- 3x cce_decision_log: voice alert routing, DISPLAY=:0 SSH gotcha, dew_point fixture gotcha
+
+### Don't Repeat
+- Surface hysteresis test fixtures must use low dew_point (0.0°C not 10.0°C) — otherwise road_temp=3°C triggers ice detection instead of COLD state transition
+- SSH to Jetson doesn't inherit DISPLAY — must set DISPLAY=:0 explicitly in launch script
+- Demo mode requires QTimer, not blocking sleep — allows event loop to process signals
+
+### Next Session (kisti-flir-06)
+1. Trade show deployment validation — run demo mode on Excelon for 30+ min, verify voice alerts fire correctly
+2. ParkedDebrief remote sync — test WiFi upload of coaching data to Nextcloud
+3. Session persistence — verify DuckDB pattern memory survives Jetson restart
+4. Voice response tuning — adjust dew_point delta (currently 1°C) based on user feedback
+
+---
+
 ## Session: 2026-04-03 (kisti-28 — Radiometric FLIR + Real Sensor Mode)
 
 ### Status: COMPLETE
