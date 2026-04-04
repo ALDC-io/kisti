@@ -31,9 +31,9 @@ LED_COUNT = 10
 # TTS pronunciation substitutions — applied before synthesis.
 # Key = regex-safe literal, Value = phonetic spelling for Piper.
 TTS_SUBSTITUTIONS: dict[str, str] = {
-    "KiSTI": "Keesty Eye",
-    "kisti": "Keesty Eye",
-    "KISTI": "Keesty Eye",
+    "KiSTI": "Kissty",
+    "kisti": "Kissty",
+    "KISTI": "Kissty",
     " PSI": " pounds",
     " psi": " pounds",
     " WHP": " wheel horsepower",
