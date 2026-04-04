@@ -191,6 +191,7 @@ class AlertEngine(QObject):
         self._check_high_g(state)
         self._check_ambient_change(state)
         self._check_ice_risk(state)
+        self._check_grip(state)
 
         # Engine-dependent checks — skip if no ECU data
         if state.is_engine_stale():
@@ -205,7 +206,6 @@ class AlertEngine(QObject):
         self._check_battery(state)
         self._check_cooldown_needed(state)
         self._check_warmup_state(state)
-        self._check_grip(state)
 
     def _check_oil_pressure(self, state: DiffState) -> None:
         """Oil pressure alerts. Checks dedicated 150 PSI sensor (0x6B1)
