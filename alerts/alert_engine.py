@@ -114,6 +114,7 @@ class AlertEngine(QObject):
         "oil_pressure_critical",
         "coolant_critical",       # safety: overtemp requires immediate action
         "fuel_pressure_critical", # safety: fuel starvation
+        "ice_risk_imminent",      # safety: road temp approaching dew point
     })
 
     # Display-only alert types (shown on screen, no voice)
@@ -181,6 +182,7 @@ class AlertEngine(QObject):
         self._check_gps_stale(state)
         self._check_high_g(state)
         self._check_ambient_change(state)
+        self._check_ice_risk(state)
 
         # Engine-dependent checks — skip if no ECU data
         if state.is_engine_stale():
@@ -384,6 +386,29 @@ class AlertEngine(QObject):
             ))
 
         self._last_alert["_gps_was_live"] = not is_stale
+
+    def _check_ice_risk(self, state: DiffState) -> None:
+        """Ice risk alert from FLIR road temp vs dew point.
+
+        Fires when road temp is within 1°C of dew point — conditions where
+        frost/ice formation is imminent. This is the #1 safety feature for
+        mountain passes like Rogers Pass.
+        """
+        if not state.ambient_available:
+            return
+        road_temp = state.road_temp_center
+        if road_temp == 0.0 and state.road_temp_left == 0.0:
+            return  # no FLIR data
+        dew_point = state.dew_point_c
+        delta = road_temp - dew_point
+        if 0 < delta < 1.0:
+            self._fire(Alert(
+                alert_type="ice_risk_imminent",
+                severity=AlertSeverity.CRITICAL,
+                message=f"Ice risk. Road {road_temp:.0f} degrees, dew point {dew_point:.0f}. Reduce speed.",
+                short_message=f"ICE RISK {delta:.1f}°C",
+                value=delta,
+            ))
 
     def _check_ambient_change(self, state: DiffState) -> None:
         """Ambient weather change alerts — runs without ECU."""

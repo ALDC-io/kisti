@@ -359,12 +359,19 @@ class DiffStateBridge(QObject):
     keypad_pressed = Signal(int)   # emitted on keypad button press (button mask)
     surface_state_changed = Signal(str, str)  # (from_state, to_state)
 
+    # Hysteresis: require N consecutive readings before DRY↔WET↔COLD transitions.
+    # LOW_GRIP transitions immediately (safety-critical, no delay).
+    # At 3 Hz FLIR, N=3 ≈ 1 second settling time.
+    SURFACE_HYSTERESIS_N = 3
+
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
         self._state = DiffState()
         self._lock = threading.Lock()
         self._prev_surface_state: Optional[SurfaceState] = None
         self._road_log_count: int = 0
+        self._surface_hysteresis_count: int = 0
+        self._surface_pending_state: Optional[SurfaceState] = None
 
     def snapshot(self) -> DiffState:
         """Return a thread-safe copy of the current state."""
@@ -635,19 +642,37 @@ class DiffStateBridge(QObject):
                     dew_pt = self._state.dew_point_c
                     delta = ambient - avg  # positive = road colder than air
                     if avg < 0:
-                        self._state.surface_state = SurfaceState.LOW_GRIP
+                        new_ss = SurfaceState.LOW_GRIP
                     elif avg <= dew_pt and self._state.ambient_available:
                         # Road temp at or below dew point — frost/ice forming NOW
-                        self._state.surface_state = SurfaceState.LOW_GRIP
+                        new_ss = SurfaceState.LOW_GRIP
                     elif avg < 5:
-                        self._state.surface_state = SurfaceState.COLD
+                        new_ss = SurfaceState.COLD
                     elif avg < dew_pt + 3 and self._state.ambient_available:
                         # Road temp approaching dew point — condensation risk
-                        self._state.surface_state = SurfaceState.WET
+                        new_ss = SurfaceState.WET
                     elif delta > 5 and self._state.ambient_humidity_pct > 70:
-                        self._state.surface_state = SurfaceState.WET
+                        new_ss = SurfaceState.WET
                     else:
-                        self._state.surface_state = SurfaceState.DRY
+                        new_ss = SurfaceState.DRY
+
+                    # Hysteresis: LOW_GRIP immediate, others require N consecutive
+                    if new_ss == SurfaceState.LOW_GRIP:
+                        self._state.surface_state = new_ss
+                        self._surface_hysteresis_count = 0
+                        self._surface_pending_state = None
+                    elif new_ss == self._state.surface_state:
+                        self._surface_hysteresis_count = 0
+                        self._surface_pending_state = None
+                    elif new_ss == self._surface_pending_state:
+                        self._surface_hysteresis_count += 1
+                        if self._surface_hysteresis_count >= self.SURFACE_HYSTERESIS_N:
+                            self._state.surface_state = new_ss
+                            self._surface_hysteresis_count = 0
+                            self._surface_pending_state = None
+                    else:
+                        self._surface_pending_state = new_ss
+                        self._surface_hysteresis_count = 1
         # Emit surface_state_changed if state actually changed
         current_ss = self._state.surface_state
         if self._prev_surface_state is not None and current_ss != self._prev_surface_state:

@@ -254,3 +254,71 @@ class TestModeAwareSuppression:
             engine.set_si_drive_mode(mode)
             engine._fire(_make_alert(f"crit_{mode.label}", AlertSeverity.CRITICAL))
         assert len(alerts) == 3
+
+
+class TestIceRiskAlert:
+    """Ice risk alert fires when road temp approaches dew point."""
+
+    def test_ice_risk_fires_when_delta_below_1c(self, engine, bridge):
+        """Road temp 0.5C above dew point → ice_risk_imminent."""
+        bridge.update_ambient(3.0, 80.0, 1013.0, 0.0, 2.0)
+        bridge.update_road_surface(2.5, 2.3, 2.6)
+
+        alerts = []
+        engine.alert_fired.connect(lambda a: alerts.append(a))
+        engine._evaluate()
+
+        ice_alerts = [a for a in alerts if a.alert_type == "ice_risk_imminent"]
+        assert len(ice_alerts) == 1
+        assert ice_alerts[0].severity == AlertSeverity.CRITICAL
+
+    def test_no_ice_risk_when_warm(self, engine, bridge):
+        """Road temp well above dew point → no ice risk."""
+        bridge.update_ambient(20.0, 50.0, 1013.0, 0.0, 10.0)
+        bridge.update_road_surface(20.0, 20.5, 19.8)
+
+        alerts = []
+        engine.alert_fired.connect(lambda a: alerts.append(a))
+        engine._evaluate()
+
+        ice_alerts = [a for a in alerts if a.alert_type == "ice_risk_imminent"]
+        assert len(ice_alerts) == 0
+
+    def test_no_ice_risk_without_ambient(self, engine, bridge):
+        """No ambient data → ice risk check skipped."""
+        bridge.update_road_surface(2.0, 2.0, 2.0)
+
+        alerts = []
+        engine.alert_fired.connect(lambda a: alerts.append(a))
+        engine._evaluate()
+
+        ice_alerts = [a for a in alerts if a.alert_type == "ice_risk_imminent"]
+        assert len(ice_alerts) == 0
+
+    def test_no_ice_risk_without_flir(self, engine, bridge):
+        """No FLIR data (all zeros) → ice risk check skipped."""
+        bridge.update_ambient(3.0, 80.0, 1013.0, 0.0, 2.0)
+        # Don't call update_road_surface — temps stay at 0.0
+
+        alerts = []
+        engine.alert_fired.connect(lambda a: alerts.append(a))
+        engine._evaluate()
+
+        ice_alerts = [a for a in alerts if a.alert_type == "ice_risk_imminent"]
+        assert len(ice_alerts) == 0
+
+    def test_ice_risk_is_voice_eligible(self):
+        """ice_risk_imminent should be in VOICE_ALERT_TYPES."""
+        assert "ice_risk_imminent" in AlertEngine.VOICE_ALERT_TYPES
+
+    def test_ice_risk_emits_voice_alert(self, engine, bridge):
+        """ice_risk_imminent should emit on voice_alert signal."""
+        bridge.update_ambient(3.0, 80.0, 1013.0, 0.0, 2.0)
+        bridge.update_road_surface(2.5, 2.3, 2.6)
+
+        voice_alerts = []
+        engine.voice_alert.connect(lambda a: voice_alerts.append(a))
+        engine._evaluate()
+
+        assert len(voice_alerts) == 1
+        assert voice_alerts[0].alert_type == "ice_risk_imminent"

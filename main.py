@@ -232,12 +232,19 @@ def main():
 
             # Wire alerts to voice + personality quotes
             def _on_alert(a):
-                voice_mgr.speak_alert(a.message, a.severity.label)
+                # Safety-critical types spoken via voice_alert signal
+                if a.alert_type not in AlertEngine.VOICE_ALERT_TYPES:
+                    voice_mgr.speak_alert(a.message, a.severity.label)
                 quote = get_alert_quote(a.alert_type)
                 if quote:
                     voice_mgr.speak(quote)
 
             alert_eng.alert_fired.connect(_on_alert)
+
+            # Safety-critical alerts → dedicated voice routing
+            alert_eng.voice_alert.connect(
+                lambda a: voice_mgr.speak_alert(a.message, a.severity.label)
+            )
 
             # Wire analyze run (K3) to voice query
             mode_mgr.analyze_run.connect(
@@ -543,8 +550,19 @@ def main():
     telemetry_tick = [0]  # mutable for closure
     _telemetry_buffer = []  # batch buffer for native-rate telemetry
     _prev_knock_count = [0]  # track knock count changes
+    pattern_eng = None
+    parked_debrief = None
 
     if db_store:
+        # Pattern engine: 1Hz CPU-only analysis
+        from analysis.pattern_engine import PatternEngine
+        pattern_eng = PatternEngine(db_store, lambda: session_id)
+
+        # Parked debrief: Haiku session analysis (WiFi-gated)
+        from analysis.parked_debrief import ParkedDebrief
+        _anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        parked_debrief = ParkedDebrief(db_store, _anthropic_key) if _anthropic_key else None
+
         def _on_state_changed():
             telemetry_tick[0] += 1
             if not session_id:
@@ -622,6 +640,8 @@ def main():
                 _telemetry_buffer.clear()
                 if timing_mgr:
                     timing_mgr.set_session_id(session_id)
+                if pattern_eng:
+                    pattern_eng.start()
                 if voice_mgr:
                     voice_mgr.speak("Session recording started.")
                 log.info("Session started: %s", session_id[:8])
@@ -666,7 +686,29 @@ def main():
                 if timing_mgr:
                     _push_timing_to_zeus(session_id, timing_mgr.get_session_summary())
                     timing_mgr.set_session_id(None)
+                # Stop pattern engine
+                if pattern_eng:
+                    pattern_eng.stop()
                 db_store.end_session(session_id)
+                # Trigger Haiku debrief in background if WiFi available
+                if parked_debrief:
+                    import threading as _debrief_threading
+                    _debrief_sid = session_id
+                    def _run_debrief(sid=_debrief_sid):
+                        try:
+                            from sync.sync_manager import SyncManager
+                            if SyncManager._check_connectivity():
+                                result = parked_debrief.generate(sid)
+                                if result and voice_mgr:
+                                    insights = result.get("insights", "")
+                                    if insights:
+                                        first_line = insights.split('.')[0] + '.'
+                                        voice_mgr.speak(f"Session debrief. {first_line}")
+                            else:
+                                log.info("No WiFi — debrief skipped")
+                        except Exception as exc:
+                            log.debug("Debrief failed: %s", exc)
+                    _debrief_threading.Thread(target=_run_debrief, daemon=True).start()
                 if voice_mgr:
                     voice_mgr.speak("Session recording stopped.")
                 log.info("Session ended: %s", session_id[:8])
@@ -689,6 +731,27 @@ def main():
             )
         )
         log.info("DuckDB data collection wired (native-rate telemetry, FLIR 3Hz, surface transitions, knock events)")
+
+        # Connect pattern → voice for safety-critical patterns
+        if voice_mgr:
+            def _on_pattern(p):
+                if p.pattern_type == "ice_risk_imminent":
+                    voice_mgr.speak_alert(
+                        f"Ice risk. Road {p.context.get('road_temp', 0):.0f} degrees, "
+                        f"dew point {p.context.get('dew_point', 0):.0f}. Reduce speed.",
+                        "critical",
+                    )
+                elif p.pattern_type == "knock_burst":
+                    voice_mgr.speak_alert(
+                        f"Knock burst. {int(p.value)} events at "
+                        f"{p.context.get('avg_rpm', 0):.0f} RPM.",
+                        "warning",
+                    )
+            pattern_eng.pattern_detected.connect(_on_pattern)
+
+        log.info("Pattern engine wired (1Hz analysis, session-gated)")
+        if parked_debrief:
+            log.info("Parked debrief enabled (Haiku, WiFi-gated)")
 
     # --- UI vs Headless ---
     window = None
@@ -916,6 +979,8 @@ def main():
 
     # Cleanup
     log.info("Shutting down...")
+    if pattern_eng:
+        pattern_eng.stop()
     if listener:
         listener.stop()
     if can_output:
