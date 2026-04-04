@@ -9,13 +9,13 @@ Color accent: MODE_I_ACCENT (#00AAFF) blue.
 Layout:
   y=0..114    Weather card — compact temp, humidity, pressure.
   y=118..310  FLIR road surface — live IR image (inferno colormap).
-  y=316..480  Status strip — DCCD bar + surface badge + slip delta.
+  y=316..455  Status strip — surface/slip/DCCD row + ABS/spread/VDC row.
 """
 
 from __future__ import annotations
 
 import numpy as np
-from PySide6.QtCore import Qt, QRectF
+from PySide6.QtCore import Qt, QRectF, QPointF
 from PySide6.QtGui import (
     QColor,
     QFont,
@@ -561,6 +561,78 @@ class IntelligentScreenWidget(QWidget):
         p.setPen(QPen(pct_color))
         p.drawText(QRectF(dccd_x, dccd_bar_y + dccd_bar_h + 4, dccd_bar_w, 22),
                    Qt.AlignLeft | Qt.AlignVCenter, pct_text)
+
+        # --- Row 2: ABS | Wheel Spread | VDC (y=400..450) ---
+        row2_y = y0 + 90  # 406
+
+        # ABS indicator (left)
+        abs_x = 24
+        abs_dot_y = row2_y + 14
+        if not stale_diff and snap is not None and snap.abs_active:
+            # Active: red dot + bold text
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(RED))
+            p.drawEllipse(QPointF(abs_x, abs_dot_y), 6, 6)
+            p.setFont(_font(14, bold=True))
+            p.setPen(QPen(QColor(RED)))
+            p.drawText(abs_x + 12, int(abs_dot_y) + 5, "ABS")
+        else:
+            # Inactive: dim dot + dim text
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(DIM))
+            p.drawEllipse(QPointF(abs_x, abs_dot_y), 4, 4)
+            p.setFont(_font(11))
+            p.setPen(QPen(QColor(DIM)))
+            p.drawText(abs_x + 10, int(abs_dot_y) + 4, "ABS")
+
+        # Wheel speed spread (center) — max cross-axle delta
+        spread_x = 320
+        if not stale_wheel and snap is not None:
+            front_spread = abs(snap.wheel_speed_fl - snap.wheel_speed_fr)
+            rear_spread = abs(snap.wheel_speed_rl - snap.wheel_speed_rr)
+            spread = max(front_spread, rear_spread)
+            spread_color = QColor(_wheel_delta_color(spread))
+            p.setFont(_font(12, bold=True))
+            p.setPen(QPen(QColor(MODE_I_ACCENT)))
+            p.drawText(QRectF(spread_x, row2_y, 100, 16),
+                       Qt.AlignLeft | Qt.AlignVCenter, "WHL SPREAD")
+            p.setFont(_font(22, bold=True))
+            p.setPen(QPen(spread_color))
+            p.drawText(QRectF(spread_x, row2_y + 16, 120, 32),
+                       Qt.AlignLeft | Qt.AlignVCenter, f"{spread:.1f}")
+            # Unit
+            spread_tw = p.fontMetrics().horizontalAdvance(f"{spread:.1f}")
+            p.setFont(_font(11))
+            p.setPen(QPen(QColor(GRAY)))
+            p.drawText(QRectF(spread_x + spread_tw + 4, row2_y + 22, 50, 20),
+                       Qt.AlignLeft | Qt.AlignVCenter, "km/h")
+        else:
+            p.setFont(_font(12, bold=True))
+            p.setPen(QPen(QColor(MODE_I_ACCENT)))
+            p.drawText(QRectF(spread_x, row2_y, 100, 16),
+                       Qt.AlignLeft | Qt.AlignVCenter, "WHL SPREAD")
+            p.setFont(_font(22, bold=True))
+            p.setPen(QPen(QColor(GRAY)))
+            p.drawText(QRectF(spread_x, row2_y + 16, 120, 32),
+                       Qt.AlignLeft | Qt.AlignVCenter, "---")
+
+        # VDC/TC indicator (right)
+        vdc_x = 594
+        vdc_dot_y = row2_y + 14
+        if not stale_diff and snap is not None and snap.vdc_tc:
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(YELLOW))
+            p.drawEllipse(QPointF(vdc_x, vdc_dot_y), 6, 6)
+            p.setFont(_font(14, bold=True))
+            p.setPen(QPen(QColor(YELLOW)))
+            p.drawText(vdc_x + 12, int(vdc_dot_y) + 5, "VDC")
+        else:
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(DIM))
+            p.drawEllipse(QPointF(vdc_x, vdc_dot_y), 4, 4)
+            p.setFont(_font(11))
+            p.setPen(QPen(QColor(DIM)))
+            p.drawText(vdc_x + 10, int(vdc_dot_y) + 4, "VDC")
 
     # ==================================================================
     # VOICE TICKER (y=448..478, left side)

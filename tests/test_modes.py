@@ -417,3 +417,65 @@ class TestFLIRFields:
         snap.brake_temp_fl = 350.0
         snap.flir_available = True
         w.update_state(snap)
+
+    # --- Wheel delta color thresholds (Intelligent screen) ---
+
+    def test_wheel_delta_color_small(self):
+        from ui.intelligent_screen import _wheel_delta_color
+        from ui.theme import CYAN
+        assert _wheel_delta_color(1.0) == CYAN
+
+    def test_wheel_delta_color_moderate(self):
+        from ui.intelligent_screen import _wheel_delta_color
+        from ui.theme import YELLOW
+        assert _wheel_delta_color(3.0) == YELLOW
+
+    def test_wheel_delta_color_severe(self):
+        from ui.intelligent_screen import _wheel_delta_color
+        from ui.theme import RED
+        assert _wheel_delta_color(6.0) == RED
+
+    def test_wheel_delta_color_boundary(self):
+        from ui.intelligent_screen import _wheel_delta_color
+        from ui.theme import CYAN, YELLOW
+        assert _wheel_delta_color(2.0) == CYAN   # at threshold = not exceeded
+        assert _wheel_delta_color(2.01) == YELLOW  # just above
+
+    # --- Intelligent screen ABS/VDC rendering (no crash) ---
+
+    def test_intelligent_abs_active_render(self, qapp):
+        from ui.intelligent_screen import IntelligentScreenWidget
+        from model.vehicle_state import DiffState
+        w = IntelligentScreenWidget()
+        snap = DiffState()
+        snap.abs_active = True
+        snap.vdc_tc = False
+        snap.wheel_speed_fl = 80.0
+        snap.wheel_speed_fr = 83.5  # 3.5 km/h spread
+        snap.wheel_speed_rl = 79.0
+        snap.wheel_speed_rr = 79.5
+        w.update_state(snap)
+
+    def test_intelligent_vdc_active_render(self, qapp):
+        from ui.intelligent_screen import IntelligentScreenWidget
+        from model.vehicle_state import DiffState
+        w = IntelligentScreenWidget()
+        snap = DiffState()
+        snap.abs_active = False
+        snap.vdc_tc = True
+        snap.wheel_speed_fl = 60.0
+        snap.wheel_speed_fr = 60.0
+        snap.wheel_speed_rl = 60.0
+        snap.wheel_speed_rr = 60.0
+        w.update_state(snap)
+
+    def test_intelligent_wheel_spread_zero(self, qapp):
+        from ui.intelligent_screen import IntelligentScreenWidget
+        from model.vehicle_state import DiffState
+        w = IntelligentScreenWidget()
+        snap = DiffState()
+        snap.wheel_speed_fl = 100.0
+        snap.wheel_speed_fr = 100.0
+        snap.wheel_speed_rl = 100.0
+        snap.wheel_speed_rr = 100.0
+        w.update_state(snap)
