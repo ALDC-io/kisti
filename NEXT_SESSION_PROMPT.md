@@ -1,90 +1,73 @@
-# NEXT SESSION PROMPT — KiSTI kisti-flir-06
+# NEXT SESSION PROMPT — KiSTI kisti-flir-07
 
 **Branch**: `kisti-headless` | **Dir**: `/home/aldc/repos/kisti` | **Jetson**: `ssh aldc@192.168.22.131` (pw: `aldc1234`)
 **Tests**: `python3 -m pytest tests/ -q --tb=short --ignore=tests/test_voice_integration.py --ignore=tests/test_voice_pipeline.py`
-**Baseline**: 1085 passed, 11 skipped
+**Baseline**: 1106 passed, 11 skipped
 
 ---
 
 ## Before starting work
-1. `echo "KiSTI FLIR-06" > /tmp/tui-project-label`
-2. Write phases to `/tmp/tui-phases.json` — TUI reads every 1s. Format: `[{"id":"1","name":"...","status":"pending|in_progress|completed","detail":"..."}]`. Update on every phase start/complete.
+1. `echo "KiSTI FLIR-07" > /tmp/tui-project-label`
+2. Write phases to `/tmp/tui-phases.json`
 
-## kisti-flir-05 summary (what was built)
+## kisti-flir-06 summary (what was built)
 
-### Threaded FLIR reader (major refactor)
-- **Complete rewrite** of `sensors/flir_lepton_reader.py` — `_FrameWorker(QThread)` owns `cap.read()` loop. Main thread NEVER blocks on V4L2 I/O. Eliminates 5-30s UI freezes on PureThermal lockup.
-- **Self-healing**: worker detects consecutive read failures → releases handle → USB-resets PureThermal via direct sysfs writes → re-opens device. All in worker thread, up to 10 attempts with 5s backoff.
-- **USB reset**: direct sysfs `echo 0/1 > authorized` (no shell injection). Falls back to `sudo -n` if no write permission. Sysfs path: `/sys/bus/usb/devices/*/authorized` matching "WebCam" or "PureThermal" product string.
+### Road Condition Detection UX — Visual-First Redesign
+- **Per-zone surface classification**: Each FLIR zone (L/C/R) classified independently with its own hysteresis (N=3). Overall `surface_state` = worst zone. New `classify_surface()` helper in `model/vehicle_state.py`.
+- **New DiffState fields**: `surface_state_left`, `surface_state_center`, `surface_state_right` — all default DRY.
+- **Per-zone background tint**: All 3 screens use `paint_zone_tint()` — screen mood shifts per-zone (DRY=invisible, WET=blue, COLD=purple, LOW_GRIP=red). Alpha: Intelligent=28, Sport=18, Sharp=12.
+- **Edge glow for LOW_GRIP**: `paint_edge_glow()` — 8px inner-border red pulse (~1Hz) when any zone is LOW_GRIP. Drawn on all 3 screens.
+- **Zone bar**: `paint_zone_bar()` — 3-segment horizontal bar colored by per-zone state. Replaced badge pill on Intelligent and Sport screens.
+- **Shared utilities**: `ui/road_condition.py` — `paint_zone_tint`, `paint_edge_glow`, `paint_zone_bar`, `zone_states_from_snap`, `any_zone_low_grip`, `worst_state_label`.
 
-### PatternEngine + ParkedDebrief wired into main.py
-- **PatternEngine**: created inside `if db_store:` with session_id getter. Starts/stops on session toggle. 1Hz analysis cycle.
-- **Pattern → voice**: `ice_risk_imminent` → "Reduce speed. Ice risk." / `ice_risk_trending` → "Caution, road cooling toward dew point." / `knock_burst` → knock events.
-- **ParkedDebrief**: Haiku analysis on session end. Background thread, WiFi-gated. Speaks all 3 insights with 3s pauses. Cycles on Intelligent screen coaching bar (5s per insight, green `[1/3]` prefix).
-- **voice_alert signal**: AlertEngine's `voice_alert` wired to `voice_mgr.speak_alert()`. General handler skips VOICE_ALERT_TYPES to prevent double-speak.
+### Screen Changes
+- **Intelligent**: Badge pill → zone bar (260×40px) + worst-condition label. Per-zone tint at alpha 28.
+- **Sport**: Badge pill → compact zone bar (60×18px). Reserved FLIR panel (510..790) now shows large zone bar (260×50px) with "ROAD CONDITION" label.
+- **Sport Sharp**: Sector strip (when not timing) uses surface classification colors instead of heat gradient. "ROAD CONDITION" label added.
 
-### Surface state hysteresis
-- `DiffStateBridge.SURFACE_HYSTERESIS_N = 3` (at 3Hz = ~1s settling). DRY↔WET↔COLD require N consecutive readings. LOW_GRIP immediate (safety-critical).
+### Alert Engine Changes
+- **`grip_low_grip` removed from VOICE_ALERT_TYPES** — screen visual is primary channel. Voice had 10s latency (280m at highway speed).
+- **`ice_risk_imminent` stays in voice** — genuine emergency.
+- **`_check_grip` docstring fixed**: 10s/50% (was 60s/60%).
+- **Module-level imports**: `Counter`, `SurfaceState` moved out of `_check_grip()` (was importing at 2Hz).
+- **`_gps_was_live`**: Dedicated `bool` attribute instead of storing in `_last_alert` dict.
 
-### Smart grip alert system
-- **Rolling 10s window** (20 samples at 2Hz) with 50% dominance threshold.
-- Only announces when dominant state genuinely shifts. Brief excursions (tunnel, bridge) filtered.
-- Manages its own lifecycle — bypasses `_fired_types` for re-entry alerts on multi-zone drives.
-- LOW_GRIP → "Low grip." / DRY after danger → "Grip restored."
+### FLIR Fixes
+- **`_consecutive_warm` now resets to 0** after `warm_object_detected` emits — prevents signal firing every frame while warm object visible.
 
-### Ice risk alert
-- `_check_ice_risk()` in AlertEngine — fires when road temp within 1°C of dew point.
-- Uses `_ice_risk_active` flag: fires once on entry, resets when delta > 3°C.
-- Sensor-independent (no ECU required). `_check_grip` also moved to sensor-independent.
+### Theme
+- **`ROAD_BG_*` tuples** in `ui/theme.py`: DRY=(10,10,10), WET=(10,15,45), COLD=(25,10,50), LOW_GRIP=(50,5,5).
 
-### Alert UX overhaul
-- **Once per session**: `_fired_types` set replaces time-based debounce. Each alert type voices once.
-- **Action first**: "Reduce speed. Ice risk." not "Ice risk. Road temp..."
-- **VOICE_ALERT_TYPES**: oil_pressure_low/critical, coolant_critical, fuel_pressure_critical, ice_risk_imminent, grip_low_grip.
-- **Warm object voice disabled**: too many false positives stationary. Display-only.
-
-### Demo mode
-- Auto-session start after 5s (`QTimer.singleShot` → `session_toggle.emit()`).
-
-### Jetson deployment
-- **GDM session**: `kisti-session` runs from `~/repos/kisti`. Rsync target must be `~/repos/kisti` NOT `~/kisti`.
-- **USB speaker**: Jieli UACDemoV1.0 at card 0. Mono not supported — use `plughw:0`. PA default sink set to USB. Volume 60%.
-- **Piper TTS**: `/data/piper/piper`, model `/data/piper/en_US-danny-low.onnx`, sample rate 16000 Hz.
-
-## Pending from code review (kisti-flir-06 work)
-
-### High priority
-1. **Test recovery path** — no tests exercise `_recover()` or `_FrameWorker`. Add integration tests with mock cap that simulates lockup → recovery.
-2. **Docstring accuracy** — `_check_grip` docstring says 60s/60% but code is 10s/50%. Fix docstrings.
-3. **Module-level imports** — `_check_grip` imports Counter and SurfaceState at 2Hz. Move to top of file.
-4. **GPS state in _last_alert** — `_gps_was_live` boolean stored in `dict[str, float]`. Add dedicated `_gps_was_live` attribute.
-5. **`_consecutive_warm` never resets** after detection fires — signal emits every frame while warm object visible.
+## Remaining from code review (kisti-flir-07 work)
 
 ### Medium priority
-6. **Udev rule for FLIR USB** — `ACTION=="add", ATTR{idVendor}=="1e4e", RUN+="/bin/chmod a+w %S%p/authorized"`. Eliminates sudo dependency.
-7. **_label_blobs performance** — pure Python flood fill on 19K pixels. Add hot_count ceiling (>30% = skip) or use scipy.ndimage.label.
-8. **Auto-detect device safety** — opening all /dev/videoN can steal other sensor handles. Add VID check or --flir-device flag.
-9. **Two status lines on Intelligent screen** — user reported duplicate text at bottom. Investigate coaching bar vs voice ticker overlap.
+1. **Udev rule for FLIR USB** — `ACTION=="add", ATTR{idVendor}=="1e4e", RUN+="/bin/chmod a+w %S%p/authorized"`. Eliminates sudo dependency.
+2. **_label_blobs performance** — pure Python flood fill on 19K pixels. Add hot_count ceiling (>30% = skip) or use scipy.ndimage.label.
+3. **Auto-detect device safety** — opening all /dev/videoN can steal other sensor handles. Add VID check or --flir-device flag.
+4. **Two status lines on Intelligent screen** — user reported duplicate text at bottom. Investigate coaching bar vs voice ticker overlap.
 
 ### Nice to have
-10. **Rogers Pass route tag** — auto-tag sessions with route name.
-11. **Debrief display on Intelligent screen** — currently coaching bar only (24px, single line). Could use larger overlay when parked.
+5. **Rogers Pass route tag** — auto-tag sessions with route name.
+6. **Debrief display on Intelligent screen** — currently coaching bar only (24px, single line). Could use larger overlay when parked.
+7. **Visual verification on Jetson** — rsync and test zone bar rendering on Strada 7" display. Check sunlight visibility.
 
 ## Key files
-`sensors/flir_lepton_reader.py` (threaded reader + self-healing) | `alerts/alert_engine.py` (smart grip + ice risk + once-per-session) | `main.py` (PatternEngine/ParkedDebrief wiring, debrief UX, pattern→voice) | `model/vehicle_state.py` (surface hysteresis) | `tests/test_surface_hysteresis.py` (8 tests) | `tests/test_alerts.py` (ice risk tests)
-
-## Late session additions (post-handoff)
-- **Worker sleep removed**: `cap.read()` is the natural rate limiter at 9Hz. Extra sleep halved frame rate.
-- **TTS pronunciation**: "Kissty" not "Keesty Eye" — updated in `voice/tts_engine.py` TTS_SUBSTITUTIONS.
-- **Ice test validated on hardware**: "Low grip." fires when ice held in front of FLIR for ~5s. "Grip restored." fires ~10s after removal. Screen updates immediately.
-- **Driving context**: At 100km/h, 10s rolling window = 280m. Entering danger = ~140m warning (5s). Clearing danger = ~280m (10s). Acceptable — screen shows state instantly, voice confirms.
+- `ui/road_condition.py` (shared paint functions — zone tint, edge glow, zone bar)
+- `model/vehicle_state.py` (per-zone classification, classify_surface())
+- `ui/intelligent_screen.py` (zone bar, per-zone tint)
+- `ui/sport_screen.py` (zone indicators, FLIR panel)
+- `ui/sharp_screen.py` (classification colors in sector strip)
+- `alerts/alert_engine.py` (grip removed from voice, _gps_was_live fixed, imports moved)
+- `sensors/flir_lepton_reader.py` (_consecutive_warm reset)
+- `tests/test_flir_recovery.py` (8 new recovery + warm reset tests)
+- `tests/test_surface_hysteresis.py` (13 new per-zone + classify_surface tests)
 
 ## Don't Repeat
 - FLIR `temps_updated` sends `RoadSurfaceTemps` object, not 3 floats
 - `_last_emit` must be instance-level on PatternEngine, not class-level
 - `avg > 0` guard blocks sub-zero detection → use `!= 0.0`
 - Two KiSTI processes fight for `/dev/video0` → kill ALL before restart
-- `CAP_PROP_READ_TIMEOUT_MSEC` is silently ignored by V4L2 backend — don't rely on it
+- `CAP_PROP_READ_TIMEOUT_MSEC` is silently ignored by V4L2 backend
 - PureThermal lockup can survive USB reset — worker thread retries with backoff
 - GDM auto-restarts kisti-session on process exit — don't `kill -9` the session itself
 - Dew point in test fixtures: dew_point=10.0 + road=3.0 → LOW_GRIP (not COLD). Use dew_point=0.0 for COLD tests
@@ -93,3 +76,7 @@
 - `_check_grip` must be in sensor-independent section (before `is_engine_stale` gate)
 - Don't add `time.sleep()` in FLIR worker thread — `cap.read()` blocks at native frame rate
 - TTS pronunciation: "Kissty" not "Keesty Eye" (voice/tts_engine.py TTS_SUBSTITUTIONS)
+- `classify_surface()` is the single source of truth for surface classification thresholds
+- Per-zone hysteresis is independent — each zone has its own counter/pending state
+- `_consecutive_warm` must reset after emit or it fires every frame
+- `_gps_was_live` is a dedicated bool, NOT stored in `_last_alert` dict

@@ -230,8 +230,16 @@ def main():
             mode_mgr.si_drive_changed.connect(_on_mode_change)
             mode_mgr.voice_toggle.connect(voice_mgr.toggle_voice)
 
-            # Wire alerts to voice + personality quotes
+            # Wire alerts to voice + personality quotes.
+            # grip_low_grip → voice (safety-critical, RWR/TCAS principle).
+            # grip_wet, grip_cold, grip_cleared → visual only (no voice chatter).
+            _VISUAL_ONLY_TYPES = frozenset({
+                "grip_wet", "grip_cold", "grip_cleared",
+            })
+
             def _on_alert(a):
+                if a.alert_type in _VISUAL_ONLY_TYPES:
+                    return  # visual-only — no voice, no quote
                 # Safety-critical types spoken via voice_alert signal
                 if a.alert_type not in AlertEngine.VOICE_ALERT_TYPES:
                     voice_mgr.speak_alert(a.message, a.severity.label)
@@ -1005,14 +1013,10 @@ def main():
              "ON" if can_output else "OFF",
              "SIM" if args.sim_ambient else ("YOCTO" if ambient_source else "OFF"))
 
-    # Headless boot greeting (UI has its own via kisti_mode._on_boot_ready)
-    if args.headless and voice_mgr:
-        def _headless_boot():
-            ecu = "ECU online" if listener else "No ECU"
-            ambient = "Conditions good" if ambient_source else "No sensors"
-            voice_mgr.speak(f"Online. Headless mode. {ecu}. {ambient}.")
-        from PySide6.QtCore import QTimer as _QTimer
-        _QTimer.singleShot(3000, _headless_boot)
+    # Headless boot greeting — disabled (visual-only UX)
+    # if args.headless and voice_mgr:
+    #     ...
+
 
     # Demo mode: auto-start session after 5s so PatternEngine + data collection
     # run unattended (trade show / 30-min validation target)

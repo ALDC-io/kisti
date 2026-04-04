@@ -45,10 +45,40 @@ _SURFACE_LABELS = {
 
 _SURFACE_COLORS = {
     SurfaceState.DRY: "#00CC66",   # Green — good grip
-    SurfaceState.WET: "#00AAFF",   # Blue — wet
-    SurfaceState.COLD: "#AA88FF",  # Purple — cold
-    SurfaceState.LOW_GRIP: "#FF3333",  # Red — danger
+    SurfaceState.WET: "#0088FF",   # Blue — wet
+    SurfaceState.COLD: "#00DDFF",  # Cyan — cold (not purple; better peripheral discrimination)
+    SurfaceState.LOW_GRIP: "#FF2222",  # Red — danger
 }
+
+
+def classify_surface(
+    temp_c: float,
+    ambient_c: float,
+    dew_point_c: float,
+    humidity_pct: float,
+    ambient_available: bool,
+) -> SurfaceState:
+    """Classify a single zone's surface state from temperature + ambient data.
+
+    Thresholds:
+      < 0°C            → LOW_GRIP (ice)
+      ≤ dew point      → LOW_GRIP (frost forming)
+      < 5°C            → COLD
+      < dew_point + 3  → WET (condensation risk)
+      Δambient > 5 & humidity > 70% → WET
+      else             → DRY
+    """
+    if temp_c < 0:
+        return SurfaceState.LOW_GRIP
+    if ambient_available and temp_c <= dew_point_c:
+        return SurfaceState.LOW_GRIP
+    if temp_c < 5:
+        return SurfaceState.COLD
+    if ambient_available and temp_c < dew_point_c + 3:
+        return SurfaceState.WET
+    if ambient_available and (ambient_c - temp_c) > 5 and humidity_pct > 70:
+        return SurfaceState.WET
+    return SurfaceState.DRY
 
 
 class SIDriveMode(IntEnum):
@@ -129,8 +159,11 @@ class DiffState:
     dccd_command_pct: float = 0.0          # 0.0 – 100.0
     dccd_dial_pct: Optional[float] = None  # None = not available
 
-    # Surface
+    # Surface (overall = worst of L/C/R zones)
     surface_state: SurfaceState = SurfaceState.DRY
+    surface_state_left: SurfaceState = SurfaceState.DRY
+    surface_state_center: SurfaceState = SurfaceState.DRY
+    surface_state_right: SurfaceState = SurfaceState.DRY
 
     # Event flags
     brake: bool = False
@@ -372,6 +405,9 @@ class DiffStateBridge(QObject):
         self._road_log_count: int = 0
         self._surface_hysteresis_count: int = 0
         self._surface_pending_state: Optional[SurfaceState] = None
+        # Per-zone hysteresis (L, C, R)
+        self._zone_hysteresis: list[int] = [0, 0, 0]
+        self._zone_pending: list[Optional[SurfaceState]] = [None, None, None]
 
     def snapshot(self) -> DiffState:
         """Return a thread-safe copy of the current state."""
@@ -395,6 +431,10 @@ class DiffStateBridge(QObject):
             self._state.dccd_dial_pct = dccd_dial_pct
             prev_ss = self._state.surface_state
             self._state.surface_state = surface_state
+            # CAN provides a single state — apply to all zones
+            self._state.surface_state_left = surface_state
+            self._state.surface_state_center = surface_state
+            self._state.surface_state_right = surface_state
             self._state.brake = brake
             self._state.handbrake = handbrake
             self._state.abs_active = abs_active
@@ -620,59 +660,52 @@ class DiffStateBridge(QObject):
         self.state_changed.emit()
 
     def update_road_surface(self, left: float, center: float, right: float) -> None:
-        """Called from FLIR Lepton reader with road surface temps for 3 horizontal zones (°C)."""
+        """Called from FLIR Lepton reader with road surface temps for 3 horizontal zones (°C).
+
+        Classifies each zone independently using per-zone hysteresis (N=3).
+        Overall surface_state = worst zone (max enum value).
+        """
         self._road_log_count += 1
         if self._road_log_count % 27 == 0:  # log every ~3 seconds
             import logging
             logging.getLogger("kisti.model").info(
-                "Road temps: L=%.1f C=%.1f R=%.1f avg=%.1f surface=%s",
-                left, center, right, (left + center + right) / 3.0,
-                self._state.surface_state.label)
+                "Road temps: L=%.1f C=%.1f R=%.1f surface=%s (L=%s C=%s R=%s)",
+                left, center, right,
+                self._state.surface_state.label,
+                self._state.surface_state_left.label,
+                self._state.surface_state_center.label,
+                self._state.surface_state_right.label)
         with self._lock:
             self._state.road_temp_left = left
             self._state.road_temp_center = center
             self._state.road_temp_right = right
             self._state.road_surface_ts = time.monotonic()
 
-            # Derive surface_state from FLIR + ambient when no CAN data
+            # Derive per-zone surface_state from FLIR + ambient when no CAN data
             if self._state.is_diff_stale():
-                avg = (left + center + right) / 3.0
-                if left != 0.0 or center != 0.0 or right != 0.0:  # skip only if all zero (stale)
+                temps = [left, center, right]
+                zone_fields = ['surface_state_left', 'surface_state_center', 'surface_state_right']
+                if any(t != 0.0 for t in temps):
                     ambient = self._state.ambient_temp_c
                     dew_pt = self._state.dew_point_c
-                    delta = ambient - avg  # positive = road colder than air
-                    if avg < 0:
-                        new_ss = SurfaceState.LOW_GRIP
-                    elif avg <= dew_pt and self._state.ambient_available:
-                        # Road temp at or below dew point — frost/ice forming NOW
-                        new_ss = SurfaceState.LOW_GRIP
-                    elif avg < 5:
-                        new_ss = SurfaceState.COLD
-                    elif avg < dew_pt + 3 and self._state.ambient_available:
-                        # Road temp approaching dew point — condensation risk
-                        new_ss = SurfaceState.WET
-                    elif delta > 5 and self._state.ambient_humidity_pct > 70:
-                        new_ss = SurfaceState.WET
-                    else:
-                        new_ss = SurfaceState.DRY
+                    humidity = self._state.ambient_humidity_pct
+                    avail = self._state.ambient_available
 
-                    # Hysteresis: LOW_GRIP immediate, others require N consecutive
-                    if new_ss == SurfaceState.LOW_GRIP:
-                        self._state.surface_state = new_ss
-                        self._surface_hysteresis_count = 0
-                        self._surface_pending_state = None
-                    elif new_ss == self._state.surface_state:
-                        self._surface_hysteresis_count = 0
-                        self._surface_pending_state = None
-                    elif new_ss == self._surface_pending_state:
-                        self._surface_hysteresis_count += 1
-                        if self._surface_hysteresis_count >= self.SURFACE_HYSTERESIS_N:
-                            self._state.surface_state = new_ss
-                            self._surface_hysteresis_count = 0
-                            self._surface_pending_state = None
-                    else:
-                        self._surface_pending_state = new_ss
-                        self._surface_hysteresis_count = 1
+                    for i, temp in enumerate(temps):
+                        if temp == 0.0:
+                            continue  # stale zone — keep previous state
+                        new_ss = classify_surface(temp, ambient, dew_pt, humidity, avail)
+                        current_zone_ss = getattr(self._state, zone_fields[i])
+                        self._apply_zone_hysteresis(i, new_ss, current_zone_ss, zone_fields[i])
+
+                    # Overall = worst zone (highest enum value)
+                    self._state.surface_state = max(
+                        self._state.surface_state_left,
+                        self._state.surface_state_center,
+                        self._state.surface_state_right,
+                        key=lambda s: s.value,
+                    )
+
         # Emit surface_state_changed if state actually changed
         current_ss = self._state.surface_state
         if self._prev_surface_state is not None and current_ss != self._prev_surface_state:
@@ -680,6 +713,27 @@ class DiffStateBridge(QObject):
                 self._prev_surface_state.label, current_ss.label)
         self._prev_surface_state = current_ss
         self.state_changed.emit()
+
+    def _apply_zone_hysteresis(
+        self, zone_idx: int, new_ss: SurfaceState, current_ss: SurfaceState, field: str,
+    ) -> None:
+        """Apply hysteresis to a single zone. LOW_GRIP immediate, others need N consecutive."""
+        if new_ss == SurfaceState.LOW_GRIP:
+            setattr(self._state, field, new_ss)
+            self._zone_hysteresis[zone_idx] = 0
+            self._zone_pending[zone_idx] = None
+        elif new_ss == current_ss:
+            self._zone_hysteresis[zone_idx] = 0
+            self._zone_pending[zone_idx] = None
+        elif new_ss == self._zone_pending[zone_idx]:
+            self._zone_hysteresis[zone_idx] += 1
+            if self._zone_hysteresis[zone_idx] >= self.SURFACE_HYSTERESIS_N:
+                setattr(self._state, field, new_ss)
+                self._zone_hysteresis[zone_idx] = 0
+                self._zone_pending[zone_idx] = None
+        else:
+            self._zone_pending[zone_idx] = new_ss
+            self._zone_hysteresis[zone_idx] = 1
 
     def update_ambient(
         self,

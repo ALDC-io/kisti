@@ -58,6 +58,13 @@ FONT_BIG = 26
 FONT_XLARGE = 36             # Delta time, secondary large values
 FONT_MEGA = 48               # Gear number in Sport#, primary lap time
 
+# Road Condition Backgrounds (for per-zone screen tinting)
+# RGB tuples — callers wrap with QColor(..., alpha)
+ROAD_BG_DRY = (10, 10, 10)           # Near-black — dark cockpit, suppress nominal
+ROAD_BG_WET = (5, 12, 40)            # Deep blue
+ROAD_BG_COLD = (5, 25, 40)           # Deep cyan (not purple — peripheral discrimination)
+ROAD_BG_LOW_GRIP = (50, 5, 5)        # Deep red
+
 STYLESHEET = f"""
 QWidget {{
     background-color: {BG_DARK};

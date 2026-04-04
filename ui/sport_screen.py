@@ -32,6 +32,13 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QWidget
 
 from model.vehicle_state import DiffState
+from ui.road_condition import (
+    paint_zone_tint,
+    paint_edge_glow,
+    paint_zone_bar,
+    zone_states_from_snap,
+    any_zone_low_grip,
+)
 from ui.theme import (
     BG_DARK,
     BG_PANEL,
@@ -115,6 +122,9 @@ class SportScreenWidget(QWidget):
         self._coaching_text: str = ""
         self._coaching_sentiment: str = "dim"
 
+        # Paint counter for edge glow pulse
+        self._paint_count: int = 0
+
         self.setMinimumSize(800, 440)
 
     # ------------------------------------------------------------------
@@ -150,12 +160,10 @@ class SportScreenWidget(QWidget):
 
         snap = self._snap if self._snap is not None else DiffState()
 
-        # Subtle full-screen tint from road surface FLIR
+        # Per-zone road condition background tint
+        zones = zone_states_from_snap(self._snap)
         if not snap.is_road_surface_stale():
-            road_avg = (snap.road_temp_left + snap.road_temp_center + snap.road_temp_right) / 3.0
-            tint = QColor(_brake_heat_color(road_avg))
-            tint.setAlpha(15)
-            p.fillRect(0, 0, w, h, tint)
+            paint_zone_tint(p, w, h, zones, alpha=18)
         diff_stale = True if self._snap is None else snap.is_diff_stale()
         dynamics_stale = True if self._snap is None else snap.is_dynamics_stale()
 
@@ -171,6 +179,11 @@ class SportScreenWidget(QWidget):
         self._paint_g_force_circle(p, snap)
         self._paint_coaching(p)
         self._paint_voice_ticker(p)
+
+        # Edge glow for LOW_GRIP
+        if not snap.is_road_surface_stale():
+            self._paint_count += 1
+            paint_edge_glow(p, w, h, any_zone_low_grip(zones), self._paint_count)
 
         p.end()
 
@@ -212,26 +225,13 @@ class SportScreenWidget(QWidget):
         p.drawText(QRectF(bar_x + bar_w + 6, bar_y, 60, bar_h),
                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, pct_str)
 
-        # Surface state badge
-        if not stale:
-            surface_label = snap.surface_state.label
-            surface_color = QColor(snap.surface_state.color)
-        else:
-            surface_label = "---"
-            surface_color = QColor(GRAY)
-
-        p.setFont(QFont("Helvetica", 10, QFont.Weight.Bold))
-        badge_tw = p.fontMetrics().horizontalAdvance(surface_label) + 14
+        # Per-zone road condition indicators (3 thin bars)
+        zones = zone_states_from_snap(self._snap if not stale else None)
         badge_x = 8
         badge_y = 40
-        row2_h = 22  # shared height for badge + slip on this row
-        pill_bg = QColor(surface_color)
-        pill_bg.setAlpha(60)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(pill_bg)
-        p.drawRoundedRect(QRectF(badge_x, badge_y, badge_tw, 18), 6, 6)
-        p.setPen(QPen(surface_color))
-        p.drawText(QRectF(badge_x, badge_y, badge_tw, 18), Qt.AlignmentFlag.AlignCenter, surface_label)
+        row2_h = 22
+        paint_zone_bar(p, badge_x, badge_y, 60, 18, zones,
+                       paint_count=self._paint_count)
 
         # Slip delta — same row as badge, vertically aligned
         slip_x = badge_x + badge_tw + 16
@@ -272,9 +272,12 @@ class SportScreenWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _paint_flir_summary(self, p: QPainter, snap: DiffState) -> None:
-        # Road surface data feeds the full-screen background tint (see paintEvent).
-        # No numeric display — background tint is the at-a-glance visual signal.
+        # Full-width road condition zone bar in the reserved FLIR panel
         p.fillRect(QRectF(510, 6, 280, 86), QColor(BG_PANEL))
+        zones = zone_states_from_snap(self._snap)
+        if not snap.is_road_surface_stale():
+            paint_zone_bar(p, 516, 12, 268, 72, zones,
+                           paint_count=self._paint_count, show_labels=True)
 
     # ------------------------------------------------------------------
     # Middle band: Performance bars (left, 0..350)

@@ -26,6 +26,14 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QWidget
 
 from model.vehicle_state import DiffState
+from ui.road_condition import (
+    paint_zone_tint,
+    paint_edge_glow,
+    paint_zone_bar,
+    zone_states_from_snap,
+    any_zone_low_grip,
+    worst_state_label,
+)
 from ui.theme import (
     BG_DARK,
     BG_PANEL,
@@ -141,6 +149,9 @@ class IntelligentScreenWidget(QWidget):
         self._coaching_sentiment: str = "dim"
         self._coaching_level: int = 2  # CoachingLevel.FULL
 
+        # Paint counter for edge glow pulse animation
+        self._paint_count: int = 0
+
         # Force periodic repaint even without data (1 Hz)
         from PySide6.QtCore import QTimer
         self._repaint_timer = QTimer(self)
@@ -174,15 +185,17 @@ class IntelligentScreenWidget(QWidget):
         self._coaching_level = level
 
     def _on_frame_updated(self, frame) -> None:
-        """Receive raw uint16 thermal frame — smooth, enhance contrast, colormap, cache."""
-        self._frame_skip += 1
-        if self._frame_skip % 3 != 0:
-            return  # skip 2 of every 3 frames (~3 Hz effective)
+        """Receive raw uint16 thermal frame — enhance contrast, colormap, cache.
+
+        No frame skipping — process every frame at native 9Hz for responsive
+        road condition detection. Light temporal smoothing (90/10) for noise
+        reduction without perceptible lag.
+        """
         f32 = frame.astype(np.float32)
 
-        # Temporal smoothing: 70% new + 30% previous → stable thermal zones
+        # Light temporal smoothing: 90% new + 10% previous — noise only, no lag
         if self._prev_frame is not None and self._prev_frame.shape == f32.shape:
-            f32 = 0.7 * f32 + 0.3 * self._prev_frame
+            f32 = 0.9 * f32 + 0.1 * self._prev_frame
         self._prev_frame = f32
 
         # Normalize to uint8
@@ -218,19 +231,23 @@ class IntelligentScreenWidget(QWidget):
         p.setRenderHint(QPainter.Antialiasing)
         p.fillRect(0, 0, _W, _H, QColor(BG_DARK))
 
-        # Subtle full-screen tint from road surface FLIR
+        # Per-zone road condition background tint
         snap = self._snap
+        zones = zone_states_from_snap(snap)
         if snap is not None and not snap.is_road_surface_stale():
-            road_avg = (snap.road_temp_left + snap.road_temp_center + snap.road_temp_right) / 3.0
-            tint = QColor(_brake_heat_color(road_avg))
-            tint.setAlpha(15)
-            p.fillRect(0, 0, _W, _H, tint)
+            paint_zone_tint(p, _W, _H, zones, alpha=28)
 
         self._draw_weather(p)
         self._draw_flir_panel(p)
         self._draw_status_strip(p)
         self._draw_coaching_bar(p)
         self._paint_voice_ticker(p)
+
+        # Edge glow for LOW_GRIP — drawn last so it's on top
+        if snap is not None and not snap.is_road_surface_stale():
+            self._paint_count += 1
+            paint_edge_glow(p, _W, _H, any_zone_low_grip(zones), self._paint_count)
+
         p.end()
 
     # ==================================================================
@@ -441,54 +458,27 @@ class IntelligentScreenWidget(QWidget):
         y0 = 316
         strip_h = 164  # y=316..480
 
-        # Layout: Surface (left, primary) | SLIP (center) | DCCD (right, secondary)
-        # Answers "What are the conditions?" — surface is #1 for Intelligent mode.
+        # Layout: Full-width road condition zone bar (top) → slip + DCCD below
+        # Road condition is THE HERO — spans entire screen width.
 
-        # --- Surface badge (left, ~0..280) — PRIMARY ---
-        surface_x = 20
-        surface_y = y0 + 10
+        # --- Full-width road condition zone bar (y0..y0+60) ---
+        zones = zone_states_from_snap(snap)
+        bar_y = y0 + 4
+        bar_h = 50
+        paint_zone_bar(p, 10, bar_y, _W - 20, bar_h, zones,
+                       paint_count=self._paint_count, show_labels=True)
 
-        p.setFont(_font(12, bold=True))
-        p.setPen(QPen(QColor(MODE_I_ACCENT)))
-        p.drawText(QRectF(surface_x, surface_y, 120, 20),
-                   Qt.AlignLeft | Qt.AlignVCenter, "SURFACE")
+        # Worst-condition label — right-aligned beside the bar
+        worst_label, worst_color = worst_state_label(zones)
+        p.setFont(_font(10, bold=True))
+        p.setPen(QPen(QColor(worst_color)))
+        p.drawText(QRectF(10, bar_y + bar_h + 2, _W - 20, 16),
+                   Qt.AlignCenter, worst_label)
 
-        if snap is not None:
-            surface_label = snap.surface_state.label
-            surface_color = QColor(snap.surface_state.color)
-        else:
-            surface_label = "---"
-            surface_color = QColor(GRAY)
-
-        # Large surface pill
-        badge_y = surface_y + 24
-        badge_h = 44
-
-        p.setFont(_font(18, bold=True))
-        badge_tw = p.fontMetrics().horizontalAdvance(surface_label) + 40
-        badge_tw = max(badge_tw, 140)
-
-        # Pill background
-        pill_bg = QColor(surface_color)
-        pill_bg.setAlphaF(0.25)
-        p.setPen(Qt.NoPen)
-        p.setBrush(pill_bg)
-        p.drawRoundedRect(QRectF(surface_x, badge_y, badge_tw, badge_h), 22, 22)
-
-        # Pill border
-        p.setPen(QPen(surface_color, 2))
-        p.setBrush(Qt.NoBrush)
-        p.drawRoundedRect(QRectF(surface_x, badge_y, badge_tw, badge_h), 22, 22)
-
-        # Surface text
-        p.setFont(_font(20, bold=True))
-        p.setPen(QPen(surface_color))
-        p.drawText(QRectF(surface_x, badge_y, badge_tw, badge_h),
-                   Qt.AlignCenter, surface_label)
-
-        # --- Slip delta (center, ~300..560) ---
-        slip_x = 320
-        slip_label_y = y0 + 10
+        # --- Row 2: Slip (left) | DCCD (right) — below zone bar ---
+        row2_base = y0 + 72
+        slip_x = 20
+        slip_label_y = row2_base
 
         p.setFont(_font(12, bold=True))
         p.setPen(QPen(QColor(MODE_I_ACCENT)))
@@ -519,8 +509,8 @@ class IntelligentScreenWidget(QWidget):
 
         # --- DCCD bar (right, ~580..780) — compact, secondary ---
         dccd_x = 590
-        dccd_label_y = y0 + 10
-        dccd_bar_y = y0 + 34
+        dccd_label_y = row2_base
+        dccd_bar_y = row2_base + 24
         dccd_bar_h = 20
         dccd_bar_w = 160
 
@@ -562,14 +552,13 @@ class IntelligentScreenWidget(QWidget):
         p.drawText(QRectF(dccd_x, dccd_bar_y + dccd_bar_h + 4, dccd_bar_w, 22),
                    Qt.AlignLeft | Qt.AlignVCenter, pct_text)
 
-        # --- Row 2: ABS | Wheel Spread | VDC (y=400..450) ---
-        row2_y = y0 + 90  # 406
+        # --- Row 3: ABS | VDC ---
+        row2_y = row2_base + 68
 
         # ABS indicator (left)
         abs_x = 24
         abs_dot_y = row2_y + 14
         if not stale_diff and snap is not None and snap.abs_active:
-            # Active: red dot + bold text
             p.setPen(Qt.NoPen)
             p.setBrush(QColor(RED))
             p.drawEllipse(QPointF(abs_x, abs_dot_y), 6, 6)
@@ -577,7 +566,6 @@ class IntelligentScreenWidget(QWidget):
             p.setPen(QPen(QColor(RED)))
             p.drawText(abs_x + 12, int(abs_dot_y) + 5, "ABS")
         else:
-            # Inactive: dim dot + dim text
             p.setPen(Qt.NoPen)
             p.setBrush(QColor(DIM))
             p.drawEllipse(QPointF(abs_x, abs_dot_y), 4, 4)
@@ -585,39 +573,8 @@ class IntelligentScreenWidget(QWidget):
             p.setPen(QPen(QColor(DIM)))
             p.drawText(abs_x + 10, int(abs_dot_y) + 4, "ABS")
 
-        # Wheel speed spread (center) — max cross-axle delta
-        spread_x = 320
-        if not stale_wheel and snap is not None:
-            front_spread = abs(snap.wheel_speed_fl - snap.wheel_speed_fr)
-            rear_spread = abs(snap.wheel_speed_rl - snap.wheel_speed_rr)
-            spread = max(front_spread, rear_spread)
-            spread_color = QColor(_wheel_delta_color(spread))
-            p.setFont(_font(12, bold=True))
-            p.setPen(QPen(QColor(MODE_I_ACCENT)))
-            p.drawText(QRectF(spread_x, row2_y, 100, 16),
-                       Qt.AlignLeft | Qt.AlignVCenter, "WHL SPREAD")
-            p.setFont(_font(22, bold=True))
-            p.setPen(QPen(spread_color))
-            p.drawText(QRectF(spread_x, row2_y + 16, 120, 32),
-                       Qt.AlignLeft | Qt.AlignVCenter, f"{spread:.1f}")
-            # Unit
-            spread_tw = p.fontMetrics().horizontalAdvance(f"{spread:.1f}")
-            p.setFont(_font(11))
-            p.setPen(QPen(QColor(GRAY)))
-            p.drawText(QRectF(spread_x + spread_tw + 4, row2_y + 22, 50, 20),
-                       Qt.AlignLeft | Qt.AlignVCenter, "km/h")
-        else:
-            p.setFont(_font(12, bold=True))
-            p.setPen(QPen(QColor(MODE_I_ACCENT)))
-            p.drawText(QRectF(spread_x, row2_y, 100, 16),
-                       Qt.AlignLeft | Qt.AlignVCenter, "WHL SPREAD")
-            p.setFont(_font(22, bold=True))
-            p.setPen(QPen(QColor(GRAY)))
-            p.drawText(QRectF(spread_x, row2_y + 16, 120, 32),
-                       Qt.AlignLeft | Qt.AlignVCenter, "---")
-
-        # VDC/TC indicator (right)
-        vdc_x = 594
+        # VDC/TC indicator (right of ABS)
+        vdc_x = 100
         vdc_dot_y = row2_y + 14
         if not stale_diff and snap is not None and snap.vdc_tc:
             p.setPen(Qt.NoPen)
@@ -639,27 +596,28 @@ class IntelligentScreenWidget(QWidget):
     # ==================================================================
 
     def _draw_coaching_bar(self, p: QPainter) -> None:
-        """Coaching/warning text at the very bottom of the screen (y=456..480)."""
+        """Coaching/warning text at the very bottom of the screen (y=458..480)."""
         if not self._coaching_text:
             return
         sentiment_colors = {"green": GREEN, "amber": YELLOW, "dim": GRAY}
         coach_color = QColor(sentiment_colors.get(self._coaching_sentiment, GRAY))
-        p.fillRect(QRectF(0, 456, _W, 24), QColor(BG_PANEL))
-        p.setFont(_font(13, bold=True))
+        p.fillRect(QRectF(0, 458, _W, 22), QColor(BG_PANEL))
+        p.setFont(_font(12, bold=True))
         p.setPen(QPen(coach_color))
-        p.drawText(QRectF(20, 456, _W - 40, 24),
+        p.drawText(QRectF(20, 458, _W - 40, 22),
                    Qt.AlignLeft | Qt.AlignVCenter, self._coaching_text)
 
     def _paint_voice_ticker(self, p: QPainter) -> None:
+        """Voice ticker — sits above coaching bar (y=412..455)."""
         if not self._voice_ticker:
             return
-        p.setFont(_font(11))
+        p.setFont(_font(10))
         alphas = [120, 70, 40]
-        x, y0, w = 20, 448, 380
-        for i, line in enumerate(self._voice_ticker):
+        x, y0, w = 20, 415, 380
+        for i, line in enumerate(self._voice_ticker[:3]):
             color = QColor(WHITE)
             color.setAlpha(alphas[min(i, 2)])
             p.setPen(QPen(color))
             elided = p.fontMetrics().elidedText(line, Qt.ElideRight, w)
-            p.drawText(QRectF(x, y0 + i * 15, w, 15),
+            p.drawText(QRectF(x, y0 + i * 14, w, 14),
                        Qt.AlignLeft | Qt.AlignVCenter, elided)

@@ -10,7 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from model.vehicle_state import DiffStateBridge, SurfaceState
+from model.vehicle_state import DiffStateBridge, SurfaceState, classify_surface
 
 if not QApplication.instance():
     _app = QApplication([])
@@ -136,3 +136,103 @@ class TestSurfaceHysteresis:
 
         bridge.update_road_surface(12.0, 12.0, 12.0)
         assert bridge.snapshot().surface_state == SurfaceState.WET
+
+
+class TestClassifySurface:
+    """Tests for the standalone classify_surface() helper."""
+
+    def test_sub_zero_is_low_grip(self):
+        assert classify_surface(-2.0, 20.0, 0.0, 30.0, True) == SurfaceState.LOW_GRIP
+
+    def test_at_dew_point_is_low_grip(self):
+        assert classify_surface(5.0, 20.0, 5.0, 90.0, True) == SurfaceState.LOW_GRIP
+
+    def test_cold_road(self):
+        assert classify_surface(3.0, 20.0, 0.0, 30.0, True) == SurfaceState.COLD
+
+    def test_condensation_risk_is_wet(self):
+        # Road temp < dew_point + 3
+        assert classify_surface(12.0, 20.0, 10.0, 70.0, True) == SurfaceState.WET
+
+    def test_warm_dry_road(self):
+        assert classify_surface(25.0, 20.0, 5.0, 30.0, True) == SurfaceState.DRY
+
+    def test_no_ambient_skips_dew_checks(self):
+        # Without ambient data, dew point checks are skipped
+        # 3.0°C → COLD (not LOW_GRIP even though dew_point=10)
+        assert classify_surface(3.0, 20.0, 10.0, 90.0, False) == SurfaceState.COLD
+
+    def test_humidity_wet(self):
+        # High humidity + road much colder than air → WET
+        assert classify_surface(10.0, 20.0, 0.0, 80.0, True) == SurfaceState.WET
+
+
+class TestPerZoneClassification:
+    """Per-zone surface state classification — L/C/R independent."""
+
+    def test_mixed_zones_overall_worst(self, bridge):
+        """Overall surface_state = worst of 3 zones."""
+        n = DiffStateBridge.SURFACE_HYSTERESIS_N
+        # Left=DRY, Center=COLD, Right=DRY — overall should be COLD
+        for _ in range(n + 1):
+            bridge.update_road_surface(20.0, 3.0, 20.0)
+        snap = bridge.snapshot()
+        assert snap.surface_state_left == SurfaceState.DRY
+        assert snap.surface_state_center == SurfaceState.COLD
+        assert snap.surface_state_right == SurfaceState.DRY
+        assert snap.surface_state == SurfaceState.COLD
+
+    def test_one_zone_low_grip_immediate(self, bridge):
+        """LOW_GRIP in one zone → immediate, overall = LOW_GRIP."""
+        bridge.update_road_surface(20.0, 20.0, 20.0)
+        snap = bridge.snapshot()
+        assert snap.surface_state == SurfaceState.DRY
+
+        # Right zone sub-zero → immediate LOW_GRIP
+        bridge.update_road_surface(20.0, 20.0, -1.0)
+        snap = bridge.snapshot()
+        assert snap.surface_state_right == SurfaceState.LOW_GRIP
+        assert snap.surface_state_left == SurfaceState.DRY
+        assert snap.surface_state == SurfaceState.LOW_GRIP
+
+    def test_per_zone_hysteresis_independent(self, bridge):
+        """Each zone has independent hysteresis counters."""
+        n = DiffStateBridge.SURFACE_HYSTERESIS_N
+        # Start all DRY
+        bridge.update_road_surface(20.0, 20.0, 20.0)
+
+        # Left goes cold, center/right stay warm
+        for _ in range(n - 1):
+            bridge.update_road_surface(3.0, 20.0, 20.0)
+        snap = bridge.snapshot()
+        assert snap.surface_state_left == SurfaceState.DRY  # not yet
+
+        bridge.update_road_surface(3.0, 20.0, 20.0)
+        snap = bridge.snapshot()
+        assert snap.surface_state_left == SurfaceState.COLD
+        assert snap.surface_state_center == SurfaceState.DRY
+        assert snap.surface_state_right == SurfaceState.DRY
+
+    def test_all_zones_default_dry(self, bridge):
+        """New bridge starts with all zones DRY."""
+        snap = bridge.snapshot()
+        assert snap.surface_state_left == SurfaceState.DRY
+        assert snap.surface_state_center == SurfaceState.DRY
+        assert snap.surface_state_right == SurfaceState.DRY
+
+    def test_can_diff_sets_all_zones(self, bridge):
+        """CAN diff frame sets all 3 zone states."""
+        bridge.update_diff(
+            dccd_command_pct=30.0,
+            dccd_dial_pct=None,
+            surface_state=SurfaceState.WET,
+            brake=False,
+            handbrake=False,
+            abs_active=False,
+            vdc_tc=False,
+            slip_delta=None,
+        )
+        snap = bridge.snapshot()
+        assert snap.surface_state_left == SurfaceState.WET
+        assert snap.surface_state_center == SurfaceState.WET
+        assert snap.surface_state_right == SurfaceState.WET

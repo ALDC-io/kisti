@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import math
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Optional
@@ -22,7 +23,7 @@ from typing import Optional
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from data.build_record import BASELINES
-from model.vehicle_state import DiffState, DiffStateBridge, SIDriveMode, WarmUpState
+from model.vehicle_state import DiffState, DiffStateBridge, SIDriveMode, SurfaceState, WarmUpState
 
 log = logging.getLogger("kisti.alerts")
 
@@ -116,7 +117,9 @@ class AlertEngine(QObject):
         "coolant_critical",       # safety: overtemp requires immediate action
         "fuel_pressure_critical", # safety: fuel starvation
         "ice_risk_imminent",      # safety: road temp approaching dew point
-        "grip_low_grip",          # safety: surface grip loss
+        "grip_low_grip",          # safety: LOW_GRIP entry only (RWR/TCAS principle:
+                                  # most critical transition needs audio, not just visual)
+        # grip_wet, grip_cold, grip_cleared are visual-only — no voice chatter.
     })
 
     # Display-only alert types (shown on screen, no voice)
@@ -149,6 +152,9 @@ class AlertEngine(QObject):
         # SI Drive mode for alert suppression
         self._si_drive_mode: SIDriveMode = SIDriveMode.INTELLIGENT
 
+        # GPS live tracking — dedicated attribute (not in _last_alert dict)
+        self._gps_was_live: bool = False
+
         # Ice risk: fire once, reset only when conditions clear (delta > 3°C)
         self._ice_risk_active: bool = False
 
@@ -158,8 +164,8 @@ class AlertEngine(QObject):
         # Smart grip: rolling 10s window (2Hz × 20 = 20 samples)
         # Announces when >50% of window shifts to new dominant state.
         # 10s = responsive enough for mountain passes, filters single-frame noise.
-        from collections import deque as _deque
-        self._surface_history: _deque = _deque(maxlen=20)
+        from collections import deque
+        self._surface_history: deque = deque(maxlen=20)
         self._announced_grip: Optional[SurfaceState] = None
 
         # Check timer (2 Hz)
@@ -348,16 +354,17 @@ class AlertEngine(QObject):
             ))
 
     def _check_grip(self, state: DiffState) -> None:
-        """Smart grip: rolling 60s window, only announces genuine transitions.
+        """Smart grip: rolling 10s window (20 samples at 2Hz), 50% dominance.
 
-        Tracks surface state at 2Hz. When >60% of the window is a new
+        Tracks surface state at 2Hz. When >50% of the window is a new
         dominant state, announces the transition once. Brief excursions
         (tunnels, bridges) are filtered out. Bypasses _fire()/_fired_types
         since it manages its own lifecycle via _announced_grip.
-        """
-        from collections import Counter
-        from model.vehicle_state import SurfaceState
 
+        Note: grip_low_grip is no longer voice-routed — screen visual
+        (zone bars + edge glow) is the primary channel. This method still
+        emits alert_fired for DuckDB logging.
+        """
         self._surface_history.append(state.surface_state)
 
         if len(self._surface_history) < 10:  # need 5s of data minimum
@@ -430,17 +437,16 @@ class AlertEngine(QObject):
 
     def _check_gps_stale(self, state: DiffState) -> None:
         """GPS signal loss alert — fires on transition from live to stale."""
-        was_live = self._last_alert.get("_gps_was_live", False)
         is_stale = state.is_gps_stale(timeout=GPS_STALE_TIMEOUT_S)
 
-        if was_live and is_stale:
+        if self._gps_was_live and is_stale:
             self._fire(Alert(
                 alert_type="gps_signal_lost",
                 severity=AlertSeverity.WARNING,
                 message="GPS signal lost. Position tracking unavailable.",
                 short_message="GPS lost",
             ))
-        elif not is_stale and not was_live:
+        elif not is_stale and not self._gps_was_live:
             self._fire(Alert(
                 alert_type="gps_signal_acquired",
                 severity=AlertSeverity.INFO,
@@ -448,7 +454,7 @@ class AlertEngine(QObject):
                 short_message="GPS lock",
             ))
 
-        self._last_alert["_gps_was_live"] = not is_stale
+        self._gps_was_live = not is_stale
 
     def _check_ice_risk(self, state: DiffState) -> None:
         """Ice risk alert from FLIR road temp vs dew point.

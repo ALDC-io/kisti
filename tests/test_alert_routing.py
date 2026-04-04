@@ -19,7 +19,12 @@ if not QApplication.instance():
 
 class TestAlertRouting:
     def test_voice_alert_types_are_safety_critical(self):
-        """Voice alerts should only be safety-critical types."""
+        """Voice alerts should only be safety-critical types.
+
+        grip_low_grip restored — RWR/TCAS principle: most critical state
+        transition needs audio, not just visual. Only LOW_GRIP entry speaks;
+        wet/cold/cleared are visual-only.
+        """
         expected = {
             "oil_pressure_low",
             "oil_pressure_critical",
@@ -29,6 +34,12 @@ class TestAlertRouting:
             "grip_low_grip",
         }
         assert AlertEngine.VOICE_ALERT_TYPES == expected
+
+    def test_grip_wet_cold_not_voice_routed(self):
+        """grip_wet and grip_cold should NOT be voice-routed — visual only."""
+        assert "grip_wet" not in AlertEngine.VOICE_ALERT_TYPES
+        assert "grip_cold" not in AlertEngine.VOICE_ALERT_TYPES
+        assert "grip_cleared" not in AlertEngine.VOICE_ALERT_TYPES
 
     def test_display_alert_types(self):
         """Display-only alerts should include grip and g-force."""

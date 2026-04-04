@@ -30,6 +30,12 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
 from model.vehicle_state import DiffState
+from ui.road_condition import (
+    paint_zone_tint,
+    paint_edge_glow,
+    zone_states_from_snap,
+    any_zone_low_grip,
+)
 from ui.theme import (
     BG_DARK,
     BG_PANEL,
@@ -219,13 +225,11 @@ class SportSharpScreenWidget(QWidget):
         p.setRenderHint(QPainter.Antialiasing)
         p.fillRect(0, 0, _W, _H, QColor(BG_DARK))
 
-        # Subtle full-screen tint from road surface FLIR
+        # Per-zone road condition background tint (minimal on race screen)
         snap = self._snap
+        zones = zone_states_from_snap(snap)
         if snap is not None and not snap.is_road_surface_stale():
-            road_avg = (snap.road_temp_left + snap.road_temp_center + snap.road_temp_right) / 3.0
-            tint = QColor(_brake_heat_color(road_avg))
-            tint.setAlpha(15)
-            p.fillRect(0, 0, _W, _H, tint)
+            paint_zone_tint(p, _W, _H, zones, alpha=12)
 
         self._draw_delta_bar(p)
         self._draw_timing_panel(p)
@@ -233,6 +237,11 @@ class SportSharpScreenWidget(QWidget):
         self._draw_sector_strip(p)
         self._draw_safety_vitals(p)
         self._paint_voice_ticker(p)
+
+        # Edge glow for LOW_GRIP only (can't distract during laps)
+        if snap is not None and not snap.is_road_surface_stale():
+            paint_edge_glow(p, _W, _H, any_zone_low_grip(zones), self._paint_count)
+
         p.end()
 
     # ------------------------------------------------------------------
@@ -527,7 +536,11 @@ class SportSharpScreenWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _draw_flir_strip(self, p: QPainter) -> None:
-        """Road surface temp strip — fills sector area when no timing active."""
+        """Road condition strip — fills sector area when no timing active.
+
+        Uses surface classification colors (not just heat gradient) for each
+        of the 3 FLIR zones. Immediate visual feedback on road conditions.
+        """
         snap = self._snap
         road_ok = snap is not None and not snap.is_road_surface_stale()
 
@@ -538,17 +551,23 @@ class SportSharpScreenWidget(QWidget):
             p.fillRect(QRectF(10, y0, _W - 20, strip_h), QColor(BG_PANEL))
             return
 
-        # 3-zone gradient bar — heat colors only, no numbers
-        zones = [snap.road_temp_left, snap.road_temp_center, snap.road_temp_right]
+        # 3-zone bars using surface state classification colors
+        states = zone_states_from_snap(snap)
         zone_w = _W / 3.0
         bar_y = y0 + 22
         bar_h = strip_h - 28
 
-        for i, temp in enumerate(zones):
+        for i, ss in enumerate(states):
             zx = i * zone_w
-            heat_col = QColor(_brake_heat_color(temp))
-            heat_col.setAlpha(80)
-            p.fillRect(QRectF(zx + 2, bar_y, zone_w - 4, bar_h), heat_col)
+            col = QColor(ss.color)
+            col.setAlpha(100)
+            p.fillRect(QRectF(zx + 2, bar_y, zone_w - 4, bar_h), col)
+
+        # Label
+        p.setFont(QFont("Courier", FONT_BASE, QFont.Weight.Bold))
+        p.setPen(QColor(GRAY))
+        p.drawText(QRectF(10, y0, _W - 20, 20),
+                   Qt.AlignmentFlag.AlignCenter, "ROAD CONDITION")
 
     # ------------------------------------------------------------------
     # Safety vitals (y=380..480) — 5 zones, DIM until warning

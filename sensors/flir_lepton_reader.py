@@ -445,6 +445,8 @@ class FLIRLeptonReader(QObject):
             blob_pixels=best_size,
         )
         self.warm_object_detected.emit(detection)
+        # Reset after firing so we don't emit every frame while warm object visible
+        self._consecutive_warm = 0
 
 
 def _label_blobs(mask: 'numpy.ndarray', np) -> tuple:
