@@ -300,13 +300,11 @@ def main():
 
     # Warm object detection → voice alert (30s cooldown to prevent spam)
     if flir_reader is not None:
-        _warm_obj_last_speak = [0.0]
+        _warm_obj_spoken = [False]
 
         def _on_warm_object(det):
-            import time as _wtime
-            now = _wtime.monotonic()
-            if now - _warm_obj_last_speak[0] >= 30.0:
-                _warm_obj_last_speak[0] = now
+            if not _warm_obj_spoken[0]:
+                _warm_obj_spoken[0] = True
                 if voice_mgr is not None:
                     voice_mgr.speak_alert(f"Object ahead, {det.position.lower()}", "warning")
                 log.info("WARM OBJECT %s: peak=%.1f°C, %dpx",

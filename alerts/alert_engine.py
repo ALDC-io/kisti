@@ -147,6 +147,9 @@ class AlertEngine(QObject):
         # SI Drive mode for alert suppression
         self._si_drive_mode: SIDriveMode = SIDriveMode.INTELLIGENT
 
+        # Ice risk: fire once, reset only when conditions clear (delta > 3°C)
+        self._ice_risk_active: bool = False
+
         # Check timer (2 Hz)
         self._timer = QTimer(self)
         self._timer.setInterval(500)
@@ -390,9 +393,9 @@ class AlertEngine(QObject):
     def _check_ice_risk(self, state: DiffState) -> None:
         """Ice risk alert from FLIR road temp vs dew point.
 
-        Fires when road temp is within 1°C of dew point — conditions where
-        frost/ice formation is imminent. This is the #1 safety feature for
-        mountain passes like Rogers Pass.
+        Fires ONCE when road temp enters the danger zone (within 1°C of dew
+        point). Only re-fires after conditions clear (delta > 3°C) and
+        return to danger. No repeated alerts while driving in sustained cold.
         """
         if not state.ambient_available:
             return
@@ -401,14 +404,20 @@ class AlertEngine(QObject):
             return  # no FLIR data
         dew_point = state.dew_point_c
         delta = road_temp - dew_point
+
         if 0 < delta < 1.0:
-            self._fire(Alert(
-                alert_type="ice_risk_imminent",
-                severity=AlertSeverity.CRITICAL,
-                message="Reduce speed. Ice risk.",
-                short_message=f"ICE RISK {delta:.1f}°C",
-                value=delta,
-            ))
+            if not self._ice_risk_active:
+                self._ice_risk_active = True
+                self._fire(Alert(
+                    alert_type="ice_risk_imminent",
+                    severity=AlertSeverity.CRITICAL,
+                    message="Reduce speed. Ice risk.",
+                    short_message=f"ICE RISK {delta:.1f}°C",
+                    value=delta,
+                ))
+        elif delta > 3.0:
+            # Conditions cleared — allow re-fire on next entry
+            self._ice_risk_active = False
 
     def _check_ambient_change(self, state: DiffState) -> None:
         """Ambient weather change alerts — runs without ECU."""
