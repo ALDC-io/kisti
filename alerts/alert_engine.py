@@ -405,7 +405,7 @@ class AlertEngine(QObject):
             self._fire(Alert(
                 alert_type="ice_risk_imminent",
                 severity=AlertSeverity.CRITICAL,
-                message=f"Ice risk. Road {road_temp:.0f} degrees, dew point {dew_point:.0f}. Reduce speed.",
+                message=f"Reduce speed. Ice risk, road {road_temp:.0f} degrees, dew point {dew_point:.0f}.",
                 short_message=f"ICE RISK {delta:.1f}°C",
                 value=delta,
             ))

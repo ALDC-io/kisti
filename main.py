@@ -750,14 +750,14 @@ def main():
             def _on_pattern(p):
                 if p.pattern_type == "ice_risk_imminent":
                     voice_mgr.speak_alert(
-                        f"Ice risk. Road {p.context.get('road_temp', 0):.0f} degrees, "
-                        f"dew point {p.context.get('dew_point', 0):.0f}. Reduce speed.",
+                        f"Reduce speed. Ice risk, road {p.context.get('road_temp', 0):.0f} degrees, "
+                        f"dew point {p.context.get('dew_point', 0):.0f}.",
                         "critical",
                     )
                 elif p.pattern_type == "ice_risk_trending":
                     voice_mgr.speak_alert(
-                        f"Ice risk trending. Road cooling toward dew point, "
-                        f"delta {p.value:.1f} degrees.",
+                        f"Caution, road cooling toward dew point. "
+                        f"Delta {p.value:.1f} degrees.",
                         "warning",
                     )
                 elif p.pattern_type == "knock_burst":
