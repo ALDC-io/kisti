@@ -194,7 +194,7 @@ class _FrameWorker(QThread):
 
             self._consecutive_failures = 0
             self.frame_ready.emit(frame)
-            time.sleep(POLL_INTERVAL_MS / 1000.0)
+            # No sleep — cap.read() blocks until next frame (~111ms at 9Hz native rate)
 
         if self._cap is not None:
             self._cap.release()
