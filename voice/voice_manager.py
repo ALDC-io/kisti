@@ -277,8 +277,8 @@ class VoiceManager(QObject):
         self._led = LEDWaveformGenerator()
         self._mic = MicCapture(device=mic_device, wake_model=os.environ.get("KISTI_WAKE_MODEL")) if enable_mic else None
 
-        self._state = VoiceState.IDLE
-        self._toggle_state = VoiceToggleState.NORMAL
+        self._state = VoiceState.OFF
+        self._toggle_state = VoiceToggleState.OFF
         self._si_drive_mode = SIDriveMode.INTELLIGENT
 
         # Shared waveform data — written by voice thread, polled by UI thread.
