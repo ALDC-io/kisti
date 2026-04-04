@@ -155,6 +155,12 @@ class AlertEngine(QObject):
         # Once-per-session: each alert type fires voice ONCE then never again
         self._fired_types: set[str] = set()
 
+        # Smart grip: rolling 60s window (2Hz × 120 = 120 samples)
+        # Only announces genuine condition transitions (>60% dominance)
+        from collections import deque as _deque
+        self._surface_history: _deque = _deque(maxlen=120)
+        self._announced_grip: Optional[SurfaceState] = None
+
         # Check timer (2 Hz)
         self._timer = QTimer(self)
         self._timer.setInterval(500)
@@ -341,22 +347,63 @@ class AlertEngine(QObject):
             ))
 
     def _check_grip(self, state: DiffState) -> None:
-        """Grip/surface change advisory."""
+        """Smart grip: rolling 60s window, only announces genuine transitions.
+
+        Tracks surface state at 2Hz. When >60% of the window is a new
+        dominant state, announces the transition once. Brief excursions
+        (tunnels, bridges) are filtered out. Bypasses _fire()/_fired_types
+        since it manages its own lifecycle via _announced_grip.
+        """
+        from collections import Counter
         from model.vehicle_state import SurfaceState
-        if state.surface_state == SurfaceState.LOW_GRIP:
-            self._fire(Alert(
+
+        self._surface_history.append(state.surface_state)
+
+        if len(self._surface_history) < 20:  # need 10s of data minimum
+            return
+
+        counts = Counter(self._surface_history)
+        dominant, count = counts.most_common(1)[0]
+        pct = count / len(self._surface_history)
+
+        if pct < 0.6:
+            return  # no clear dominant state — mixed conditions
+
+        if dominant == self._announced_grip:
+            return  # already announced this condition
+
+        prev = self._announced_grip
+        self._announced_grip = dominant
+
+        if dominant == SurfaceState.LOW_GRIP:
+            alert = Alert(
                 alert_type="grip_low_grip",
                 severity=AlertSeverity.ADVISORY,
                 message="Low grip.",
                 short_message="LOW GRIP",
-            ))
-        elif state.surface_state in (SurfaceState.WET, SurfaceState.COLD):
-            self._fire(Alert(
-                alert_type=f"grip_{state.surface_state.label.lower()}",
+            )
+            log.info("GRIP [%.0f%%] → LOW GRIP", pct * 100)
+            self.alert_fired.emit(alert)
+            if alert.alert_type in self.VOICE_ALERT_TYPES:
+                self.voice_alert.emit(alert)
+        elif dominant in (SurfaceState.WET, SurfaceState.COLD):
+            alert = Alert(
+                alert_type=f"grip_{dominant.label.lower()}",
                 severity=AlertSeverity.ADVISORY,
-                message=f"{state.surface_state.label} surface.",
-                short_message=f"Grip: {state.surface_state.label}",
-            ))
+                message=f"{dominant.label} surface.",
+                short_message=f"Grip: {dominant.label}",
+            )
+            log.info("GRIP [%.0f%%] → %s", pct * 100, dominant.label)
+            self.alert_fired.emit(alert)
+        elif dominant == SurfaceState.DRY and prev in (SurfaceState.LOW_GRIP, SurfaceState.WET, SurfaceState.COLD):
+            alert = Alert(
+                alert_type="grip_cleared",
+                severity=AlertSeverity.INFO,
+                message="Grip restored.",
+                short_message="DRY",
+            )
+            log.info("GRIP [%.0f%%] → DRY (cleared)", pct * 100)
+            self.alert_fired.emit(alert)
 
     def _check_high_g(self, state: DiffState) -> None:
         """High G-force alert from IMU accelerometer."""
