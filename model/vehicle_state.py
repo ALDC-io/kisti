@@ -357,11 +357,14 @@ class DiffStateBridge(QObject):
     state_changed = Signal()       # lightweight notification (no payload)
     si_drive_changed = Signal(int) # emitted when SI Drive mode changes (new mode int)
     keypad_pressed = Signal(int)   # emitted on keypad button press (button mask)
+    surface_state_changed = Signal(str, str)  # (from_state, to_state)
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
         self._state = DiffState()
         self._lock = threading.Lock()
+        self._prev_surface_state: Optional[SurfaceState] = None
+        self._road_log_count: int = 0
 
     def snapshot(self) -> DiffState:
         """Return a thread-safe copy of the current state."""
@@ -383,6 +386,7 @@ class DiffStateBridge(QObject):
         with self._lock:
             self._state.dccd_command_pct = dccd_command_pct
             self._state.dccd_dial_pct = dccd_dial_pct
+            prev_ss = self._state.surface_state
             self._state.surface_state = surface_state
             self._state.brake = brake
             self._state.handbrake = handbrake
@@ -391,6 +395,8 @@ class DiffStateBridge(QObject):
             self._state.slip_delta = slip_delta
             self._state.diff_frame_ts = time.monotonic()
             self._state.can_connected = True
+        if prev_ss != surface_state:
+            self.surface_state_changed.emit(prev_ss.label, surface_state.label)
         self.state_changed.emit()
 
     def update_context(
@@ -606,8 +612,6 @@ class DiffStateBridge(QObject):
             self._state.flir_frame_ts = time.monotonic()
         self.state_changed.emit()
 
-    _road_log_count: int = 0
-
     def update_road_surface(self, left: float, center: float, right: float) -> None:
         """Called from FLIR Lepton reader with road surface temps for 3 horizontal zones (°C)."""
         self._road_log_count += 1
@@ -644,6 +648,12 @@ class DiffStateBridge(QObject):
                         self._state.surface_state = SurfaceState.WET
                     else:
                         self._state.surface_state = SurfaceState.DRY
+        # Emit surface_state_changed if state actually changed
+        current_ss = self._state.surface_state
+        if self._prev_surface_state is not None and current_ss != self._prev_surface_state:
+            self.surface_state_changed.emit(
+                self._prev_surface_state.label, current_ss.label)
+        self._prev_surface_state = current_ss
         self.state_changed.emit()
 
     def update_ambient(

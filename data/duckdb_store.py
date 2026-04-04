@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     end_time TIMESTAMP,
     session_type TEXT,
     si_drive_mode TEXT,
+    session_name TEXT,
+    route_tag TEXT,
     synced BOOLEAN DEFAULT FALSE
 );
 
@@ -220,6 +222,52 @@ CREATE TABLE IF NOT EXISTS lap_times (
     theoretical_best_s DOUBLE,
     timestamp TIMESTAMP
 );
+
+-- Data collection: FLIR thermal readings at 3Hz
+CREATE TABLE IF NOT EXISTS flir_readings (
+    timestamp TIMESTAMP,
+    session_id TEXT,
+    road_temp_left DOUBLE,
+    road_temp_center DOUBLE,
+    road_temp_right DOUBLE,
+    surface_state TEXT,
+    warm_object_detected BOOLEAN DEFAULT FALSE
+);
+
+-- Data collection: surface state transitions
+CREATE TABLE IF NOT EXISTS surface_transitions (
+    transition_id TEXT PRIMARY KEY,
+    timestamp TIMESTAMP,
+    session_id TEXT,
+    from_state TEXT,
+    to_state TEXT,
+    road_temp_c DOUBLE,
+    dew_point_c DOUBLE,
+    delta_c DOUBLE
+);
+
+-- Data collection: knock events for tune health tracking
+CREATE TABLE IF NOT EXISTS knock_events (
+    event_id TEXT PRIMARY KEY,
+    timestamp TIMESTAMP,
+    session_id TEXT,
+    knock_count_delta INTEGER,
+    rpm DOUBLE,
+    boost_psi DOUBLE,
+    gear INTEGER,
+    iam DOUBLE
+);
+
+-- Data collection: pattern detection engine output
+CREATE TABLE IF NOT EXISTS patterns (
+    pattern_id TEXT PRIMARY KEY,
+    timestamp TIMESTAMP,
+    session_id TEXT,
+    pattern_type TEXT,
+    severity TEXT,
+    value DOUBLE,
+    context_json JSON
+);
 """
 
 
@@ -275,15 +323,20 @@ class DuckDBStore:
         car_id: str = "kisti-sti",
         session_type: str = "street",
         si_drive_mode: str = "Intelligent",
+        session_name: str = "",
+        route_tag: str = "",
     ) -> str:
         """Start a new recording session. Returns session_id."""
         sid = _new_id()
         self._conn.execute(
-            "INSERT INTO sessions (session_id, driver_id, car_id, start_time, session_type, si_drive_mode) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            [sid, driver_id, car_id, _now(), session_type, si_drive_mode],
+            "INSERT INTO sessions (session_id, driver_id, car_id, start_time, "
+            "session_type, si_drive_mode, session_name, route_tag) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [sid, driver_id, car_id, _now(), session_type, si_drive_mode,
+             session_name or None, route_tag or None],
         )
-        log.info("Session started: %s (%s)", sid[:8], session_type)
+        log.info("Session started: %s (%s) name=%s route=%s",
+                 sid[:8], session_type, session_name or "-", route_tag or "-")
         return sid
 
     def end_session(self, session_id: str) -> None:
@@ -417,6 +470,83 @@ class DuckDBStore:
         return aid
 
     # -------------------------------------------------------------------
+    # Data collection: FLIR, surface transitions, knock events, patterns
+    # -------------------------------------------------------------------
+
+    def record_flir_temps(
+        self,
+        session_id: str,
+        road_temp_left: float,
+        road_temp_center: float,
+        road_temp_right: float,
+        surface_state: str = "",
+        warm_object_detected: bool = False,
+    ) -> None:
+        """Record FLIR thermal reading (called at 3Hz)."""
+        self._conn.execute(
+            "INSERT INTO flir_readings VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [_now(), session_id, road_temp_left, road_temp_center,
+             road_temp_right, surface_state, warm_object_detected],
+        )
+
+    def record_surface_transition(
+        self,
+        session_id: str,
+        from_state: str,
+        to_state: str,
+        road_temp_c: float = 0.0,
+        dew_point_c: float = 0.0,
+    ) -> str:
+        """Record a surface state transition (DRY→WET, etc)."""
+        tid = _new_id()
+        delta = road_temp_c - dew_point_c if road_temp_c != 0.0 else 0.0
+        self._conn.execute(
+            "INSERT INTO surface_transitions VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [tid, _now(), session_id, from_state, to_state,
+             road_temp_c, dew_point_c, delta],
+        )
+        log.debug("Surface transition: %s → %s (delta=%.1f°C)", from_state, to_state, delta)
+        return tid
+
+    def record_knock_event(
+        self,
+        session_id: str,
+        knock_count_delta: int,
+        rpm: float = 0.0,
+        boost_psi: float = 0.0,
+        gear: int = 0,
+        iam: float = 1.0,
+    ) -> str:
+        """Record a knock event for tune health tracking."""
+        eid = _new_id()
+        self._conn.execute(
+            "INSERT INTO knock_events VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [eid, _now(), session_id, knock_count_delta, rpm, boost_psi, gear, iam],
+        )
+        log.info("Knock event: delta=%d rpm=%.0f boost=%.1f gear=%d IAM=%.3f",
+                 knock_count_delta, rpm, boost_psi, gear, iam)
+        return eid
+
+    def record_pattern(
+        self,
+        session_id: str,
+        pattern_type: str,
+        severity: str = "info",
+        value: float = 0.0,
+        context: Optional[dict] = None,
+    ) -> str:
+        """Record a detected pattern from the pattern engine."""
+        pid = _new_id()
+        import json
+        self._conn.execute(
+            "INSERT INTO patterns VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [pid, _now(), session_id, pattern_type, severity, value,
+             json.dumps(context) if context else None],
+        )
+        log.debug("Pattern detected: %s severity=%s value=%.2f", pattern_type, severity, value)
+        return pid
+
+    # -------------------------------------------------------------------
     # Segments
     # -------------------------------------------------------------------
 
@@ -484,7 +614,8 @@ class DuckDBStore:
         output_dir.mkdir(parents=True, exist_ok=True)
         files = []
 
-        for table in ["telemetry", "thermal_state", "events", "alerts", "lap_times"]:
+        for table in ["telemetry", "thermal_state", "events", "alerts", "lap_times",
+                      "flir_readings", "surface_transitions", "knock_events", "patterns"]:
             # Check if there's data to export
             count = self._conn.execute(
                 f"SELECT COUNT(*) FROM {table} WHERE session_id = ?", [session_id]
@@ -535,7 +666,9 @@ class DuckDBStore:
         count = len(sids)
 
         for sid in sids:
-            for table in ["telemetry", "thermal_state", "events", "alerts", "segments", "summaries"]:
+            for table in ["telemetry", "thermal_state", "events", "alerts", "segments",
+                          "summaries", "flir_readings", "surface_transitions",
+                          "knock_events", "patterns"]:
                 self._conn.execute(f"DELETE FROM {table} WHERE session_id = ?", [sid])
             self._conn.execute("DELETE FROM sessions WHERE session_id = ?", [sid])
 
@@ -606,7 +739,8 @@ class DuckDBStore:
         stats = {}
         for table in ["sessions", "telemetry", "thermal_state", "events", "alerts",
                        "segments", "summaries", "ambient_conditions", "service_events",
-                       "voice_latency", "tracks", "lap_times"]:
+                       "voice_latency", "tracks", "lap_times",
+                       "flir_readings", "surface_transitions", "knock_events", "patterns"]:
             count = self._conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
             stats[table] = count
 

@@ -538,22 +538,79 @@ def main():
 
         threading.Thread(target=_push, daemon=True).start()
 
-    # --- DuckDB session lifecycle (K1 start/stop, telemetry recording) ---
+    # --- DuckDB session lifecycle + data collection ---
     session_id = None
     telemetry_tick = [0]  # mutable for closure
+    _telemetry_buffer = []  # batch buffer for native-rate telemetry
+    _prev_knock_count = [0]  # track knock count changes
 
     if db_store:
         def _on_state_changed():
             telemetry_tick[0] += 1
-            # Record telemetry at ~1 Hz (bridge fires at 20-50 Hz)
-            if session_id and telemetry_tick[0] % 20 == 0:
-                try:
-                    db_store.record_telemetry(session_id, bridge.snapshot())
-                except Exception:
-                    pass
+            if not session_id:
+                # Feed voice telemetry context every ~5s even without session
+                if voice_mgr and telemetry_tick[0] % 100 == 0:
+                    voice_mgr.set_telemetry(bridge.snapshot())
+                return
+
+            # Buffer telemetry at native rate (bridge fires at 20-50 Hz)
+            try:
+                snap = bridge.snapshot()
+                _telemetry_buffer.append(snap)
+
+                # Flush buffer every ~1 second (every 50 ticks at 50Hz)
+                if telemetry_tick[0] % 50 == 0 and _telemetry_buffer:
+                    for s in _telemetry_buffer:
+                        db_store.record_telemetry(session_id, s)
+                    _telemetry_buffer.clear()
+
+                # Track knock count changes for knock_events table
+                # (knock_count and iam come from Link G5 CAN when configured)
+                knock = getattr(snap, 'knock_count', None)
+                if knock is not None and knock > _prev_knock_count[0]:
+                    delta = knock - _prev_knock_count[0]
+                    boost_psi = (getattr(snap, 'map_kpa', 0) or 0) * 0.14503773 - 14.696
+                    db_store.record_knock_event(
+                        session_id, delta,
+                        rpm=snap.rpm or 0,
+                        boost_psi=max(0, boost_psi),
+                        gear=snap.gear or 0,
+                        iam=getattr(snap, 'iam', 1.0) or 1.0,
+                    )
+                if knock is not None:
+                    _prev_knock_count[0] = knock
+
+            except Exception:
+                pass
+
             # Feed voice telemetry context every ~5s
             if voice_mgr and telemetry_tick[0] % 100 == 0:
                 voice_mgr.set_telemetry(bridge.snapshot())
+
+        def _on_flir_temps(temps):
+            """Log FLIR road temps to DuckDB at 3Hz."""
+            if session_id:
+                try:
+                    snap = bridge.snapshot()
+                    db_store.record_flir_temps(
+                        session_id, temps.left, temps.center, temps.right,
+                        snap.surface_state.label,
+                    )
+                except Exception:
+                    pass
+
+        def _on_surface_state_changed(from_state: str, to_state: str):
+            """Log surface state transitions to DuckDB."""
+            if session_id:
+                try:
+                    snap = bridge.snapshot()
+                    db_store.record_surface_transition(
+                        session_id, from_state, to_state,
+                        snap.road_temp_center or 0.0,
+                        snap.dew_point_c or 0.0,
+                    )
+                except Exception:
+                    pass
 
         def _on_session_toggle():
             nonlocal session_id
@@ -561,12 +618,22 @@ def main():
                 session_id = db_store.start_session(
                     si_drive_mode=mode_mgr.si_drive_mode.label,
                 )
+                _prev_knock_count[0] = 0
+                _telemetry_buffer.clear()
                 if timing_mgr:
                     timing_mgr.set_session_id(session_id)
                 if voice_mgr:
                     voice_mgr.speak("Session recording started.")
                 log.info("Session started: %s", session_id[:8])
             else:
+                # Flush remaining telemetry buffer
+                if _telemetry_buffer:
+                    for s in _telemetry_buffer:
+                        try:
+                            db_store.record_telemetry(session_id, s)
+                        except Exception:
+                            pass
+                    _telemetry_buffer.clear()
                 # Mode-aware timing debrief before ending session
                 if timing_mgr and voice_mgr:
                     summary = timing_mgr.get_session_summary()
@@ -606,7 +673,13 @@ def main():
                 session_id = None
 
         bridge.state_changed.connect(_on_state_changed)
+        bridge.surface_state_changed.connect(_on_surface_state_changed)
         mode_mgr.session_toggle.connect(_on_session_toggle)
+
+        # Wire FLIR temps to DuckDB (3Hz logging)
+        if flir_reader:
+            flir_reader.temps_updated.connect(_on_flir_temps)
+            log.info("FLIR → DuckDB wired (3Hz road temps)")
 
         # Record alerts to DuckDB
         alert_eng.alert_fired.connect(
@@ -615,7 +688,7 @@ def main():
                 a.alert_type, a.severity.label, a.message, a.value,
             )
         )
-        log.info("DuckDB session lifecycle wired (K1 start/stop)")
+        log.info("DuckDB data collection wired (native-rate telemetry, FLIR 3Hz, surface transitions, knock events)")
 
     # --- UI vs Headless ---
     window = None

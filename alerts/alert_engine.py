@@ -103,7 +103,24 @@ class AlertEngine(QObject):
         alert_fired(Alert): New alert generated
     """
 
-    alert_fired = Signal(object)  # Alert dataclass
+    alert_fired = Signal(object)       # Alert dataclass — all alerts (for DuckDB logging)
+    voice_alert = Signal(object)       # Alert — safety-critical only (for TTS)
+    display_alert = Signal(object)     # Alert — display-only (ABS/VDC, ambient, etc)
+
+    # Voice-eligible alert types — only these produce voice output while driving.
+    # Everything else is logged silently or displayed without voice.
+    VOICE_ALERT_TYPES = frozenset({
+        "oil_pressure_low",
+        "oil_pressure_critical",
+        "coolant_critical",       # safety: overtemp requires immediate action
+        "fuel_pressure_critical", # safety: fuel starvation
+    })
+
+    # Display-only alert types (shown on screen, no voice)
+    DISPLAY_ALERT_TYPES = frozenset({
+        "grip_wet", "grip_cold", "grip_low_grip",
+        "high_g_advisory", "high_g_warning",
+    })
 
     def __init__(
         self,
@@ -463,3 +480,9 @@ class AlertEngine(QObject):
         self._last_alert[alert.alert_type] = now
         log.info("ALERT [%s] %s: %s", alert.severity.label, alert.alert_type, alert.short_message)
         self.alert_fired.emit(alert)
+
+        # Route: voice for safety-critical, display for visual-only, silent for the rest
+        if alert.alert_type in self.VOICE_ALERT_TYPES:
+            self.voice_alert.emit(alert)
+        elif alert.alert_type in self.DISPLAY_ALERT_TYPES:
+            self.display_alert.emit(alert)
