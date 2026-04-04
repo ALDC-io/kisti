@@ -1409,3 +1409,71 @@ class TestG5DispatchIntegration:
         bad_data = bytes([0, 0xFF]) + struct.pack('<hhh', 1000, 1000, 500)
         listener._dispatch_frame(GENERIC_DASH_BASE_ID, bad_data)
         bridge.update_generic_dash_1.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# MockCanGenerator demo mode tests
+# ---------------------------------------------------------------------------
+
+class TestMockCanDemoMode:
+    """Test that MockCanGenerator.set_demo_mode controls SI-Drive cycling."""
+
+    @pytest.fixture(autouse=True)
+    def _qapp(self):
+        import os
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PySide6.QtWidgets import QApplication
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication([])
+        self.app = app
+
+    def _make_mock(self):
+        from can.kisti_can import MockCanGenerator
+        from model.vehicle_state import DiffStateBridge
+        bridge = DiffStateBridge()
+        mock = MockCanGenerator(bridge)
+        return mock, bridge
+
+    def test_default_locked_to_intelligent(self):
+        """Without demo mode, SI-Drive stays at 0 (Intelligent)."""
+        mock, bridge = self._make_mock()
+        # Tick many times — should stay at mode 0
+        for _ in range(200):
+            mock._si_drive_tick()
+        snap = bridge.snapshot()
+        assert snap.si_drive_mode == 0
+
+    def test_demo_mode_cycles(self):
+        """With demo mode, SI-Drive cycles 0→1→2→0 every 15s."""
+        from can.can_config import MOCK_SI_DRIVE_HZ
+        mock, bridge = self._make_mock()
+        mock.set_demo_mode(True)
+        ticks_per_15s = int(15.0 * MOCK_SI_DRIVE_HZ) + 1
+
+        # Start at Intelligent (0)
+        mock._si_drive_tick()
+        assert bridge.snapshot().si_drive_mode == 0
+
+        # Tick past 15s → should advance to Sport (1)
+        for _ in range(ticks_per_15s):
+            mock._si_drive_tick()
+        assert bridge.snapshot().si_drive_mode == 1
+
+        # Another 15s → Sport Sharp (2)
+        for _ in range(ticks_per_15s):
+            mock._si_drive_tick()
+        assert bridge.snapshot().si_drive_mode == 2
+
+        # Another 15s → back to Intelligent (0)
+        for _ in range(ticks_per_15s):
+            mock._si_drive_tick()
+        assert bridge.snapshot().si_drive_mode == 0
+
+    def test_demo_mode_resets_state(self):
+        """set_demo_mode(True) resets SI-Drive to Intelligent."""
+        mock, bridge = self._make_mock()
+        mock._si_drive = 2  # pretend we're in Sport Sharp
+        mock.set_demo_mode(True)
+        assert mock._si_drive == 0
+        assert mock._si_drive_timer == 0.0

@@ -885,6 +885,7 @@ class MockCanGenerator(QObject):
         super().__init__(parent)
         self._bridge = bridge
         self._t = 0.0
+        self._demo_mode = False  # When True, SI-Drive cycles I→S→S# every 15s
 
         # Internal state for smooth random walk
         self._dccd_cmd = 40.0
@@ -982,6 +983,14 @@ class MockCanGenerator(QObject):
         self._amb_timer = QTimer(self)
         self._amb_timer.setInterval(1000)  # 1 Hz — weather changes slowly
         self._amb_timer.timeout.connect(self._ambient_tick)
+
+    def set_demo_mode(self, enabled: bool) -> None:
+        """Enable trade-show demo mode: SI-Drive cycles I→S→S# every 15s."""
+        self._demo_mode = enabled
+        if enabled:
+            self._si_drive = 0
+            self._si_drive_timer = 0.0
+            log.info("Demo mode enabled — SI-Drive will cycle every 15s")
 
     def start(self) -> None:
         self._diff_timer.start()
@@ -1222,8 +1231,13 @@ class MockCanGenerator(QObject):
         )
 
     def _si_drive_tick(self) -> None:
-        """Mock SI Drive mode — locked to Intelligent (mode 0) for FLIR testing."""
-        self._bridge.update_si_drive(mode=0)
+        """Mock SI Drive mode — cycles I→S→S# in demo, locked to I otherwise."""
+        if self._demo_mode:
+            self._si_drive_timer += 1.0 / MOCK_SI_DRIVE_HZ
+            if self._si_drive_timer > 15.0:
+                self._si_drive_timer = 0.0
+                self._si_drive = (self._si_drive + 1) % 3
+        self._bridge.update_si_drive(mode=self._si_drive)
 
     def _sensor_tick(self) -> None:
         """Mock extended sensor data."""

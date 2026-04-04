@@ -280,6 +280,13 @@ class TestFLIRPoll:
         reader._cv2 = mock_cv2
         reader.temps_updated = MagicMock()
         reader.frame_updated = MagicMock()
+        reader.warm_object_detected = MagicMock()
+
+        # Warm object detection state
+        reader._baseline_temp_ck = 0.0
+        reader._baseline_ready = False
+        reader._consecutive_warm = 0
+        reader._last_warm_position = ""
 
         return reader, RoadSurfaceTemps, np, frame_data
 
@@ -356,8 +363,200 @@ class TestFLIRPoll:
         reader._cv2 = mock_cv2
         reader.temps_updated = MagicMock()
         reader.frame_updated = MagicMock()
+        reader.warm_object_detected = MagicMock()
+        reader._baseline_temp_ck = 0.0
+        reader._baseline_ready = False
+        reader._consecutive_warm = 0
+        reader._last_warm_position = ""
 
         reader._poll()
 
         assert reader.frame_updated.emit.called, "frame_updated should fire for BGR frame"
         assert not reader.temps_updated.emit.called, "temps_updated must NOT fire for non-radiometric BGR frame"
+
+
+# ---------------------------------------------------------------------------
+# Warm object detection
+# ---------------------------------------------------------------------------
+
+class TestWarmObjectDetection:
+    """Test the numpy hot-spot warm object detection in FLIRLeptonReader."""
+
+    def _make_reader(self):
+        _, ROIConfig, FLIRLeptonReader, _ = _import_module()
+        try:
+            import numpy as np
+        except ImportError:
+            pytest.skip("numpy not available")
+
+        reader = FLIRLeptonReader.__new__(FLIRLeptonReader)
+        reader._np = np
+        reader._cv2 = MagicMock()
+        reader._roi = ROIConfig()
+        reader._baseline_temp_ck = 0.0
+        reader._baseline_ready = False
+        reader._consecutive_warm = 0
+        reader._last_warm_position = ""
+        reader.warm_object_detected = MagicMock()
+        return reader, np
+
+    def test_uniform_frame_no_detection(self):
+        """A uniform temperature frame should not trigger detection."""
+        reader, np = self._make_reader()
+        # ~25°C road = 29815 centi-Kelvin
+        frame = np.full((120, 160), 29815, dtype=np.uint16)
+        # First call seeds baseline
+        reader._detect_warm_objects(frame)
+        assert not reader.warm_object_detected.emit.called
+        # Second call should still not detect (uniform, no hot spot)
+        reader._detect_warm_objects(frame)
+        assert not reader.warm_object_detected.emit.called
+
+    def test_hot_blob_detected_after_debounce(self):
+        """A 30-pixel hot blob triggers detection after 2 consecutive frames."""
+        reader, np = self._make_reader()
+        road_ck = 29815  # ~25°C
+        hot_ck = road_ck + 1500  # 15°C above baseline (above 10°C threshold)
+
+        road_frame = np.full((120, 160), road_ck, dtype=np.uint16)
+        # Seed baseline
+        reader._detect_warm_objects(road_frame)
+        assert not reader.warm_object_detected.emit.called
+
+        # Frame with a hot blob (30 pixels in center)
+        hot_frame = road_frame.copy()
+        hot_frame[50:55, 75:81] = hot_ck  # 5x6 = 30 pixels, center zone
+
+        # Frame 1: detected but debounce not met
+        reader._detect_warm_objects(hot_frame)
+        assert not reader.warm_object_detected.emit.called
+
+        # Frame 2: debounce met → detection fires
+        reader._detect_warm_objects(hot_frame)
+        assert reader.warm_object_detected.emit.called
+        det = reader.warm_object_detected.emit.call_args[0][0]
+        assert det.position == "CENTER"
+        assert det.blob_pixels >= 30
+        assert det.peak_temp_c > 30.0  # much hotter than road
+
+    def test_blob_too_small_no_detection(self):
+        """A blob smaller than WARM_MIN_BLOB_PX should not trigger detection."""
+        reader, np = self._make_reader()
+        road_ck = 29815
+        hot_ck = road_ck + 1500
+
+        road_frame = np.full((120, 160), road_ck, dtype=np.uint16)
+        reader._detect_warm_objects(road_frame)  # seed baseline
+
+        # 3x3 = 9 pixels (below 20px minimum)
+        hot_frame = road_frame.copy()
+        hot_frame[60:63, 80:83] = hot_ck
+
+        for _ in range(5):
+            reader._detect_warm_objects(hot_frame)
+        assert not reader.warm_object_detected.emit.called
+
+    def test_position_left(self):
+        """Hot blob on the left side (x < 53) → position LEFT."""
+        reader, np = self._make_reader()
+        road_ck = 29815
+        hot_ck = road_ck + 1500
+
+        road_frame = np.full((120, 160), road_ck, dtype=np.uint16)
+        reader._detect_warm_objects(road_frame)  # seed baseline
+
+        hot_frame = road_frame.copy()
+        hot_frame[50:55, 10:16] = hot_ck  # 5x6=30px, left zone (x=10-15)
+
+        reader._detect_warm_objects(hot_frame)
+        reader._detect_warm_objects(hot_frame)
+        det = reader.warm_object_detected.emit.call_args[0][0]
+        assert det.position == "LEFT"
+
+    def test_position_right(self):
+        """Hot blob on the right side (x >= 107) → position RIGHT."""
+        reader, np = self._make_reader()
+        road_ck = 29815
+        hot_ck = road_ck + 1500
+
+        road_frame = np.full((120, 160), road_ck, dtype=np.uint16)
+        reader._detect_warm_objects(road_frame)  # seed baseline
+
+        hot_frame = road_frame.copy()
+        hot_frame[50:55, 130:136] = hot_ck  # 5x6=30px, right zone (x=130-135)
+
+        reader._detect_warm_objects(hot_frame)
+        reader._detect_warm_objects(hot_frame)
+        det = reader.warm_object_detected.emit.call_args[0][0]
+        assert det.position == "RIGHT"
+
+    def test_debounce_resets_on_no_blob(self):
+        """If a frame has no warm blob, consecutive counter resets."""
+        reader, np = self._make_reader()
+        road_ck = 29815
+        hot_ck = road_ck + 1500
+
+        road_frame = np.full((120, 160), road_ck, dtype=np.uint16)
+        reader._detect_warm_objects(road_frame)  # seed baseline
+
+        hot_frame = road_frame.copy()
+        hot_frame[50:55, 75:81] = hot_ck  # 30px blob
+
+        # Frame 1: warm blob (consecutive=1)
+        reader._detect_warm_objects(hot_frame)
+        assert not reader.warm_object_detected.emit.called
+
+        # Frame 2: no warm blob → resets consecutive counter
+        reader._detect_warm_objects(road_frame)
+        assert not reader.warm_object_detected.emit.called
+
+        # Frame 3: warm blob again (consecutive=1, not 2)
+        reader._detect_warm_objects(hot_frame)
+        assert not reader.warm_object_detected.emit.called
+
+
+class TestLabelBlobs:
+    """Test the numpy-only connected component labeling."""
+
+    def test_empty_mask(self):
+        from sensors.flir_lepton_reader import _label_blobs
+        try:
+            import numpy as np
+        except ImportError:
+            pytest.skip("numpy not available")
+
+        mask = np.zeros((10, 10), dtype=bool)
+        labels, n = _label_blobs(mask, np)
+        assert n == 0
+        assert labels.sum() == 0
+
+    def test_single_blob(self):
+        from sensors.flir_lepton_reader import _label_blobs
+        try:
+            import numpy as np
+        except ImportError:
+            pytest.skip("numpy not available")
+
+        mask = np.zeros((10, 10), dtype=bool)
+        mask[3:6, 3:6] = True  # 3x3 blob
+        labels, n = _label_blobs(mask, np)
+        assert n == 1
+        assert (labels[3:6, 3:6] > 0).all()
+        assert labels[0, 0] == 0
+
+    def test_two_separate_blobs(self):
+        from sensors.flir_lepton_reader import _label_blobs
+        try:
+            import numpy as np
+        except ImportError:
+            pytest.skip("numpy not available")
+
+        mask = np.zeros((10, 10), dtype=bool)
+        mask[0:2, 0:2] = True   # blob A (top-left)
+        mask[8:10, 8:10] = True  # blob B (bottom-right)
+        labels, n = _label_blobs(mask, np)
+        assert n == 2
+        # Two blobs should have different labels
+        assert labels[0, 0] != labels[9, 9]
+        assert labels[0, 0] > 0
+        assert labels[9, 9] > 0

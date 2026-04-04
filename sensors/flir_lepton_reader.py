@@ -17,6 +17,7 @@ centi-Kelvin values (uint16). Convert: temp_C = raw / 100.0 - 273.15
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -34,6 +35,26 @@ class RoadSurfaceTemps:
     left: float = 0.0
     center: float = 0.0
     right: float = 0.0
+
+
+@dataclass
+class WarmObjectDetection:
+    """A warm object detected in the FLIR thermal frame."""
+    position: str          # "LEFT", "CENTER", "RIGHT"
+    peak_temp_c: float     # hottest pixel in blob (Celsius)
+    blob_pixels: int       # number of pixels in blob
+    timestamp: float = field(default_factory=time.monotonic)
+
+
+# Warm object detection parameters
+WARM_THRESHOLD_C = 10.0    # degrees above road baseline to trigger
+WARM_MIN_BLOB_PX = 20      # minimum blob size (pixels)
+WARM_DEBOUNCE_FRAMES = 2   # consecutive frames required
+WARM_BASELINE_ALPHA = 0.1  # EMA smoothing (lower = slower adaptation)
+
+# Zone boundaries for 160px wide frame
+_ZONE_LEFT_MAX = 53        # pixels 0-52 = LEFT
+_ZONE_CENTER_MAX = 107     # pixels 53-106 = CENTER, 107-159 = RIGHT
 
 
 @dataclass
@@ -63,8 +84,9 @@ class FLIRLeptonReader(QObject):
     Follows the same QObject + QTimer + Signal pattern as YoctopuceReader.
     """
 
-    temps_updated = Signal(object)   # emits RoadSurfaceTemps
-    frame_updated = Signal(object)   # emits raw uint16 numpy frame (before ROI processing)
+    temps_updated = Signal(object)          # emits RoadSurfaceTemps
+    frame_updated = Signal(object)          # emits raw uint16 numpy frame (before ROI processing)
+    warm_object_detected = Signal(object)   # emits WarmObjectDetection
 
     def __init__(
         self,
@@ -80,6 +102,12 @@ class FLIRLeptonReader(QObject):
         self._last_temps = RoadSurfaceTemps()
         self._np = None   # numpy module reference
         self._cv2 = None  # cv2 module reference
+
+        # Warm object detection state
+        self._baseline_temp_ck: float = 0.0  # EMA of frame median in centi-Kelvin
+        self._baseline_ready = False          # True after first frame seeds baseline
+        self._consecutive_warm: int = 0       # consecutive frames with warm blob(s)
+        self._last_warm_position: str = ""    # zone of last detected blob
 
         self._timer = QTimer(self)
         self._timer.setInterval(POLL_INTERVAL_MS)
@@ -194,6 +222,10 @@ class FLIRLeptonReader(QObject):
             self._last_temps = RoadSurfaceTemps(left=left_temp, center=center_temp, right=right_temp)
             self.temps_updated.emit(self._last_temps)
 
+            # Warm object detection (radiometric frames only)
+            if frame.dtype == self._np.uint16:
+                self._detect_warm_objects(thermal)
+
         except Exception as exc:
             log.debug("FLIR poll error: %s", exc)
 
@@ -228,3 +260,125 @@ class FLIRLeptonReader(QObject):
         self._roi = roi
         log.info("FLIR ROI updated: left=%s center=%s right=%s",
                  roi.left, roi.center, roi.right)
+
+    # ------------------------------------------------------------------
+    # Warm object detection (numpy-only, no scipy)
+    # ------------------------------------------------------------------
+
+    def _detect_warm_objects(self, thermal: 'numpy.ndarray') -> None:
+        """Detect warm objects above road baseline using thresholding + blob analysis.
+
+        Algorithm:
+        1. Update road baseline via EMA of frame median (robust to outliers)
+        2. Threshold: pixels > baseline + WARM_THRESHOLD_C
+        3. Find connected blobs via numpy flood fill
+        4. Filter blobs >= WARM_MIN_BLOB_PX pixels
+        5. Debounce: require WARM_DEBOUNCE_FRAMES consecutive detections
+        6. Emit warm_object_detected signal with position (LEFT/CENTER/RIGHT)
+        """
+        np = self._np
+        if np is None:
+            return
+
+        # Convert threshold to centi-Kelvin (raw frame units)
+        threshold_ck = WARM_THRESHOLD_C * 100.0
+
+        # Update baseline using frame median (resistant to hot-spot outliers)
+        frame_median = float(np.median(thermal))
+        if not self._baseline_ready:
+            self._baseline_temp_ck = frame_median
+            self._baseline_ready = True
+            return  # need at least one frame to establish baseline
+        self._baseline_temp_ck += WARM_BASELINE_ALPHA * (frame_median - self._baseline_temp_ck)
+
+        # Threshold: pixels significantly warmer than road baseline
+        hot_mask = thermal > (self._baseline_temp_ck + threshold_ck)
+        hot_count = int(np.sum(hot_mask))
+
+        if hot_count < WARM_MIN_BLOB_PX:
+            self._consecutive_warm = 0
+            return
+
+        # Find connected blobs via label_blobs (numpy-only)
+        labels, n_labels = _label_blobs(hot_mask, np)
+        if n_labels == 0:
+            self._consecutive_warm = 0
+            return
+
+        # Find largest blob that meets minimum size
+        best_size = 0
+        best_label = 0
+        for lbl in range(1, n_labels + 1):
+            size = int(np.sum(labels == lbl))
+            if size >= WARM_MIN_BLOB_PX and size > best_size:
+                best_size = size
+                best_label = lbl
+
+        if best_label == 0:
+            self._consecutive_warm = 0
+            return
+
+        # Debounce: require consecutive frames
+        self._consecutive_warm += 1
+        if self._consecutive_warm < WARM_DEBOUNCE_FRAMES:
+            return
+
+        # Classify position by blob centroid x-coordinate
+        blob_mask = labels == best_label
+        ys, xs = np.where(blob_mask)
+        centroid_x = float(np.mean(xs))
+        if centroid_x < _ZONE_LEFT_MAX:
+            position = "LEFT"
+        elif centroid_x < _ZONE_CENTER_MAX:
+            position = "CENTER"
+        else:
+            position = "RIGHT"
+
+        # Peak temp in blob
+        peak_raw = float(np.max(thermal[blob_mask]))
+        peak_c = _raw_to_celsius(peak_raw)
+
+        detection = WarmObjectDetection(
+            position=position,
+            peak_temp_c=peak_c,
+            blob_pixels=best_size,
+        )
+        self.warm_object_detected.emit(detection)
+        log.info("Warm object detected: %s, peak=%.1f°C, %dpx",
+                 position, peak_c, best_size)
+
+
+def _label_blobs(mask: 'numpy.ndarray', np) -> tuple:
+    """Connected component labeling using iterative flood fill (numpy-only).
+
+    Args:
+        mask: 2D boolean array of hot pixels.
+        np: numpy module reference.
+
+    Returns:
+        (labels, n_labels) where labels is an int32 array with component IDs
+        and n_labels is the number of components found.
+    """
+    h, w = mask.shape
+    labels = np.zeros((h, w), dtype=np.int32)
+    current_label = 0
+
+    for y in range(h):
+        for x in range(w):
+            if mask[y, x] and labels[y, x] == 0:
+                current_label += 1
+                # Iterative flood fill using a stack
+                stack = [(y, x)]
+                while stack:
+                    cy, cx = stack.pop()
+                    if cy < 0 or cy >= h or cx < 0 or cx >= w:
+                        continue
+                    if not mask[cy, cx] or labels[cy, cx] != 0:
+                        continue
+                    labels[cy, cx] = current_label
+                    stack.append((cy - 1, cx))
+                    stack.append((cy + 1, cx))
+                    stack.append((cy, cx - 1))
+                    stack.append((cy, cx + 1))
+
+    return labels, current_label

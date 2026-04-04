@@ -52,7 +52,8 @@ def main():
     parser.add_argument("--no-duckdb", action="store_true", help="Disable DuckDB recording")
     parser.add_argument("--no-memory", action="store_true", help="Disable edge memory system")
     parser.add_argument("--no-zeus-sync", action="store_true", help="Disable Zeus memory sync")
-    parser.add_argument("--demo", action="store_true", help="Enable demo mode (idle chatter)")
+    parser.add_argument("--demo", action="store_true",
+                        help="Trade show mode: mock CAN telemetry + SI-Drive rotation")
     parser.add_argument("--sim-ambient", action="store_true",
                         help="Run ambient weather simulation (scripted scenario, ~90s)")
     parser.add_argument("--sim-voice", action="store_true",
@@ -145,9 +146,11 @@ def main():
     # Core: CAN bus bridge
     bridge = DiffStateBridge()
     listener, mock = create_can_source(bridge)
-    # Mock disabled — only real sensors (FLIR, Yocto, Korlan CAN)
-    # if mock is not None:
-    #     mock.start()
+    # Demo mode: start mock CAN with SI-Drive cycling for trade shows
+    if args.demo and mock is not None:
+        mock.set_demo_mode(True)
+        mock.start()
+        log.info("Demo mode: mock CAN active, SI-Drive cycling I→S→S# every 15s")
 
     # Mode manager: SI Drive → subsystem control
     mode_mgr = ModeManager(bridge)
@@ -287,6 +290,18 @@ def main():
 
         except Exception as exc:
             log.warning("Voice pipeline failed to start: %s", exc)
+
+    # Warm object detection → voice alert + coaching bar
+    if flir_reader is not None:
+        def _on_warm_object(det):
+            msg = f"Warm object ahead, {det.position.lower()}"
+            if voice_mgr is not None:
+                voice_mgr.speak_alert(msg, "warning")
+            log.info("WARM OBJECT %s: peak=%.1f°C, %dpx",
+                     det.position, det.peak_temp_c, det.blob_pixels)
+
+        flir_reader.warm_object_detected.connect(_on_warm_object)
+        log.info("Warm object detection enabled (FLIR → voice alerts)")
 
     # DuckDB session recording (optional)
     db_store = None
