@@ -89,8 +89,9 @@ HIGH_G_WARNING = 1.3    # g — aggressive, potential loss of control
 # GPS staleness
 GPS_STALE_TIMEOUT_S = 2.0  # seconds without GPS frame
 
-# Debounce: minimum time between repeated alerts of the same type (seconds)
-ALERT_DEBOUNCE_S = 30.0
+# Debounce: each alert type fires ONCE per session via voice.
+# Screen + Link ECU dash handle persistent display. Voice announces once.
+ALERT_DEBOUNCE_S = 0.0  # disabled — _fired_types set handles once-per-session
 
 
 class AlertEngine(QObject):
@@ -149,6 +150,9 @@ class AlertEngine(QObject):
 
         # Ice risk: fire once, reset only when conditions clear (delta > 3°C)
         self._ice_risk_active: bool = False
+
+        # Once-per-session: each alert type fires voice ONCE then never again
+        self._fired_types: set[str] = set()
 
         # Check timer (2 Hz)
         self._timer = QTimer(self)
@@ -496,7 +500,7 @@ class AlertEngine(QObject):
             self._prev_ambient_humidity = state.ambient_humidity_pct
 
     def _fire(self, alert: Alert) -> None:
-        """Fire an alert if not suppressed by mode and not debounced."""
+        """Fire an alert if not suppressed by mode. Each type fires once per session."""
         # Mode-aware suppression
         if self._si_drive_mode == SIDriveMode.SPORT_SHARP:
             if alert.severity < AlertSeverity.WARNING:
@@ -505,13 +509,12 @@ class AlertEngine(QObject):
             if alert.severity == AlertSeverity.INFO:
                 return
 
-        now = time.monotonic()
-        last = self._last_alert.get(alert.alert_type, 0.0)
+        # Once per session — voice announces once, screen/Link ECU handle persistence
+        if alert.alert_type in self._fired_types:
+            return
+        self._fired_types.add(alert.alert_type)
 
-        if now - last < ALERT_DEBOUNCE_S:
-            return  # Debounced
-
-        self._last_alert[alert.alert_type] = now
+        self._last_alert[alert.alert_type] = time.monotonic()
         log.info("ALERT [%s] %s: %s", alert.severity.label, alert.alert_type, alert.short_message)
         self.alert_fired.emit(alert)
 
