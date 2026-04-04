@@ -974,6 +974,13 @@ def main():
         from PySide6.QtCore import QTimer as _QTimer
         _QTimer.singleShot(3000, _headless_boot)
 
+    # Demo mode: auto-start session after 5s so PatternEngine + data collection
+    # run unattended (trade show / 30-min validation target)
+    if args.demo and db_store:
+        from PySide6.QtCore import QTimer as _DemoTimer
+        _DemoTimer.singleShot(5000, mode_mgr.session_toggle.emit)
+        log.info("Demo mode: auto-session start in 5s")
+
     # Run Qt event loop
     exit_code = app.exec()
 
