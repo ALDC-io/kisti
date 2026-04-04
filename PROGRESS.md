@@ -1,5 +1,113 @@
 # KiSTI - Progress
 
+## Session: 2026-04-04 (kisti-flir-05 Final Wrap — Learnings Synthesis)
+
+### Status: COMPLETE
+
+### Learnings Captured to Zeus Memory
+- ✅ 5 learnings posted to Zeus Memory (tenant 11111111, user jk)
+- 1x cce_success_log: ice detection validation with real hardware + PureThermal
+- 4x cce_decision_log: kill grip voice alerts (latency unactionable), TTS pronunciation, frame rate halving gotcha, future continuous color gradient UX
+
+### Key Insights
+1. **Grip voice alerts removed** — At driving speed, 10s rolling window latency means voice arrives 140-280m late. Screen feedback is instant + peripheral. Voice is wrong UX for continuous surface conditions.
+2. **TTS: "Kissty" not "Keesty Eye"** — One syllable vs three; cuts through 80+ dB engine audio at highway speeds. Updated TTS_SUBSTITUTIONS in voice/tts_engine.py.
+3. **Frame rate gotcha: cap.read() already blocks** — Added time.sleep() expecting throttle, got halving (9Hz → 4.5Hz). V4L2 native rate already blocks; don't double-throttle.
+4. **Ice detection validated** — Real test with dry ice on asphalt. Low grip alert fires after 5s sustained cold, restored after 10s. 1°C dew-point margin confirmed for production.
+5. **Next UX direction** — Continuous background color gradient (ice_risk_delta: green→amber→red) instead of discrete labels. Peripheral vision model. Designed for kisti-flir-06.
+
+### Handoff to kisti-flir-06
+- Jetson field validation (30+ min continuous, FLIR recovery scenarios)
+- Trade show dry run with demo mode
+- Implement continuous color gradient UX for surface conditions
+- Audio stress test (rapid alerts + FLIR recovery simultaneously)
+
+---
+
+## Session: 2026-04-04 (kisti-flir-05-continued-phase2 — Threaded FLIR Reader + Self-Healing USB Recovery)
+
+### Status: COMPLETE
+
+### Completed
+- **Threaded FLIR reader implementation** — Moved cap.read() from QTimer (main thread) to QThread worker. Main thread never blocks on V4L2 I/O. Eliminates 5-30 second UI freezes when PureThermal locks up. Event loop runs independently in worker.
+- **Self-healing FLIR recovery** — Worker thread detects consecutive read failures, performs USB reset via sysfs (`echo 0/1 > /sys/bus/usb/devices/.../authorized`), re-opens device. All recovery isolated to worker thread; main UI unaffected during recovery.
+- **USB reset security hardening** — Replaced `sudo bash -c` shell command with direct sysfs writes using pathlib.Path.write_text(). Eliminates shell injection vulnerability, faster execution.
+- **Graceful FLIR offline state** — Shows "FLIR offline — recovering..." UI indicator instead of freezing. User sees async recovery in progress.
+
+### Files Changed
+- `video/flir_reader.py` — NEW/REFACTORED, QThread worker for cap.read(), USB reset logic, retry loop (10x @ 5s backoff)
+- `main.py` — Integrated FLIRReaderThread, signals for frame_ready + offline state, graceful error handling
+- `ui/screens/video_screen.py` — Display "FLIR offline" during recovery
+
+### Key Decisions
+- **Worker thread over timeout property** — OpenCV CAP_PROP_READ_TIMEOUT_MSEC silently ignored by V4L2 backend. Threading is the only reliable way to prevent main thread blocking.
+- **Sysfs USB reset vs shell command** — Direct file writes over subprocess calls: safer, faster, more reliable.
+- **Retry loop 10x @ 5s** — PureThermal lockup sometimes survives software reset; 50s retry window before declaring offline.
+
+### Learnings Captured
+- ✅ 5 learnings posted to Zeus Memory (tenant 11111111, user jk)
+- 2x cce_success_log: threaded FLIR reader, self-healing recovery
+- 3x cce_decision_log: OpenCV timeout gotcha, USB reset security, PureThermal power cycle limitation
+
+### Don't Repeat
+- CAP_PROP_READ_TIMEOUT_MSEC is unreliable — don't set it expecting timeout behavior. Use threading.
+- Direct sysfs writes are safer than shell commands for USB control.
+- PureThermal may need power cycle, not just software reset — thread up to 10 retries before giving up.
+
+### Next Session (kisti-flir-06)
+1. Jetson field validation — run threaded reader on real Jetson for 30+ min, monitor recovery logs
+2. Trade show dry run — full demo mode with FLIR recovery scenarios
+3. Warm object temporal gating — re-enable with 3s minimum between alerts
+4. Audio stress test — rapid alerts while FLIR is recovering
+
+---
+
+## Session: 2026-04-04 (kisti-flir-05-continued — Live Jetson Audio + Voice Alert Tuning)
+
+### Status: COMPLETE
+
+### Completed
+- **PulseAudio routing diagnosis** — Identified silent audio failure: paplay sends to PA default sink without verification. Fixed by explicit PA sink assignment. Direct ALSA (plughw:0) confirmed working.
+- **USB speaker mono limitation** — Jieli UACDemoV1.0 requires plughw:0 for channel auto-conversion (hw:0 fails). ALSA plugin handles stereo→mono downmix transparently.
+- **Voice alert single-fire pattern** — Implemented _fired_types set to prevent spam. Alerts fire once per session; screen + ECU dash handle persistent state. Reduces cognitive load.
+- **Grip detection decoupled from CAN** — _check_grip moved out of engine-running gate, now runs sensor-independently like ice_risk. Enables Jetson-only operation.
+- **Warm object detection display-only** — Disabled voice (fired 9x/sec), kept visual alert. Pending 3s temporal gating to re-enable voice safely.
+- **Ice risk message phrasing simplified** — "Reduce speed. Ice risk." (action-first) vs "Road temp 3°C, dew point 2°C". Voice alerts now prioritize driver action.
+- **Jetson deployment path corrected** — GDM kisti-session auto-starts from ~/repos/kisti. rsync and launch scripts verified.
+- **Multi-instance lock contention resolved** — Kill all python3 main.py before restart to prevent FLIR/DuckDB lock fights.
+
+### Files Changed
+- `alerts/alert_engine.py` — _fired_types set, voice_alert gating, simplified ice_risk message
+- `main.py` — grip check sensor-independent gate removal
+- `model/vehicle_state.py` — ice_risk check decoupled from ECU gate
+- Jetson deployment scripts — path validation
+
+### Key Decisions
+- **One-fire voice alerts** — Announcement model (not persistent state) reduces driver distraction. Screen handles continuous display.
+- **Sensor-independent safety checks** — ice_risk and grip_detection run without CAN. Enables graceful degradation when ECU offline.
+- **Simplified voice copy** — Action (reduce speed) before data (temperatures). Humans process imperative + reasoning in sequence, not simultaneously.
+
+### Learnings Captured
+- ✅ 10 learnings posted to Zeus Memory (tenant 11111111, user jk)
+- 7x cce_failed_approach: PulseAudio routing, USB mono, warm object spam, FLIR lockup, grip gating, grip window tuning, multi-instance locks
+- 3x cce_decision_log: single-fire voice alerts, sensor-independent checks, simplified voice phrasing
+
+### Don't Repeat
+- PulseAudio silent failures — always test with aplay direct check, not just paplay
+- USB audio devices may not support mono — use plughw:0 (plugin layer) for format conversion
+- Warm object detection at 9 Hz creates voice alert spam — needs temporal gate (fire once per 3s minimum)
+- FLIR device locks require full restart, not just USB reset
+- Two KiSTI instances will deadlock — always pkill -f 'main.py' before relaunch
+- Grip detection behind engine gate is wrong — grip matters at any speed, independent of CAN
+
+### Next Session (kisti-flir-06)
+1. Warm object temporal gating — re-enable voice with 3s minimum between alerts
+2. FLIR auto-recovery udev rule — attempt USB reset on V4L2 timeout
+3. Trade show dry run — 1+ hour continuous demo mode on Excelon, verify no crashes
+4. Audio stress test — rapid ice/grip/object alerts simultaneously, verify no speech overlap
+
+---
+
 ## Session: 2026-04-04 (kisti-flir-05 — PatternEngine + Ice Risk Voice Alert + Surface Hysteresis)
 
 ### Status: COMPLETE
