@@ -116,11 +116,12 @@ class AlertEngine(QObject):
         "coolant_critical",       # safety: overtemp requires immediate action
         "fuel_pressure_critical", # safety: fuel starvation
         "ice_risk_imminent",      # safety: road temp approaching dew point
+        "grip_low_grip",          # safety: surface grip loss
     })
 
     # Display-only alert types (shown on screen, no voice)
     DISPLAY_ALERT_TYPES = frozenset({
-        "grip_wet", "grip_cold", "grip_low_grip",
+        "grip_wet", "grip_cold",
         "high_g_advisory", "high_g_warning",
     })
 
@@ -342,11 +343,18 @@ class AlertEngine(QObject):
     def _check_grip(self, state: DiffState) -> None:
         """Grip/surface change advisory."""
         from model.vehicle_state import SurfaceState
-        if state.surface_state in (SurfaceState.WET, SurfaceState.COLD, SurfaceState.LOW_GRIP):
+        if state.surface_state == SurfaceState.LOW_GRIP:
             self._fire(Alert(
-                alert_type=f"grip_{state.surface_state.label.lower().replace(' ', '_')}",
+                alert_type="grip_low_grip",
                 severity=AlertSeverity.ADVISORY,
-                message=f"Surface condition: {state.surface_state.label}. Grip reduced.",
+                message="Low grip.",
+                short_message="LOW GRIP",
+            ))
+        elif state.surface_state in (SurfaceState.WET, SurfaceState.COLD):
+            self._fire(Alert(
+                alert_type=f"grip_{state.surface_state.label.lower()}",
+                severity=AlertSeverity.ADVISORY,
+                message=f"{state.surface_state.label} surface.",
                 short_message=f"Grip: {state.surface_state.label}",
             ))
 

@@ -26,6 +26,7 @@ class TestAlertRouting:
             "coolant_critical",
             "fuel_pressure_critical",
             "ice_risk_imminent",
+            "grip_low_grip",
         }
         assert AlertEngine.VOICE_ALERT_TYPES == expected
 
