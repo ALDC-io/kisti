@@ -3,8 +3,10 @@
 Reads road surface temperatures from a FLIR Lepton module via PureThermal 3
 USB board. Appears as a V4L2 device (/dev/videoX) and is read with OpenCV.
 
-Polls at ~9 Hz (Lepton native frame rate) via QTimer. Falls back
-gracefully if the camera is unplugged or OpenCV is unavailable.
+Architecture: Worker thread owns cap.read() so the Qt main thread NEVER
+blocks on V4L2 I/O. The worker emits frames via signal; the main thread
+processes them (fast numpy ops only). Self-healing: worker detects read
+timeouts, USB-resets the PureThermal, and re-opens the device automatically.
 
 The Lepton captures a 160x120 thermal image. Three horizontal ROI strips
 map to left/center/right road surface zones as seen from a forward-facing
@@ -16,17 +18,21 @@ centi-Kelvin values (uint16). Convert: temp_C = raw / 100.0 - 273.15
 
 from __future__ import annotations
 
+import glob
 import logging
+import subprocess
 import time
 from dataclasses import dataclass, field
 from typing import Optional
 
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QObject, QThread, Signal
 
 log = logging.getLogger("kisti.sensors.flir")
 
 POLL_INTERVAL_MS = 111  # ~9 Hz (Lepton native frame rate)
 DEVICE_INDEX_AUTO = -1   # auto-detect
+MAX_CONSECUTIVE_FAILURES = 5  # trigger recovery after this many failed reads
+MAX_RECOVERY_ATTEMPTS = 10    # give up after this many attempts per session
 
 
 @dataclass
@@ -59,18 +65,10 @@ _ZONE_CENTER_MAX = 107     # pixels 53-106 = CENTER, 107-159 = RIGHT
 
 @dataclass
 class ROIConfig:
-    """Region of Interest rectangles for road surface zones in the 160x120 frame.
-
-    Each ROI is (x, y, w, h) in pixel coordinates. The mean temperature
-    within each ROI is reported as that zone's road surface temp.
-
-    Default ROIs assume a forward-facing camera viewing the road ahead,
-    with three horizontal strips covering left tire track, center, and
-    right tire track zones.
-    """
-    left:   tuple[int, int, int, int] = (5,   45, 45, 30)  # left tire track zone
-    center: tuple[int, int, int, int] = (58,  45, 45, 30)  # center / between tracks
-    right:  tuple[int, int, int, int] = (110, 45, 45, 30)  # right tire track zone
+    """Region of Interest rectangles for road surface zones in the 160x120 frame."""
+    left:   tuple[int, int, int, int] = (5,   45, 45, 30)
+    center: tuple[int, int, int, int] = (58,  45, 45, 30)
+    right:  tuple[int, int, int, int] = (110, 45, 45, 30)
 
 
 def _raw_to_celsius(raw_value: float) -> float:
@@ -78,14 +76,167 @@ def _raw_to_celsius(raw_value: float) -> float:
     return raw_value / 100.0 - 273.15
 
 
-class FLIRLeptonReader(QObject):
-    """Polls FLIR Lepton via PureThermal USB for road surface temperatures.
+def _open_flir(cv2, device_index: int = DEVICE_INDEX_AUTO):
+    """Open FLIR Lepton and configure Y16 radiometric mode.
 
-    Follows the same QObject + QTimer + Signal pattern as YoctopuceReader.
+    Returns (cap, device_index) or (None, -1) on failure.
+    """
+    if device_index != DEVICE_INDEX_AUTO:
+        cap = cv2.VideoCapture(device_index)
+        if cap.isOpened():
+            _configure_y16(cap, cv2)
+            return cap, device_index
+        return None, -1
+
+    for idx in range(5):
+        cap = cv2.VideoCapture(idx)
+        if cap.isOpened():
+            w = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+            h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+            if w == 160 and h == 120:
+                log.info("FLIR Lepton found at /dev/video%d (%.0fx%.0f)", idx, w, h)
+                _configure_y16(cap, cv2)
+                return cap, idx
+            cap.release()
+    return None, -1
+
+
+def _configure_y16(cap, cv2) -> None:
+    """Configure VideoCapture for Y16 radiometric output."""
+    cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
+    y16 = cv2.VideoWriter_fourcc('Y', '1', '6', ' ')
+    cap.set(cv2.CAP_PROP_FOURCC, y16)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 160)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 120)
+
+
+def _usb_reset_purethermal() -> bool:
+    """USB-reset the PureThermal board via sysfs. No shell injection."""
+    try:
+        for auth_path in glob.glob("/sys/bus/usb/devices/*/authorized"):
+            prod_path = auth_path.replace("authorized", "product")
+            try:
+                with open(prod_path) as f:
+                    product = f.read().strip()
+            except (OSError, IOError):
+                continue
+            if "WebCam" not in product and "PureThermal" not in product:
+                continue
+            log.info("FLIR USB reset: %s", auth_path)
+            # Direct sysfs write — no shell, no injection
+            try:
+                with open(auth_path, 'w') as f:
+                    f.write('0\n')
+                time.sleep(1)
+                with open(auth_path, 'w') as f:
+                    f.write('1\n')
+                time.sleep(2)
+                return True
+            except PermissionError:
+                # Fall back to sudo if no udev rule grants write access
+                subprocess.run(
+                    ["sudo", "-n", "sh", "-c",
+                     "echo 0 > " + auth_path + " && sleep 1 && echo 1 > " + auth_path],
+                    timeout=5, capture_output=True,
+                )
+                time.sleep(2)
+                return True
+    except Exception as exc:
+        log.debug("USB reset failed: %s", exc)
+    return False
+
+
+class _FrameWorker(QThread):
+    """Worker thread that owns cap.read() — main thread never blocks.
+
+    Reads frames at ~9Hz. On failure, self-heals: releases handle,
+    USB-resets PureThermal, re-opens device. All blocking I/O stays
+    in this thread.
+    """
+    frame_ready = Signal(object)   # emits numpy ndarray (uint16 thermal)
+    status_changed = Signal(str)   # "online", "recovering", "offline"
+
+    def __init__(self, cv2_mod, device_index: int, parent=None):
+        super().__init__(parent)
+        self._cv2 = cv2_mod
+        self._device_index = device_index
+        self._cap = None
+        self._stop = False
+        self._consecutive_failures = 0
+        self._recovery_attempts = 0
+
+    def run(self):
+        # Open device in worker thread
+        self._cap, self._device_index = _open_flir(self._cv2, self._device_index)
+        if self._cap is None:
+            self.status_changed.emit("offline")
+            return
+
+        self.status_changed.emit("online")
+
+        while not self._stop:
+            try:
+                ret, frame = self._cap.read()
+            except Exception:
+                ret, frame = False, None
+
+            if not ret or frame is None:
+                self._consecutive_failures += 1
+                if self._consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    if self._recovery_attempts >= MAX_RECOVERY_ATTEMPTS:
+                        log.error("FLIR: %d recovery attempts exhausted — giving up", MAX_RECOVERY_ATTEMPTS)
+                        self.status_changed.emit("offline")
+                        break
+                    self._do_recovery()
+                else:
+                    time.sleep(0.1)  # brief back-off on failure
+                continue
+
+            self._consecutive_failures = 0
+            self.frame_ready.emit(frame)
+            time.sleep(POLL_INTERVAL_MS / 1000.0)
+
+        if self._cap is not None:
+            self._cap.release()
+
+    def _do_recovery(self):
+        """Release, USB-reset, re-open. All in worker thread — main thread unaffected."""
+        self._recovery_attempts += 1
+        self.status_changed.emit("recovering")
+        log.warning("FLIR recovery attempt %d — releasing device", self._recovery_attempts)
+
+        if self._cap is not None:
+            try:
+                self._cap.release()
+            except Exception:
+                pass
+            self._cap = None
+
+        _usb_reset_purethermal()
+
+        self._cap, self._device_index = _open_flir(self._cv2)
+        if self._cap is not None:
+            self._consecutive_failures = 0
+            self.status_changed.emit("online")
+            log.info("FLIR recovered on /dev/video%d (attempt %d)",
+                     self._device_index, self._recovery_attempts)
+        else:
+            log.warning("FLIR recovery failed — will retry in 5s")
+            time.sleep(5)
+
+    def stop(self):
+        self._stop = True
+
+
+class FLIRLeptonReader(QObject):
+    """FLIR Lepton reader with threaded I/O — UI never blocks.
+
+    Worker thread handles all cap.read() and recovery. Main thread
+    processes frames via signal (fast numpy ops only).
     """
 
     temps_updated = Signal(object)          # emits RoadSurfaceTemps
-    frame_updated = Signal(object)          # emits raw uint16 numpy frame (before ROI processing)
+    frame_updated = Signal(object)          # emits raw uint16 numpy frame
     warm_object_detected = Signal(object)   # emits WarmObjectDetection
 
     def __init__(
@@ -97,28 +248,20 @@ class FLIRLeptonReader(QObject):
         super().__init__(parent)
         self._device_index = device_index
         self._roi = roi or ROIConfig()
-        self._cap = None  # cv2.VideoCapture
         self._available = False
         self._last_temps = RoadSurfaceTemps()
-        self._np = None   # numpy module reference
-        self._cv2 = None  # cv2 module reference
+        self._np = None
+        self._cv2 = None
+        self._worker: Optional[_FrameWorker] = None
 
         # Warm object detection state
-        self._baseline_temp_ck: float = 0.0  # EMA of frame median in centi-Kelvin
-        self._baseline_ready = False          # True after first frame seeds baseline
-        self._consecutive_warm: int = 0       # consecutive frames with warm blob(s)
-        self._last_warm_position: str = ""    # zone of last detected blob
-
-        # Self-healing: track consecutive read failures for auto-recovery
-        self._consecutive_failures: int = 0
-        self._recovery_attempts: int = 0
-
-        self._timer = QTimer(self)
-        self._timer.setInterval(POLL_INTERVAL_MS)
-        self._timer.timeout.connect(self._poll)
+        self._baseline_temp_ck: float = 0.0
+        self._baseline_ready = False
+        self._consecutive_warm: int = 0
+        self._last_warm_position: str = ""
 
     def start(self) -> bool:
-        """Initialize camera and start polling.
+        """Initialize camera and start worker thread.
 
         Returns True if FLIR Lepton found, False otherwise.
         """
@@ -131,50 +274,29 @@ class FLIRLeptonReader(QObject):
             log.warning("opencv-python not installed — FLIR Lepton disabled")
             return False
 
-        # Auto-detect: try /dev/video0 through /dev/video4
-        if self._device_index == DEVICE_INDEX_AUTO:
-            for idx in range(5):
-                cap = self._cv2.VideoCapture(idx)
-                if cap.isOpened():
-                    # Check if this is a thermal camera (160x120)
-                    w = cap.get(self._cv2.CAP_PROP_FRAME_WIDTH)
-                    h = cap.get(self._cv2.CAP_PROP_FRAME_HEIGHT)
-                    if w == 160 and h == 120:
-                        self._cap = cap
-                        self._device_index = idx
-                        log.info("FLIR Lepton found at /dev/video%d (%.0fx%.0f)", idx, w, h)
-                        break
-                    cap.release()
-            else:
-                log.info("No FLIR Lepton (160x120) found on /dev/video0-4")
-                return False
-        else:
-            self._cap = self._cv2.VideoCapture(self._device_index)
-            if not self._cap.isOpened():
-                log.warning("Could not open /dev/video%d", self._device_index)
-                return False
+        # Probe for device on main thread (fast — just open/check/close)
+        cap, idx = _open_flir(cv2, self._device_index)
+        if cap is None:
+            log.info("No FLIR Lepton (160x120) found on /dev/video0-4")
+            return False
+        cap.release()  # worker will re-open
 
-        # Configure for raw 16-bit radiometric output (Y16 = centi-Kelvin)
-        self._cap.set(self._cv2.CAP_PROP_CONVERT_RGB, 0)
-        y16_fourcc = self._cv2.VideoWriter_fourcc('Y', '1', '6', ' ')
-        self._cap.set(self._cv2.CAP_PROP_FOURCC, y16_fourcc)
-        self._cap.set(self._cv2.CAP_PROP_FRAME_WIDTH, 160)
-        self._cap.set(self._cv2.CAP_PROP_FRAME_HEIGHT, 120)
-        # Short read timeout so UI doesn't freeze on PureThermal lockup
-        self._cap.set(self._cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 2000)
-        self._cap.set(self._cv2.CAP_PROP_READ_TIMEOUT_MSEC, 2000)
+        # Start worker thread
+        self._worker = _FrameWorker(cv2, idx)
+        self._worker.frame_ready.connect(self._on_frame)
+        self._worker.status_changed.connect(self._on_status)
+        self._worker.start()
 
         self._available = True
-        self._timer.start()
-        self._poll()  # immediate first read
+        log.info("FLIR Lepton online: road surface thermal imaging (threaded)")
         return True
 
     def stop(self) -> None:
-        """Stop polling and release camera."""
-        self._timer.stop()
-        if self._cap is not None:
-            self._cap.release()
-            self._cap = None
+        """Stop worker thread and release camera."""
+        if self._worker is not None:
+            self._worker.stop()
+            self._worker.wait(5000)
+            self._worker = None
         self._available = False
         log.info("FLIR Lepton reader stopped")
 
@@ -185,141 +307,62 @@ class FLIRLeptonReader(QObject):
     def last_temps(self) -> RoadSurfaceTemps:
         return self._last_temps
 
-    def _recover(self) -> bool:
-        """Auto-recover from USB timeout: release, USB-reset, re-open.
+    def set_roi(self, roi: ROIConfig) -> None:
+        self._roi = roi
+        log.info("FLIR ROI updated: left=%s center=%s right=%s",
+                 roi.left, roi.center, roi.right)
 
-        Self-healing — no human intervention needed while driving.
-        """
-        self._recovery_attempts += 1
-        log.warning("FLIR recovery attempt %d — releasing device", self._recovery_attempts)
+    def _on_status(self, status: str) -> None:
+        """Handle worker status changes."""
+        self._available = status == "online"
+        if status == "recovering":
+            log.info("FLIR recovering...")
+        elif status == "offline":
+            log.warning("FLIR offline — recovery exhausted")
 
-        # Release stale handle
-        if self._cap is not None:
-            try:
-                self._cap.release()
-            except Exception:
-                pass
-            self._cap = None
-
-        # USB reset via sysfs (find PureThermal device)
-        try:
-            import subprocess, glob
-            for auth_path in glob.glob("/sys/bus/usb/devices/*/authorized"):
-                prod_path = auth_path.replace("authorized", "product")
-                try:
-                    with open(prod_path) as f:
-                        product = f.read().strip()
-                    if "WebCam" in product or "PureThermal" in product or "1e4e" in product:
-                        log.info("FLIR USB reset: %s", auth_path)
-                        subprocess.run(
-                            ["sudo", "-n", "bash", "-c",
-                             f"echo 0 > {auth_path} && sleep 1 && echo 1 > {auth_path}"],
-                            timeout=5, capture_output=True,
-                        )
-                        time.sleep(2)
-                        break
-                except (OSError, IOError):
-                    continue
-        except Exception as exc:
-            log.debug("USB reset failed (non-fatal): %s", exc)
-
-        # Re-open camera
-        try:
-            for idx in range(5):
-                cap = self._cv2.VideoCapture(idx)
-                if cap.isOpened():
-                    w = cap.get(self._cv2.CAP_PROP_FRAME_WIDTH)
-                    h = cap.get(self._cv2.CAP_PROP_FRAME_HEIGHT)
-                    if w == 160 and h == 120:
-                        self._cap = cap
-                        self._device_index = idx
-                        # Re-configure Y16 + timeout
-                        cap.set(self._cv2.CAP_PROP_CONVERT_RGB, 0)
-                        y16 = self._cv2.VideoWriter_fourcc('Y', '1', '6', ' ')
-                        cap.set(self._cv2.CAP_PROP_FOURCC, y16)
-                        cap.set(self._cv2.CAP_PROP_FRAME_WIDTH, 160)
-                        cap.set(self._cv2.CAP_PROP_FRAME_HEIGHT, 120)
-                        cap.set(self._cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 2000)
-                        cap.set(self._cv2.CAP_PROP_READ_TIMEOUT_MSEC, 2000)
-                        self._consecutive_failures = 0
-                        self._available = True
-                        if hasattr(self, '_logged_format'):
-                            del self._logged_format
-                        log.info("FLIR recovered on /dev/video%d (attempt %d)",
-                                 idx, self._recovery_attempts)
-                        return True
-                    cap.release()
-        except Exception as exc:
-            log.warning("FLIR re-open failed: %s", exc)
-
-        log.warning("FLIR recovery failed — will retry next cycle")
-        return False
-
-    def _poll(self) -> None:
-        """Read a frame, emit raw frame, then extract road surface temps from ROI regions."""
-        if not self._available or self._cap is None:
+    def _on_frame(self, frame) -> None:
+        """Process a frame from the worker thread (runs on main thread via signal)."""
+        np = self._np
+        if np is None:
             return
 
-        try:
-            ret, frame = self._cap.read()
-            if not ret or frame is None:
-                self._consecutive_failures += 1
-                if self._consecutive_failures >= 5:  # 5 failures at 9Hz ≈ 0.5s
-                    log.warning("FLIR: %d consecutive read failures — attempting recovery",
-                                self._consecutive_failures)
-                    self._recover()
-                return
-            self._consecutive_failures = 0
+        # Log frame format once
+        if not hasattr(self, '_logged_format'):
+            self._logged_format = True
+            log.info("FLIR frame: dtype=%s, shape=%s, mean=%.0f",
+                     frame.dtype, frame.shape, float(np.mean(frame)))
 
-            # Log frame format once for diagnostics
-            if not hasattr(self, '_logged_format'):
-                self._logged_format = True
-                log.info("FLIR frame: dtype=%s, shape=%s, mean=%.0f",
-                         frame.dtype, frame.shape, float(self._np.mean(frame)))
+        # OpenCV Y16 bug: may return uint16 data as flattened uint8
+        if frame.dtype == np.uint8 and frame.shape != (120, 160):
+            try:
+                frame = frame.view(np.uint16).reshape(120, 160)
+            except (ValueError, AttributeError):
+                pass
 
-            # OpenCV Y16 bug: may return uint16 data as flattened uint8 (120,320,1)
-            if frame.dtype == self._np.uint8 and frame.shape != (120, 160):
-                try:
-                    frame = frame.view(self._np.uint16).reshape(120, 160)
-                except (ValueError, AttributeError):
-                    pass  # fall through to normal handling
-
-            # Frame may be uint16 (radiometric) or uint8 (non-radiometric)
-            if frame.dtype == self._np.uint16:
-                thermal = frame
-            elif len(frame.shape) == 3:
-                # BGR/RGB frame — non-radiometric AGC mode, no absolute temps
-                thermal = self._cv2.cvtColor(frame, self._cv2.COLOR_BGR2GRAY).astype(self._np.uint16)
-                self.frame_updated.emit(thermal)
-                return  # cannot extract reliable Celsius from non-radiometric frame
-            else:
-                thermal = frame.astype(self._np.uint16)
-
-            # Emit raw frame for live display before ROI averaging
+        if frame.dtype == np.uint16:
+            thermal = frame
+        elif len(frame.shape) == 3:
+            thermal = self._cv2.cvtColor(frame, self._cv2.COLOR_BGR2GRAY).astype(np.uint16)
             self.frame_updated.emit(thermal)
+            return
+        else:
+            thermal = frame.astype(np.uint16)
 
-            left_temp   = self._roi_mean_temp(thermal, self._roi.left)
-            center_temp = self._roi_mean_temp(thermal, self._roi.center)
-            right_temp  = self._roi_mean_temp(thermal, self._roi.right)
+        self.frame_updated.emit(thermal)
 
-            self._last_temps = RoadSurfaceTemps(left=left_temp, center=center_temp, right=right_temp)
-            self.temps_updated.emit(self._last_temps)
+        left_temp = self._roi_mean_temp(thermal, self._roi.left)
+        center_temp = self._roi_mean_temp(thermal, self._roi.center)
+        right_temp = self._roi_mean_temp(thermal, self._roi.right)
 
-            # Warm object detection (radiometric frames only)
-            if frame.dtype == self._np.uint16:
-                self._detect_warm_objects(thermal)
+        self._last_temps = RoadSurfaceTemps(left=left_temp, center=center_temp, right=right_temp)
+        self.temps_updated.emit(self._last_temps)
 
-        except Exception as exc:
-            log.debug("FLIR poll error: %s", exc)
+        if frame.dtype == np.uint16:
+            self._detect_warm_objects(thermal)
 
     def _roi_mean_temp(self, thermal_frame, roi: tuple[int, int, int, int]) -> float:
-        """Extract mean temperature from an ROI rectangle.
-
-        For radiometric Lepton: raw values are centi-Kelvin.
-        For non-radiometric: values are pre-scaled in _poll.
-        """
+        """Extract mean temperature from an ROI rectangle."""
         x, y, w, h = roi
-        # Clamp to frame bounds
         fh, fw = thermal_frame.shape[:2]
         x = max(0, min(x, fw - 1))
         y = max(0, min(y, fh - 1))
@@ -332,49 +375,29 @@ class FLIRLeptonReader(QObject):
         region = thermal_frame[y:y + h, x:x + w]
         mean_raw = float(self._np.mean(region))
 
-        # If values are in centi-Kelvin range (> 20000 = ~-73°C), convert
         if mean_raw > 20000:
             return _raw_to_celsius(mean_raw)
-        # Non-radiometric values — cannot be converted to Celsius
         return 0.0
-
-    def set_roi(self, roi: ROIConfig) -> None:
-        """Update ROI configuration (e.g., after camera repositioning)."""
-        self._roi = roi
-        log.info("FLIR ROI updated: left=%s center=%s right=%s",
-                 roi.left, roi.center, roi.right)
 
     # ------------------------------------------------------------------
     # Warm object detection (numpy-only, no scipy)
     # ------------------------------------------------------------------
 
     def _detect_warm_objects(self, thermal: 'numpy.ndarray') -> None:
-        """Detect warm objects above road baseline using thresholding + blob analysis.
-
-        Algorithm:
-        1. Update road baseline via EMA of frame median (robust to outliers)
-        2. Threshold: pixels > baseline + WARM_THRESHOLD_C
-        3. Find connected blobs via numpy flood fill
-        4. Filter blobs >= WARM_MIN_BLOB_PX pixels
-        5. Debounce: require WARM_DEBOUNCE_FRAMES consecutive detections
-        6. Emit warm_object_detected signal with position (LEFT/CENTER/RIGHT)
-        """
+        """Detect warm objects above road baseline."""
         np = self._np
         if np is None:
             return
 
-        # Convert threshold to centi-Kelvin (raw frame units)
         threshold_ck = WARM_THRESHOLD_C * 100.0
 
-        # Update baseline using frame median (resistant to hot-spot outliers)
         frame_median = float(np.median(thermal))
         if not self._baseline_ready:
             self._baseline_temp_ck = frame_median
             self._baseline_ready = True
-            return  # need at least one frame to establish baseline
+            return
         self._baseline_temp_ck += WARM_BASELINE_ALPHA * (frame_median - self._baseline_temp_ck)
 
-        # Threshold: pixels significantly warmer than road baseline
         hot_mask = thermal > (self._baseline_temp_ck + threshold_ck)
         hot_count = int(np.sum(hot_mask))
 
@@ -382,13 +405,11 @@ class FLIRLeptonReader(QObject):
             self._consecutive_warm = 0
             return
 
-        # Find connected blobs via label_blobs (numpy-only)
         labels, n_labels = _label_blobs(hot_mask, np)
         if n_labels == 0:
             self._consecutive_warm = 0
             return
 
-        # Find largest blob that meets minimum size
         best_size = 0
         best_label = 0
         for lbl in range(1, n_labels + 1):
@@ -401,12 +422,10 @@ class FLIRLeptonReader(QObject):
             self._consecutive_warm = 0
             return
 
-        # Debounce: require consecutive frames
         self._consecutive_warm += 1
         if self._consecutive_warm < WARM_DEBOUNCE_FRAMES:
             return
 
-        # Classify position by blob centroid x-coordinate
         blob_mask = labels == best_label
         ys, xs = np.where(blob_mask)
         centroid_x = float(np.mean(xs))
@@ -417,7 +436,6 @@ class FLIRLeptonReader(QObject):
         else:
             position = "RIGHT"
 
-        # Peak temp in blob
         peak_raw = float(np.max(thermal[blob_mask]))
         peak_c = _raw_to_celsius(peak_raw)
 
@@ -430,16 +448,7 @@ class FLIRLeptonReader(QObject):
 
 
 def _label_blobs(mask: 'numpy.ndarray', np) -> tuple:
-    """Connected component labeling using iterative flood fill (numpy-only).
-
-    Args:
-        mask: 2D boolean array of hot pixels.
-        np: numpy module reference.
-
-    Returns:
-        (labels, n_labels) where labels is an int32 array with component IDs
-        and n_labels is the number of components found.
-    """
+    """Connected component labeling using iterative flood fill (numpy-only)."""
     h, w = mask.shape
     labels = np.zeros((h, w), dtype=np.int32)
     current_label = 0
@@ -448,7 +457,6 @@ def _label_blobs(mask: 'numpy.ndarray', np) -> tuple:
         for x in range(w):
             if mask[y, x] and labels[y, x] == 0:
                 current_label += 1
-                # Iterative flood fill using a stack
                 stack = [(y, x)]
                 while stack:
                     cy, cx = stack.pop()
