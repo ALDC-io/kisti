@@ -88,6 +88,10 @@ class FrontierLLMEngine:
     Persona/sensor queries never leave the edge — they are handled
     upstream by _match_persona() and the ECU guard.
 
+    Supports optional Zeus proxy for centralized auth/logging/cost tracking.
+    When proxy_url + proxy_key are set, queries route through Zeus first.
+    Falls back to direct Anthropic on proxy failure.
+
     Usage:
         engine = FrontierLLMEngine(api_key="sk-...", db_conn=conn)
         engine.start()
@@ -105,11 +109,15 @@ class FrontierLLMEngine:
         db_conn: object = None,
         model: str = DEFAULT_MODEL,
         api_url: str = CLAUDE_API_URL,
+        proxy_url: str = "",
+        proxy_key: str = "",
     ) -> None:
         self._api_key = api_key
         self._conn = db_conn
         self._model = model
         self._api_url = api_url
+        self._proxy_url = proxy_url.rstrip("/") if proxy_url else ""
+        self._proxy_key = proxy_key
         self._running = False
         self._wifi_available = False
         self._wifi_check_thread: Optional[threading.Thread] = None
@@ -141,9 +149,11 @@ class FrontierLLMEngine:
             target=self._wifi_checker, daemon=True
         )
         self._wifi_check_thread.start()
+        proxy_status = f"proxy={self._proxy_url}" if self.proxy_active else "direct"
         log.info(
-            "Frontier LLM engine started (model=%s, WiFi check every %.0fs)",
+            "Frontier LLM engine started (model=%s, %s, WiFi check every %.0fs)",
             self._model,
+            proxy_status,
             self.WIFI_CHECK_INTERVAL_S,
         )
         self._running = True
@@ -164,6 +174,11 @@ class FrontierLLMEngine:
     @property
     def is_running(self) -> bool:
         return self._running
+
+    @property
+    def proxy_active(self) -> bool:
+        """True if Zeus proxy is configured."""
+        return bool(self._proxy_url and self._proxy_key)
 
     # ---- WiFi Checker (HybridSTTEngine pattern) ----
 
@@ -382,7 +397,12 @@ class FrontierLLMEngine:
         si_drive_mode: str,
         conversation_history: list | None = None,
     ) -> Optional[str]:
-        """POST to Claude Messages API. Returns response text or None."""
+        """POST to Claude Messages API. Returns response text or None.
+
+        When Zeus proxy is configured, routes through it first for
+        centralized auth/logging/cost tracking. Falls back to direct
+        Anthropic on proxy failure.
+        """
         # Give Claude enough room to finish 2 sentences cleanly.
         # System prompt enforces 1-2 sentences; _truncate_sentences is the backstop.
         _FRONTIER_TOKEN_CAPS = {"Intelligent": 150, "Sport": 60, "Sport #": 20}
@@ -423,6 +443,44 @@ class FrontierLLMEngine:
         }
 
         body = json.dumps(payload).encode("utf-8")
+
+        # Try Zeus proxy first if configured
+        if self._proxy_url and self._proxy_key:
+            result = self._post_proxy(body)
+            if result is not None:
+                return result
+            log.warning("Zeus proxy failed — falling back to direct Anthropic")
+
+        return self._post_direct(body)
+
+    def _post_proxy(self, body: bytes) -> Optional[str]:
+        """POST through Zeus proxy. Returns response text or None."""
+        url = f"{self._proxy_url}/api/proxy/anthropic/v1/messages"
+        req = urllib.request.Request(
+            url,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "X-API-Key": self._proxy_key,
+                "X-Script-Name": "kisti-frontier",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=self.API_TIMEOUT_S) as resp:
+                return self._parse_response(resp.read())
+        except urllib.error.HTTPError as exc:
+            log.warning("Zeus proxy HTTP error %d: %s", exc.code, exc.reason)
+            return None
+        except (urllib.error.URLError, OSError) as exc:
+            log.warning("Zeus proxy network error: %s", exc)
+            return None
+        except (json.JSONDecodeError, KeyError) as exc:
+            log.warning("Zeus proxy response parse error: %s", exc)
+            return None
+
+    def _post_direct(self, body: bytes) -> Optional[str]:
+        """POST directly to Anthropic API. Returns response text or None."""
         req = urllib.request.Request(
             self._api_url,
             data=body,
@@ -433,24 +491,9 @@ class FrontierLLMEngine:
             },
             method="POST",
         )
-
         try:
             with urllib.request.urlopen(req, timeout=self.API_TIMEOUT_S) as resp:
-                data = json.loads(resp.read())
-
-            # Extract text from Claude Messages API response
-            content_blocks = data.get("content", [])
-            text_parts = [
-                b["text"] for b in content_blocks if b.get("type") == "text"
-            ]
-            text = " ".join(text_parts).strip()
-
-            if not text:
-                log.warning("Frontier API returned empty response")
-                return None
-
-            return _strip_markdown(text)
-
+                return self._parse_response(resp.read())
         except urllib.error.HTTPError as exc:
             log.warning("Frontier API HTTP error %d: %s", exc.code, exc.reason)
             return None
@@ -460,3 +503,17 @@ class FrontierLLMEngine:
         except (json.JSONDecodeError, KeyError) as exc:
             log.warning("Frontier API response parse error: %s", exc)
             return None
+
+    @staticmethod
+    def _parse_response(raw: bytes) -> Optional[str]:
+        """Parse Claude Messages API response to text."""
+        data = json.loads(raw)
+        content_blocks = data.get("content", [])
+        text_parts = [
+            b["text"] for b in content_blocks if b.get("type") == "text"
+        ]
+        text = " ".join(text_parts).strip()
+        if not text:
+            log.warning("Frontier API returned empty response")
+            return None
+        return _strip_markdown(text)

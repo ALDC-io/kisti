@@ -263,6 +263,145 @@ class TestQuery:
         assert result is None
 
 
+class TestProxyRouting:
+
+    def test_proxy_active_when_configured(self, db_conn):
+        e = FrontierLLMEngine(
+            api_key="sk-test",
+            db_conn=db_conn,
+            proxy_url="https://zeus.aldc.io",
+            proxy_key="zm_kisti_test",
+        )
+        assert e.proxy_active is True
+
+    def test_proxy_inactive_when_not_configured(self, engine):
+        assert engine.proxy_active is False
+
+    def test_proxy_inactive_with_partial_config(self, db_conn):
+        # URL but no key
+        e = FrontierLLMEngine(api_key="sk-test", db_conn=db_conn, proxy_url="https://zeus.aldc.io")
+        assert e.proxy_active is False
+        # Key but no URL
+        e2 = FrontierLLMEngine(api_key="sk-test", db_conn=db_conn, proxy_key="zm_kisti")
+        assert e2.proxy_active is False
+
+    def test_proxy_strips_trailing_slash(self, db_conn):
+        e = FrontierLLMEngine(
+            api_key="sk-test", db_conn=db_conn,
+            proxy_url="https://zeus.aldc.io/", proxy_key="zm_k",
+        )
+        assert e._proxy_url == "https://zeus.aldc.io"
+
+    def test_proxy_routes_through_zeus(self, db_conn):
+        e = FrontierLLMEngine(
+            api_key="sk-test",
+            db_conn=db_conn,
+            proxy_url="https://zeus.aldc.io",
+            proxy_key="zm_kisti_test",
+        )
+        e._running = True
+        e._wifi_available = True
+
+        calls = []
+
+        def mock_urlopen(req, timeout=10):
+            calls.append(req)
+            resp = MagicMock()
+            resp.__enter__ = lambda s: s
+            resp.__exit__ = MagicMock(return_value=False)
+            resp.read.return_value = json.dumps({
+                "content": [{"type": "text", "text": "Proxied response"}],
+            }).encode()
+            return resp
+
+        with patch("voice.frontier_engine.urllib.request.urlopen", side_effect=mock_urlopen):
+            result = e.query("What causes turbo lag?")
+
+        assert result is not None
+        assert result.text == "Proxied response"
+        # Should have called proxy URL, not Anthropic directly
+        assert len(calls) == 1
+        assert "zeus.aldc.io/api/proxy/anthropic/v1/messages" in calls[0].full_url
+        assert calls[0].get_header("X-api-key") == "zm_kisti_test"
+        assert calls[0].get_header("X-script-name") == "kisti-frontier"
+
+    def test_proxy_fallback_to_direct_on_failure(self, db_conn):
+        e = FrontierLLMEngine(
+            api_key="sk-direct",
+            db_conn=db_conn,
+            proxy_url="https://zeus.aldc.io",
+            proxy_key="zm_kisti_test",
+        )
+        e._running = True
+        e._wifi_available = True
+
+        calls = []
+        call_count = [0]
+
+        import urllib.error
+
+        def mock_urlopen(req, timeout=10):
+            call_count[0] += 1
+            calls.append(req)
+            if call_count[0] == 1:
+                # Proxy fails
+                raise urllib.error.URLError("Zeus proxy down")
+            # Direct succeeds
+            resp = MagicMock()
+            resp.__enter__ = lambda s: s
+            resp.__exit__ = MagicMock(return_value=False)
+            resp.read.return_value = json.dumps({
+                "content": [{"type": "text", "text": "Direct response"}],
+            }).encode()
+            return resp
+
+        with patch("voice.frontier_engine.urllib.request.urlopen", side_effect=mock_urlopen):
+            result = e.query("What causes turbo lag?")
+
+        assert result is not None
+        assert result.text == "Direct response"
+        assert len(calls) == 2
+        # First call: proxy
+        assert "zeus.aldc.io" in calls[0].full_url
+        # Second call: direct Anthropic
+        assert "api.anthropic.com" in calls[1].full_url
+        assert calls[1].get_header("X-api-key") == "sk-direct"
+
+    def test_no_proxy_goes_direct_only(self, engine):
+        """Without proxy config, only direct API is called."""
+        engine._running = True
+        engine._wifi_available = True
+
+        calls = []
+
+        def mock_urlopen(req, timeout=10):
+            calls.append(req)
+            resp = MagicMock()
+            resp.__enter__ = lambda s: s
+            resp.__exit__ = MagicMock(return_value=False)
+            resp.read.return_value = json.dumps({
+                "content": [{"type": "text", "text": "Direct only"}],
+            }).encode()
+            return resp
+
+        with patch("voice.frontier_engine.urllib.request.urlopen", side_effect=mock_urlopen):
+            result = engine.query("test")
+
+        assert len(calls) == 1
+        assert "api.anthropic.com" in calls[0].full_url
+
+    def test_engine_starts_with_proxy_key_only(self):
+        """Engine can start with only a proxy key (no direct Anthropic key)."""
+        e = FrontierLLMEngine(
+            api_key="",
+            proxy_url="https://zeus.aldc.io",
+            proxy_key="zm_kisti_test",
+        )
+        # Won't start because api_key is empty — proxy is optional routing, not auth bypass
+        e.start()
+        assert e.is_running is False
+
+
 class TestLLMEngineIntegration:
 
     def test_llm_engine_uses_frontier_on_persona_miss(self):

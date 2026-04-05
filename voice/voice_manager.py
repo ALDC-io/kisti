@@ -277,8 +277,15 @@ class VoiceManager(QObject):
             log.info("Initialized standard whisper.cpp STT engine")
         self._tts = TTSEngine()
         # Frontier AI — Claude API when WiFi available, edge cache when offline
+        # Zeus proxy: centralized auth/logging/cost tracking (optional)
         anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        self._frontier = FrontierLLMEngine(api_key=anthropic_key) if anthropic_key else None
+        proxy_url = os.environ.get("KISTI_PROXY_URL", "")
+        proxy_key = os.environ.get("KISTI_PROXY_KEY", "")
+        self._frontier = FrontierLLMEngine(
+            api_key=anthropic_key,
+            proxy_url=proxy_url,
+            proxy_key=proxy_key,
+        ) if (anthropic_key or proxy_key) else None
         self._llm = LLMEngine(frontier=self._frontier)
         self._led = LEDWaveformGenerator()
         self._mic = MicCapture(device=mic_device, wake_model=os.environ.get("KISTI_WAKE_MODEL")) if enable_mic else None
