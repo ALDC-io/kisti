@@ -1,91 +1,122 @@
-# NEXT SESSION PROMPT — KiSTI kisti-flir-08
+# NEXT SESSION PROMPT — KiSTI Screen Redesign (Phases 3-6)
 
 **Branch**: `kisti-headless` | **Dir**: `/home/aldc/repos/kisti` | **Jetson**: `ssh aldc@192.168.22.131` (pw: `aldc1234`)
 **Tests**: `python3 -m pytest tests/ -q --tb=short --ignore=tests/test_voice_integration.py --ignore=tests/test_voice_pipeline.py`
-**Baseline**: 1114 passed, 11 skipped
+**Baseline**: 1173 tests (1162 passed, 11 skipped) — up from 1125 after Phase 1-2
 
 ---
 
 ## Before starting work
-1. `echo "KiSTI FLIR-08" > /tmp/tui-project-label`
-2. Write phases to `/tmp/tui-phases.json`
+1. Read `docs/SCREEN_REDESIGN_PLAN.md` — full research + design spec (500 lines)
+2. Read the plan at `~/.claude/plans/steady-dreaming-kitten.md` — 6-phase implementation plan
+3. Run tests: `pytest tests/ -q --tb=short --ignore=tests/test_voice_integration.py --ignore=tests/test_voice_pipeline.py`
 
-## kisti-flir-07 summary (what was built)
+## What was built (this session — kisti-screen-redesign Phase 1-2)
 
-### Zeus Proxy for Frontier Engine
-- **Proxy routing**: `FrontierLLMEngine` now supports optional Zeus proxy for centralized auth/logging/cost tracking.
-- **New params**: `proxy_url`, `proxy_key` in constructor. When both set, queries route through Zeus first, fall back to direct Anthropic on failure.
-- **Methods added**: `_post_proxy()` (Zeus route), `_post_direct()` (Anthropic direct), `_parse_response()` (shared response parser with `_strip_markdown()`).
-- **Audit header**: `X-Script-Name: kisti-frontier` sent to Zeus for per-device attribution.
-- **Env vars**: `KISTI_PROXY_URL` and `KISTI_PROXY_KEY` read in `voice_manager.py`. Engine starts if EITHER `ANTHROPIC_API_KEY` or `KISTI_PROXY_KEY` is set.
-- **8 new tests**: proxy routing, fallback to direct, X-Script-Name header, partial config, proxy-key-only start.
-- **Proxy status logged**: `"proxy=https://zeus.aldc.io"` or `"direct"` in start message.
+### Research Phase (6 parallel agents)
+- Professional motorsport displays (AiM, MoTeC, F1)
+- G-force visualization best practices
+- Understeer/oversteer detection methods
+- Brake quality + traction loss visualization
+- Altitude/corner classification/sector G profiling
+- Driver feedback loops (sports science, coaching theory)
+- **Key findings**: dark cockpit, friction ellipse not circle, understeer as trend not instant, coach not dashboard, delta timer is #1 proven real-time tool
+- Full research in `docs/SCREEN_REDESIGN_PLAN.md`
 
-### Soak Test Results (13h uptime, 2026-04-04)
-- **Memory pressure**: 344 MB available, 800 MB swap. KiSTI=3.78 GB (50%), whisper-server=2.09 GB (27%). Combined 77% of 7.4 GB RAM.
-- **Stability**: No errors, no OOM, load steady at 6.0 across 1/5/15 min.
-- **Cache**: 100 entries in frontier_cache, minimal activity (persona-only mode).
-- **WiFi**: Not connected (wired ethernet only). Frontier requires WiFi for live queries.
-- **DuckDB**: 7.6 MB total. 13,832 alerts, 7,642 ambient readings. No leaks.
-- **Action needed**: Monitor swap growth. If >1.5 GB, consider whisper-server "small" model (saves ~1.5 GB).
+### Phase 1: Analysis Modules (COMPLETE)
+- **`coaching/balance_analyzer.py`** — understeer/oversteer via bicycle model (gyro Z vs expected yaw from steering+speed). BalanceAnalyzer class with 5-sample rolling average, speed gate 30 km/h. 28 tests.
+- **`coaching/grip_analyzer.py`** — per-axle grip from wheel speed vs GPS ground truth. GripAnalyzer class with slip ratio, advisory at 10%/20%. 20 tests.
+- **`coaching/technique_analyzer.py`** — EXTENDED: added `longitudinal_g` to `_Sample`, brake G quality analysis (peak G, consistency), enhanced trail braking detection (G-based, not just steering angle). All 8 existing tests pass.
 
-## Activate Zeus Proxy on Jetson
+### Phase 2: Shared Component + Bug Fix (COMPLETE)
+- **`ui/g_force_ellipse.py`** — friction ellipse paint function. Asymmetric envelope (1.0g lat, 1.2g brake, 0.7g accel), fading trail, color-coded dot (green/yellow/red by G% of envelope), understeer/oversteer background tint. Follows `road_condition.py` paint function pattern.
+- **`ui/sport_screen.py`** — Fixed `badge_tw` bug at line 237 (was undefined, set to 60).
 
-Add to `~/k` launcher on Jetson:
-```bash
-export KISTI_PROXY_URL="https://zeus.aldc.io"
-export KISTI_PROXY_KEY="$ZEUS_API_KEY"  # Same key — migration 053 grants proxy:anthropic scope
-```
+## TODO — Phases 3-6 (prioritized)
 
-Verify after restart:
-```
-grep "proxy=" /tmp/kisti-session.log  # Should show "proxy=https://zeus.aldc.io"
-```
+### Phase 3: Intelligent Screen — Minor Enhancements
+- [ ] Add GPS altitude + satellite count to status section (right side)
+  - `snap.gps_altitude_m` as "ELEV XXX m", `snap.gps_satellites` with green/gray dot
+  - Stale: "---" when `snap.is_gps_stale()`
+- [ ] Add mini G-dot (radius=40, no trail) in lower-right of status section
+  - Call `paint_g_ellipse(p, cx, cy, 40, snap, deque(), max_trail_dots=0)`
+- **File**: `ui/intelligent_screen.py`
 
-Test with a voice question when on WiFi — Zeus audit should log it under "kisti-frontier" script name.
+### Phase 4: Sport Screen — Major Redesign (BIGGEST TASK)
+- [ ] Replace `_paint_performance_bars()` with new technique panel:
+  - Brake G bar with peak hold (replaces brake pressure bar)
+  - Balance bar — centered, green/yellow/red (replaces yaw rate bar)
+  - Trail brake % bar (new)
+  - Remove lateral G bar (redundant with G-ellipse)
+- [ ] Add drivetrain cluster — DCCD + front/rear grip bars in top band
+- [ ] Replace `_paint_g_force_circle()` with `paint_g_ellipse()` call (radius=130, 20 trail dots)
+- [ ] Add public methods: `update_balance()`, `update_grip()`, `update_brake_analysis()`
+- **File**: `ui/sport_screen.py`
+- **Dependencies**: Phase 1 analyzers + Phase 2 ellipse (both done)
 
-## Remaining from code review (kisti-flir-08 work)
+### Phase 5: Sport Sharp Screen — Targeted Upgrades
+- [ ] Replace `_draw_g_force_circle()` with `paint_g_ellipse()` (radius=80, 10 trail dots, MODE_SS_ACCENT)
+- [ ] Replace ROAD vital with GRIP mini-bar (3-zone color bar from `surface_state_*`)
+- [ ] Add sector brake quality dots (green/yellow/red per sector based on peak brake G vs best)
+- [ ] Dark cockpit safety vitals — dim gray when normal, bright on warning only
+- **File**: `ui/sharp_screen.py`
 
-### High priority
-1. **Wake Word Integration** — pkl model at `/data/models/hey_kisti.pkl` (99.2% accuracy) not integrated into `mic_capture.py`. Needs pkl verifier layer alongside OWW. Record 50 real "Hey KiSTI" samples from JK for retraining. Alternative: full ONNX training via Colab.
-2. **Memory pressure mitigation** — 314 MB available is tight. Options: (a) whisper-server "small" model saves ~1.5 GB, (b) investigate KiSTI 3.78 GB RSS (seems high for Python), (c) Python gc.collect() periodically.
-
-### Medium priority
-3. **Udev rule for FLIR USB** — `ACTION=="add", ATTR{idVendor}=="1e4e", RUN+="/bin/chmod a+w %S%p/authorized"`. Eliminates sudo dependency.
-4. **_label_blobs performance** — pure Python flood fill on 19K pixels. Add hot_count ceiling (>30% = skip) or use scipy.ndimage.label.
-5. **Auto-detect device safety** — opening all /dev/videoN can steal other sensor handles. Add VID check or --flir-device flag.
-6. **Two status lines on Intelligent screen** — user reported duplicate text at bottom. Investigate coaching bar vs voice ticker overlap.
-
-### Nice to have
-7. **Rogers Pass route tag** — auto-tag sessions with route name.
-8. **Debrief display on Intelligent screen** — currently coaching bar only (24px, single line). Could use larger overlay when parked.
-9. **Visual verification on Jetson** — rsync and test zone bar rendering on Strada 7" display. Check sunlight visibility.
+### Phase 6: Main.py Integration
+- [ ] Import + instantiate `BalanceAnalyzer`, `GripAnalyzer` in main.py
+- [ ] Extend `_coaching_tick()` (~line 832) — feed analyzers, pass results to screens
+- [ ] Wire `update_balance()` and `update_grip()` to Sport + Sharp screens
+- [ ] Run full test suite — verify >= 1173 tests, no regressions
+- **File**: `main.py` (~line 832-854 coaching timer section)
 
 ## Key files
-- `voice/frontier_engine.py` — proxy routing (_post_proxy, _post_direct, _parse_response)
-- `voice/voice_manager.py:273-280` — proxy env var wiring
-- `ui/road_condition.py` — shared paint functions (zone tint, edge glow, zone bar)
-- `model/vehicle_state.py` — per-zone classification, classify_surface()
-- `alerts/alert_engine.py` — grip removed from voice, ambient checks
-- `sensors/flir_lepton_reader.py` — _consecutive_warm reset
-- `tests/test_frontier_engine.py` — 36 tests (8 proxy routing)
+- `docs/SCREEN_REDESIGN_PLAN.md` — research + design (ASCII layouts, element specs, cross-screen consistency)
+- `coaching/balance_analyzer.py` — BalanceAnalyzer (feed, current_ratio, coaching_text)
+- `coaching/grip_analyzer.py` — GripAnalyzer (feed, front_grip_pct, rear_grip_pct, advisory)
+- `coaching/technique_analyzer.py` — TechniqueAnalyzer (feed, analyze) — extended this session
+- `ui/g_force_ellipse.py` — `paint_g_ellipse()` shared paint function
+- `ui/road_condition.py` — existing shared paint functions (pattern to follow)
+- `ui/theme.py` — color constants
+- `model/vehicle_state.py` — DiffState (all sensor fields, staleness checks)
+- `main.py:832-854` — coaching timer wiring (where to add new analyzers)
+
+## Architecture notes
+
+### How coaching data flows
+```
+DiffStateBridge (20-50Hz CAN) → bridge.snapshot()
+    ↓
+1Hz QTimer (_coaching_timer in main.py)
+    ├── TechniqueAnalyzer.feed(snap) → analyze() → (text, sentiment)
+    ├── BalanceAnalyzer.feed(snap) → current_ratio(), coaching_text()   [NEW - wire in Phase 6]
+    ├── GripAnalyzer.feed(snap) → front/rear_grip_pct(), advisory()     [NEW - wire in Phase 6]
+    ↓
+Screen.update_coaching(text, sentiment)      — existing
+Screen.update_balance(ratio, text, sentiment) — NEW method needed on Sport/Sharp
+Screen.update_grip(front_pct, rear_pct)       — NEW method needed on Sport/Sharp
+```
+
+### paint_g_ellipse() API
+```python
+paint_g_ellipse(
+    p: QPainter,          # active painter
+    cx, cy: float,        # center coords
+    radius: float,        # pixels for 1.0g lateral reference
+    snap: DiffState,      # current state (or None)
+    trail: deque,         # (lat_g, lon_g) ring buffer — caller-owned
+    balance_ratio=1.0,    # from BalanceAnalyzer (1.0=neutral)
+    max_trail_dots=20,    # 0=no trail (Intelligent mini), 10=Sharp, 20=Sport
+    accent_color=CYAN,    # trail dot color (CYAN for Sport, MODE_SS_ACCENT for Sharp)
+)
+```
 
 ## Don't Repeat
 - FLIR `temps_updated` sends `RoadSurfaceTemps` object, not 3 floats
 - `_last_emit` must be instance-level on PatternEngine, not class-level
-- `avg > 0` guard blocks sub-zero detection → use `!= 0.0`
-- Two KiSTI processes fight for `/dev/video0` → kill ALL before restart
-- `CAP_PROP_READ_TIMEOUT_MSEC` is silently ignored by V4L2 backend
-- PureThermal lockup can survive USB reset — worker thread retries with backoff
-- GDM auto-restarts kisti-session on process exit — don't `kill -9` the session itself
-- Dew point in test fixtures: dew_point=10.0 + road=3.0 → LOW_GRIP (not COLD). Use dew_point=0.0 for COLD tests
-- LOW_GRIP bypasses hysteresis (safety-critical) — tests must account for this
-- Rsync to `~/repos/kisti` on Jetson, NOT `~/kisti`
-- `_check_grip` must be in sensor-independent section (before `is_engine_stale` gate)
-- Don't add `time.sleep()` in FLIR worker thread — `cap.read()` blocks at native frame rate
-- TTS pronunciation: "Kissty" not "Keesty Eye" (voice/tts_engine.py TTS_SUBSTITUTIONS)
+- `badge_tw` was undefined in sport_screen.py — FIXED this session (set to 60)
+- Existing `_snap()` test helpers don't set `imu_accel_x` — new brake G code must guard with `peak_g > 0.1` before suggesting "brake harder" (already implemented)
+- Enhanced trail brake detection uses `or` (not `and`) with the existing steering check — both paths should detect trail braking
+- All 3 screens are pure QPainter — no composite QWidget layouts. Follow `road_condition.py` paint function pattern for shared rendering
+- Balance analyzer uses 5-sample rolling average at 1Hz — trend indicator, not instant. Single outlier doesn't flip classification
+- Grip analyzer speed gate is 10 km/h (lower than balance's 30 km/h) — wheel speed comparison works at lower speeds
 - `classify_surface()` is the single source of truth for surface classification thresholds
-- Per-zone hysteresis is independent — each zone has its own counter/pending state
-- `_consecutive_warm` must reset after emit or it fires every frame
-- `_gps_was_live` is a dedicated bool, NOT stored in `_last_alert` dict
-- When editing on `main` branch then switching to `kisti-headless`, stash pop creates merge conflicts. Always start on the right branch.
+- Rsync to `~/repos/kisti` on Jetson, NOT `~/kisti`
