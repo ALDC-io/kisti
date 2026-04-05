@@ -11,7 +11,7 @@ Design ref: Zeus Memory 233bf5c9 (KITT Voice Waveform)
 import random
 import time
 
-from PySide6.QtCore import Qt, QTimer, QRectF, Signal
+from PySide6.QtCore import Qt, QTimer, QRectF, QPointF, Signal
 from PySide6.QtGui import QPainter, QPen, QColor, QBrush, QFont, QLinearGradient
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea,
@@ -20,7 +20,10 @@ from PySide6.QtWidgets import (
 import logging
 
 from data.models import RadarBand, AlertDirection
-from ui.theme import BG_DARK, BG_PANEL, HIGHLIGHT, GRAY, WHITE, CHROME_DARK, DIM
+from ui.theme import (
+    BG_DARK, BG_PANEL, HIGHLIGHT, GRAY, WHITE, CHROME_DARK, DIM,
+    GREEN, YELLOW, RED, CYAN,
+)
 
 klog = logging.getLogger("kisti.ui.kisti_mode")
 
@@ -537,6 +540,13 @@ class KistiModeWidget(QWidget):
         self._audio_playing = False  # True while AudioPlayer is actively playing
         self._bridge = None          # DiffStateBridge — set via set_bridge()
 
+        # GPS + G-dot state for Phase 3 overlay
+        self._gps_altitude_m: float = 0.0
+        self._gps_satellites: int = 0
+        self._gps_fix_quality: int = 0
+        self._current_lat_g: float = 0.0
+        self._current_lon_g: float = 0.0
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 4, 8, 4)
         layout.setSpacing(0)
@@ -859,6 +869,15 @@ class KistiModeWidget(QWidget):
             self._transcript.append(f"  Ambient: {ambient['temp_c']:.1f}°C  {ambient['humidity_pct']:.0f}%RH  {ambient['pressure_hpa']:.0f}hPa")
         else:
             self._transcript.append("  Ambient: ---")
+
+        # GPS status from bridge
+        gps_line = "  GPS: ---"
+        if self._bridge:
+            snap = self._bridge.snapshot()
+            if snap.gps_satellites > 0:
+                fix = {0: "No Fix", 1: "2D", 2: "3D"}.get(snap.gps_fix_quality, "?")
+                gps_line = f"  GPS: {snap.gps_altitude_m:.0f}m  {snap.gps_satellites} sats  {fix}"
+        self._transcript.append(gps_line)
         self._request_display_update.emit()
 
         time.sleep(1)
@@ -1140,6 +1159,15 @@ class KistiModeWidget(QWidget):
 
     def update_data(self, vehicle_state):
         """Process vehicle state — only act on real connected hardware."""
+        # Update GPS + G-dot overlay state
+        if hasattr(vehicle_state, 'gps_altitude_m'):
+            self._gps_altitude_m = vehicle_state.gps_altitude_m
+            self._gps_satellites = vehicle_state.gps_satellites
+            self._gps_fix_quality = vehicle_state.gps_fix_quality
+        if hasattr(vehicle_state, 'lateral_g'):
+            self._current_lat_g = vehicle_state.lateral_g
+            self._current_lon_g = getattr(vehicle_state, 'imu_accel_x', 0.0)
+
         # Radar alerts only if Valentine One is actually connected
         if (hasattr(vehicle_state, 'radar') and vehicle_state.radar
                 and hasattr(vehicle_state.radar, 'connected')
@@ -1148,6 +1176,58 @@ class KistiModeWidget(QWidget):
                 return
             self._handle_radar_alert(vehicle_state.radar)
         # Otherwise: no radar, no fake alerts
+
+    def paintEvent(self, event):
+        """Overlay: GPS status line + mini G-dot in lower-right corner."""
+        super().paintEvent(event)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+
+        # --- GPS altitude + sat count (lower-left, above softkey bar) ---
+        if self._gps_satellites > 0:
+            p.setFont(QFont("Helvetica", 8))
+            fix = {0: "---", 1: "2D", 2: "3D"}.get(self._gps_fix_quality, "?")
+            gps_text = f"{self._gps_altitude_m:.0f}m  {self._gps_satellites}sat  {fix}"
+            p.setPen(QPen(QColor(CYAN)))
+            p.drawText(8, h - 8, gps_text)
+
+        # --- Mini G-dot (radius=40, no trail) in lower-right ---
+        import math
+        dot_radius = 40
+        dot_cx = w - dot_radius - 12
+        dot_cy = h - dot_radius - 12
+
+        # Reference circle (subtle)
+        p.setPen(QPen(QColor(DIM), 1))
+        p.setBrush(Qt.NoBrush)
+        p.drawEllipse(QPointF(dot_cx, dot_cy), dot_radius, dot_radius)
+        # Crosshair
+        p.drawLine(int(dot_cx - dot_radius), int(dot_cy),
+                    int(dot_cx + dot_radius), int(dot_cy))
+        p.drawLine(int(dot_cx), int(dot_cy - dot_radius),
+                    int(dot_cx), int(dot_cy + dot_radius))
+
+        # Current G position
+        max_g = 1.0
+        nx = max(-1.0, min(1.0, self._current_lat_g / max_g))
+        ny = max(-1.0, min(1.0, self._current_lon_g / max_g))
+        gx = dot_cx + nx * dot_radius
+        gy = dot_cy - ny * dot_radius  # Screen Y inverted
+
+        g_mag = math.sqrt(self._current_lat_g ** 2 + self._current_lon_g ** 2)
+        if g_mag < 0.4:
+            color = QColor(GREEN)
+        elif g_mag < 0.7:
+            color = QColor(YELLOW)
+        else:
+            color = QColor(RED)
+
+        p.setPen(QPen(QColor(WHITE), 1))
+        p.setBrush(QBrush(color))
+        p.drawEllipse(QPointF(gx, gy), 4, 4)
+
+        p.end()
 
     def _handle_radar_alert(self, radar_state):
         """Generate escalating first-person speech based on radar threat level."""

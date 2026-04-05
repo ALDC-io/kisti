@@ -128,6 +128,9 @@ def main():
     from model.vehicle_state import DiffStateBridge
     from modes.mode_manager import ModeManager
     from alerts.alert_engine import AlertEngine
+    from coaching.balance_analyzer import BalanceAnalyzer
+    from coaching.grip_analyzer import GripAnalyzer
+    from coaching.technique_analyzer import TechniqueAnalyzer
 
     if args.headless:
         from PySide6.QtCore import QCoreApplication
@@ -153,6 +156,11 @@ def main():
     # Alert engine: deterministic Tier 1 threshold monitoring
     alert_eng = AlertEngine(bridge)
     alert_eng.start()
+
+    # Coaching analyzers (1Hz, fed by coaching timer below)
+    balance_analyzer = BalanceAnalyzer()
+    grip_analyzer = GripAnalyzer()
+    technique_analyzer = TechniqueAnalyzer()
 
     # Ambient weather sensor (Yoctopuce Yocto-Meteo-V2) or simulator
     ambient_source = None  # YoctopuceReader or AmbientSimulator — same signal interface
@@ -692,6 +700,38 @@ def main():
 
     if window:
         window.show()
+
+    # --- 1Hz coaching timer: feed analyzers, push results to screens ---
+    from PySide6.QtCore import QTimer as _CoachTimer
+
+    _coaching_timer = _CoachTimer()
+    _coaching_timer.setInterval(1000)
+
+    def _coaching_tick():
+        snap = bridge.snapshot()
+        # Feed analyzers
+        balance_analyzer.feed(snap.speed_kph, snap.steering_angle, snap.yaw_rate)
+        grip_analyzer.feed(snap)
+        technique_analyzer.feed(snap)
+
+        # Push to UI screens
+        if window:
+            ratio = balance_analyzer.ratio
+            f_grip = grip_analyzer.front_grip_pct
+            r_grip = grip_analyzer.rear_grip_pct
+            brake_summary = technique_analyzer.brake_quality_summary()
+
+            if hasattr(window, '_sport_screen'):
+                window._sport_screen.update_balance(ratio)
+                window._sport_screen.update_grip(f_grip, r_grip)
+                window._sport_screen.update_brake_analysis(brake_summary)
+            if hasattr(window, '_sharp_screen'):
+                window._sharp_screen.update_balance(ratio)
+                window._sharp_screen.update_grip(f_grip, r_grip)
+
+    _coaching_timer.timeout.connect(_coaching_tick)
+    _coaching_timer.start()
+    log.info("Coaching timer started (1Hz: balance + grip + technique)")
 
     mode_label = "HEADLESS" if args.headless else mode_mgr.si_drive_mode.label
     log.info("KiSTI running — Mode: %s, Voice: %s, DuckDB: %s, Memory: %s, Zeus: %s, Sync: %s, CAN Out: %s, Ambient: %s",

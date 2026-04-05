@@ -23,6 +23,8 @@ from ui.track_mode import TrackModeWidget
 from ui.diff_mode import DiffModeWidget
 from ui.video_mode import VideoModeWidget
 from ui.settings_mode import SettingsModeWidget
+from ui.sport_screen import SportScreen
+from ui.sharp_screen import SharpScreen
 from ui.splash_screen import SplashScreen
 from model.vehicle_state import DiffStateBridge
 from can.kisti_can import create_can_source
@@ -60,6 +62,8 @@ class MainWindow(QMainWindow):
         self._diff_mode = DiffModeWidget(self)
         self._video_mode = VideoModeWidget(self)
         self._settings_mode = SettingsModeWidget(self)
+        self._sport_screen = SportScreen(self)
+        self._sharp_screen = SharpScreen(self)
         self._stack.addWidget(self._kisti_mode)     # index 0
         self._stack.addWidget(self._street_mode)    # index 1
         self._stack.addWidget(self._track_mode)     # index 2
@@ -73,6 +77,8 @@ class MainWindow(QMainWindow):
         self._stack.addWidget(placeholder)          # index 5
 
         self._stack.addWidget(self._settings_mode)  # index 6
+        self._stack.addWidget(self._sport_screen)   # index 7
+        self._stack.addWidget(self._sharp_screen)   # index 8
 
         # Softkey bar (60px)
         self._softkey_bar = BottomSoftkeyBar(self)
@@ -85,6 +91,7 @@ class MainWindow(QMainWindow):
         self._mode_indices = {
             "KiSTI": 0, "STREET": 1, "TRACK": 2, "DIFF": 3,
             "VIDEO": 4, "LOG": 5, "SETTINGS": 6,
+            "SPORT": 7, "SHARP": 8,
         }
 
         # F11 fullscreen toggle
@@ -106,6 +113,8 @@ class MainWindow(QMainWindow):
         self._diff_bridge = bridge if bridge is not None else DiffStateBridge(self)
         self._diff_mode.set_bridge(self._diff_bridge)
         self._kisti_mode.set_bridge(self._diff_bridge)
+        self._sport_screen.set_bridge(self._diff_bridge)
+        self._sharp_screen.set_bridge(self._diff_bridge)
         # Only create CAN source if we own the bridge (avoid double listeners)
         if self._external_bridge:
             self._can_listener, self._mock_can = None, None
@@ -158,6 +167,10 @@ class MainWindow(QMainWindow):
             self._diff_mode.update_data(vehicle_state)
         elif self._current_mode == "SETTINGS":
             self._settings_mode.update_data(vehicle_state)
+        elif self._current_mode == "SPORT":
+            self._sport_screen.update_data(vehicle_state)
+        elif self._current_mode == "SHARP":
+            self._sharp_screen.update_data(vehicle_state)
         # Also set the session mode to match UI mode
         vehicle_state.session.mode = self._current_mode
 
