@@ -1,5 +1,40 @@
 # KiSTI - Progress
 
+## Session: 2026-04-04 (kisti-screen-redesign — Web Learning Capture + MCP Fix)
+
+### Status: COMPLETE
+
+### Completed
+- **MCP `remember` metadata passthrough** — Fixed zeus-memory `mcp_routes.py`: tool was hardcoding `"{}"` metadata on every INSERT. Added optional `metadata` param to schema + handler. Now passes `{type, user, domain}` through to DB via `json.dumps()`. 6-line fix, backward-compatible. Deployed via GHA.
+- **Repo-level `/learn` command** — Created `.claude/commands/learn.md` using MCP tools instead of bash/curl. Works on all Claude Code surfaces (web, desktop, mobile, CLI).
+- **KiSTI `CLAUDE.md`** — Project conventions, architecture (offline Zeus edge node), data flow, deployment notes, don't-repeat list. Ensures web sessions have full context.
+
+### Key Decisions
+- **Server-side MCP fix over client workaround** — One fix to `mcp_routes.py` enables metadata on ALL surfaces via MCP schema discovery. No per-surface configuration needed.
+- **Repo-level commands over user-level** — `.claude/commands/learn.md` travels with the repo. Web sessions that clone/connect to kisti get the skill automatically.
+
+### Don't Repeat
+- MCP tools may silently drop fields — always verify server-side handler passes params through (check for hardcoded defaults)
+- ToolSearch + Explore agent is the right way to audit MCP tool behavior (schema → handler → DB)
+
+### Learnings Captured to Zeus Memory
+- ✅ cce_success_log: MCP metadata passthrough fix (cc6035ce)
+- ✅ cce_success_log: Repo-level /learn command for cross-surface capture (b0fee8f0)
+- ✅ cce_decision_log: CLAUDE.md for kisti web session context (4af0a17f)
+- ✅ cce_failed_approach: MCP remember silently dropping all metadata (b34765d9)
+
+### Files Changed
+- `zeus-memory/api/routes/mcp_routes.py` — MODIFIED, metadata passthrough (6 lines)
+- `CLAUDE.md` — NEW, project conventions for web sessions
+- `.claude/commands/learn.md` — NEW, /learn skill using MCP tools
+- `PROGRESS.md` — UPDATED, Phase 1-2 + this session
+
+### Next Session (kisti-screen-redesign Phase 3)
+1. Intelligent Screen — GPS altitude + satellite count + mini G-dot
+2. Phase 4-6 per `NEXT_SESSION_PROMPT.md` and `steady-dreaming-kitten` plan
+
+---
+
 ## Session: 2026-04-04 (kisti-screen-redesign Phase 1-2 — Analysis Modules + Ellipse Component)
 
 ### Status: COMPLETE
