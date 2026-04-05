@@ -229,8 +229,9 @@ class SportScreenWidget(QWidget):
         zones = zone_states_from_snap(self._snap if not stale else None)
         badge_x = 8
         badge_y = 40
+        badge_tw = 60
         row2_h = 22
-        paint_zone_bar(p, badge_x, badge_y, 60, 18, zones,
+        paint_zone_bar(p, badge_x, badge_y, badge_tw, 18, zones,
                        paint_count=self._paint_count)
 
         # Slip delta — same row as badge, vertically aligned

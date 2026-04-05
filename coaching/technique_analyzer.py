@@ -27,6 +27,7 @@ class _Sample:
     steering_rate: float
     lateral_g: float
     throttle_pct: float
+    longitudinal_g: float = 0.0  # imu_accel_x (negative = braking)
 
 
 # Thresholds
@@ -54,6 +55,7 @@ class TechniqueAnalyzer:
             steering_rate=steering_rate,
             lateral_g=snap.imu_accel_y,
             throttle_pct=snap.throttle_pct,
+            longitudinal_g=snap.imu_accel_x,
         ))
         self._prev_steering = snap.steering_angle
 
@@ -92,16 +94,30 @@ class TechniqueAnalyzer:
             elif std <= 12:
                 issues.append((10, "Smooth steering", "green"))
 
-        # --- Trail braking ---
+        # --- Trail braking (enhanced: steering angle OR G-based) ---
         if len(braking) >= 5:
             trail_count = sum(
-                1 for s in braking if abs(s.steering_angle) > _TRAIL_STEER
+                1 for s in braking
+                if abs(s.steering_angle) > _TRAIL_STEER
+                or (s.longitudinal_g < -0.3 and abs(s.lateral_g) > 0.3)
             )
             trail_ratio = trail_count / len(braking)
             if trail_ratio > 0.3:
                 issues.append((10, "Good trail braking", "green"))
             elif trail_ratio < 0.1 and len(cornering) >= 3:
                 issues.append((3, "Try trail braking at corner entry", "dim"))
+
+        # --- Brake G quality (longitudinal G during braking) ---
+        # Only analyze if IMU is reporting actual braking G (> 0.1g)
+        if len(braking) >= 3:
+            brake_gs = [abs(s.longitudinal_g) for s in braking]
+            peak_g = max(brake_gs)
+            if peak_g > 0.1:
+                g_std = _std_dev(brake_gs)
+                if peak_g > 0.8 and g_std < 0.15:
+                    issues.append((10, "Strong consistent braking", "green"))
+                elif peak_g < 0.5 and any(s.speed_kph > 60 for s in braking):
+                    issues.append((2, "Brake harder — more grip available", "amber"))
 
         if not issues:
             return ("", "dim")
