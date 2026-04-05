@@ -1,5 +1,53 @@
 # KiSTI - Progress
 
+## Session: 2026-04-05 (kisti-screen-redesign Phases 3-6 — Rebuild + Jetson Deploy)
+
+### Status: COMPLETE
+
+### Completed
+- **Phase 3**: Intelligent screen — GPS altitude, satellite count with health dot, mini G-ellipse (r=40, no trail)
+- **Phase 4**: Sport screen — friction ellipse (r=130, 20 trail dots, US/OS tint), 6 technique bars (brake G with peak hold, balance centered, trail %, DCCD, F grip, R grip), removed old 4-bar panel + G-circle
+- **Phase 5**: Sharp screen — friction ellipse (r=80, 10 trail, SS accent), GRIP vital replaces ROAD, sector brake quality dots, dark cockpit dim-until-warning vitals
+- **Phase 6**: main.py — BalanceAnalyzer + GripAnalyzer in 1Hz coaching timer, results fed to Sport + Sharp via update_balance()/update_grip()
+- **Zeus MCP fixes**: metadata passthrough, DB fallback for zm_ keys, OAuth form zm_ lookup, scoped key for Claude Code web
+- **Jetson deploy**: Pulled 38 commits, cleared pycache, launched on Excelon. Sport screen validated on hardware
+- **Rebuilt Phases 3-6 from scratch** — web instance commit (04e0ea8) couldn't push due to GitHub OAuth. Three parallel agents rebuilt Phases 3/4/5 in ~5 min
+
+### Key Decisions
+- **Rebuild > transfer**: When web commit can't push and patch transfer fails (separate /tmp, 72KB too large for chat), rebuilding from ZMID spec + parallel agents is faster than debugging
+- **Scoped API key for web**: `zm_jk_web_*` on ALDC Management tenant (read/write/search/store only, no admin/proxy)
+- **DB fallback for API keys**: zm_ keys not in memory cache fall back to oauth_clients DB lookup + self-cache for subsequent requests
+
+### Don't Repeat
+- Jetson git index.lock from auto-commit cron — `rm -f .git/index.lock` before pull
+- Untracked files block merge — `git checkout -f && git clean -fd` before pull
+- SSH drops on pkill if it kills the session parent — use `kill <PID>` instead
+- Claude Code web GitHub push needs org admin to add repo to GitHub App installation
+- MCP `remember` was silently dropping metadata — verify server passes params through
+
+### Learnings Captured to Zeus Memory
+- ✅ cce_success_log: Phases 3-6 rebuild + hardware validation (7ffc8430)
+- ✅ cce_success_log: Zeus MCP metadata + DB fallback deploy (62a11092)
+- ✅ cce_decision_log: Rebuild vs transfer decision (e0a0fa35)
+- ✅ cce_failed_approach: GitHub App org permissions blocking web push (acf8bf6d)
+- ✅ cce_failed_approach: Jetson index.lock + deploy sequence (3474e5ea)
+
+### Files Changed
+- `ui/intelligent_screen.py` — GPS altitude, satellites, mini G-dot
+- `ui/sport_screen.py` — Friction ellipse + 6 technique bars (major rewrite)
+- `ui/sharp_screen.py` — Dark cockpit + ellipse + grip bar + sector dots
+- `main.py` — BalanceAnalyzer + GripAnalyzer wired into coaching timer
+- `zeus-memory/api/routes/mcp_routes.py` — metadata passthrough
+- `zeus-memory/api/main.py` — DB fallback for zm_ API keys
+- `zeus-memory/api/routes/oauth_routes.py` — zm_ key lookup by client_id alone
+
+### Next Session
+1. Fix Claude Code web GitHub push — have org admin add kisti to GitHub App installation
+2. Test screens with real CAN data (driving session)
+3. Calibrate steering ratio (default 15:1) on skidpad for balance accuracy
+
+---
+
 ## Session: 2026-04-04 (kisti-screen-redesign — Web Learning Capture + MCP Fix)
 
 ### Status: COMPLETE
