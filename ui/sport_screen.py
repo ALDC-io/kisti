@@ -4,21 +4,20 @@ Performance / fast-road screen. Medium density.
 MXG Strada handles: gear, speed, RPM, boost, lambda, oil, coolant.
 KiSTI Sport shows ONLY what the MXG cannot:
   - DCCD + surface + slip (AWD dynamics)
-  - FLIR brake temps (4-corner)
-  - G-force circle with trail (IMU)
-  - Steering angle + yaw rate bars
-  - Brake pressure bar
+  - FLIR road surface conditions
+  - Friction ellipse with trail (IMU)
+  - Technique panel: brake G, balance, trail %, DCCD, front/rear grip
+  - Coaching text from TechniqueAnalyzer
 
 800x440 content area, 100% QPainter — no composite QWidget layouts.
 
 Layout:
-  y=0..100   DCCD bar + surface + slip (left) | FLIR 2x2 (right)
-  y=100..440 Performance bars (left 350px) | G-force circle (right)
+  y=0..100   DCCD bar + surface + slip (left) | Road zones (right)
+  y=100..440 Technique panel (left 350px) | Friction ellipse (right)
 """
 
 from __future__ import annotations
 
-import math
 from collections import deque
 from typing import Optional
 
@@ -32,6 +31,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QWidget
 
 from model.vehicle_state import DiffState
+from ui.g_force_ellipse import paint_g_ellipse
 from ui.road_condition import (
     paint_zone_tint,
     paint_edge_glow,
@@ -59,28 +59,13 @@ from ui.theme import (
 # Constants
 # ---------------------------------------------------------------------------
 
-# G-force circle — expanded to fill right side (350..800, 100..440)
+# Friction ellipse center — right panel (350..800, 100..440)
 _G_CENTER_X = 575
 _G_CENTER_Y = 250
-_G_RADIUS = 140
-_G_RING_05 = 70
-_G_MAX = 1.5
 
 # Wheel speed delta thresholds (km/h)
 _WS_MODERATE = 2.0
 _WS_SEVERE = 5.0
-
-# Brake bar max
-_BRAKE_MAX_BAR = 80.0
-
-# Lateral G range for bar
-_G_MAX_BAR = 1.5
-
-# Steering range
-_STEER_MAX = 450.0
-
-# Yaw rate range
-_YAW_MAX = 60.0
 
 # FLIR thresholds
 # Road surface temp thresholds (forward-facing grill FLIR)
@@ -125,6 +110,15 @@ class SportScreenWidget(QWidget):
         # Paint counter for edge glow pulse
         self._paint_count: int = 0
 
+        # Balance / grip / brake analysis (fed from coaching layer at 1Hz)
+        self._balance_ratio: float = 1.0
+        self._balance_text: str = ""
+        self._balance_sentiment: str = "dim"
+        self._front_grip_pct: float = 100.0
+        self._rear_grip_pct: float = 100.0
+        self._brake_peak_g: float = 0.0
+        self._trail_brake_pct: float = 0.0
+
         self.setMinimumSize(800, 440)
 
     # ------------------------------------------------------------------
@@ -145,6 +139,22 @@ class SportScreenWidget(QWidget):
         """Cache coaching text from TechniqueAnalyzer (1Hz)."""
         self._coaching_text = text
         self._coaching_sentiment = sentiment
+
+    def update_balance(self, ratio: float, text: str, sentiment: str) -> None:
+        """Cache balance analysis from BalanceAnalyzer (1Hz)."""
+        self._balance_ratio = ratio
+        self._balance_text = text
+        self._balance_sentiment = sentiment
+
+    def update_grip(self, front_pct: float, rear_pct: float) -> None:
+        """Cache per-axle grip from GripAnalyzer (1Hz)."""
+        self._front_grip_pct = front_pct
+        self._rear_grip_pct = rear_pct
+
+    def update_brake_analysis(self, peak_g: float, trail_pct: float) -> None:
+        """Cache brake quality from TechniqueAnalyzer (1Hz)."""
+        self._brake_peak_g = peak_g
+        self._trail_brake_pct = trail_pct
 
     # ------------------------------------------------------------------
     # Paint
@@ -175,8 +185,8 @@ class SportScreenWidget(QWidget):
         p.drawLine(0, 100, w, 100)
 
         # --- Middle + bottom band (y=100..440) ---
-        self._paint_performance_bars(p, snap, diff_stale, dynamics_stale)
-        self._paint_g_force_circle(p, snap)
+        self._paint_technique_panel(p, snap, diff_stale, dynamics_stale)
+        self._paint_g_ellipse(p, snap)
         self._paint_coaching(p)
         self._paint_voice_ticker(p)
 
@@ -281,10 +291,10 @@ class SportScreenWidget(QWidget):
                            paint_count=self._paint_count, show_labels=True)
 
     # ------------------------------------------------------------------
-    # Middle band: Performance bars (left, 0..350)
+    # Middle band: Technique panel (left, 0..350)
     # ------------------------------------------------------------------
 
-    def _paint_performance_bars(
+    def _paint_technique_panel(
         self, p: QPainter, snap: DiffState,
         diff_stale: bool, dynamics_stale: bool,
     ) -> None:
@@ -294,156 +304,159 @@ class SportScreenWidget(QWidget):
         label_w = 60
         val_w = 80
         y_start = 120
+        spacing = 48
 
-        bars = []
-
-        # Lateral G — centered bar
-        if dynamics_stale:
-            bars.append(("LAT G", 0, _G_MAX_BAR, None, CYAN, "---"))
-        else:
-            norm = max(-1.0, min(1.0, snap.imu_accel_y / _G_MAX_BAR))
-            bars.append(("LAT G", snap.imu_accel_y, _G_MAX_BAR, norm, CYAN, f"{snap.imu_accel_y:+.2f}g"))
-
-        # Brake pressure
-        if dynamics_stale:
-            bars.append(("BRAKE", 0, _BRAKE_MAX_BAR, None, RED, "---"))
-        else:
-            frac = min(1.0, snap.brake_pressure / _BRAKE_MAX_BAR)
-            bars.append(("BRAKE", snap.brake_pressure, _BRAKE_MAX_BAR, frac, RED, f"{snap.brake_pressure:.0f} bar"))
-
-        # Steering angle — centered bar
-        if dynamics_stale:
-            bars.append(("STEER", 0, _STEER_MAX, None, CYAN, "---"))
-        else:
-            # Normalize to -1..+1
-            norm = max(-1.0, min(1.0, snap.steering_angle / _STEER_MAX))
-            bars.append(("STEER", snap.steering_angle, _STEER_MAX, norm, CYAN, f"{snap.steering_angle:.0f}\u00b0"))
-
-        # Yaw rate — centered bar
-        if dynamics_stale:
-            bars.append(("YAW", 0, _YAW_MAX, None, CYAN, "---"))
-        else:
-            norm = max(-1.0, min(1.0, snap.yaw_rate / _YAW_MAX))
-            bars.append(("YAW", snap.yaw_rate, _YAW_MAX, norm, CYAN, f"{snap.yaw_rate:.1f}\u00b0/s"))
-
-        spacing = 70
-        for i, (label, _value, _max_val, frac, fill_color, val_str) in enumerate(bars):
-            y = y_start + i * spacing
-
-            # Label
-            p.setFont(QFont("Helvetica", 13, QFont.Weight.Bold))
-            p.setPen(QPen(QColor(GRAY)))
-            p.drawText(QRectF(bar_x, y, label_w, bar_h),
-                       Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, label)
-
+        # --- 1. BRAKE G — standard bar, max 1.5g, RED, peak hold ---
+        y = y_start
+        peak_g = self._brake_peak_g
+        frac = min(1.0, peak_g / 1.5) if peak_g > 0 else 0.0
+        val_str = f"{peak_g:.2f}g" if peak_g > 0.01 else "---"
+        self._paint_standard_bar(p, bar_x, y, label_w, bar_w, bar_h, val_w,
+                                 "BRAKE G", frac, RED, val_str)
+        # Peak hold marker (thin white line at peak position)
+        if peak_g > 0.05:
             bx = bar_x + label_w
+            peak_px = int(bx + bar_w * min(1.0, peak_g / 1.5))
+            p.setPen(QPen(QColor(WHITE), 2))
+            p.drawLine(peak_px, int(y + 2), peak_px, int(y + bar_h - 2))
 
-            if label in ("STEER", "YAW"):
-                # Centered bar
-                p.fillRect(int(bx), int(y + 2), int(bar_w), int(bar_h - 4), QColor(BG_ACCENT))
-                center = bx + bar_w / 2
-                p.setPen(QPen(QColor(GRAY), 1))
-                p.drawLine(int(center), int(y + 2), int(center), int(y + bar_h - 2))
+        # --- 2. BALANCE — centered bar, green/yellow/red ---
+        y = y_start + spacing
+        ratio = self._balance_ratio
+        # Normalize: 1.0 = center, <0.95 = understeer (left), >1.05 = oversteer (right)
+        # Map deviation from 1.0 into -1..+1 range (0.7 → -1.0, 1.3 → +1.0)
+        deviation = ratio - 1.0
+        norm = max(-1.0, min(1.0, deviation / 0.3))
+        abs_dev = abs(deviation)
+        if abs_dev < 0.05:
+            balance_color = GREEN
+        elif abs_dev < 0.15:
+            balance_color = YELLOW
+        else:
+            balance_color = RED
+        bal_val = self._balance_text if self._balance_text else f"{ratio:.2f}"
+        self._paint_centered_bar(p, bar_x, y, label_w, bar_w, bar_h, val_w,
+                                 "BALANCE", norm, balance_color, bal_val)
 
-                if frac is not None:
-                    fill_px = int(abs(frac) * (bar_w / 2))
-                    if frac >= 0:
-                        p.fillRect(int(center), int(y + 2), fill_px, int(bar_h - 4), QColor(fill_color))
-                    else:
-                        p.fillRect(int(center - fill_px), int(y + 2), fill_px, int(bar_h - 4), QColor(fill_color))
+        # --- 3. TRAIL % — standard bar, max 100%, CYAN ---
+        y = y_start + 2 * spacing
+        trail_pct = self._trail_brake_pct
+        frac = min(1.0, trail_pct / 100.0)
+        val_str = f"{trail_pct:.0f}%" if trail_pct > 0.1 else "---"
+        self._paint_standard_bar(p, bar_x, y, label_w, bar_w, bar_h, val_w,
+                                 "TRAIL %", frac, CYAN, val_str)
+
+        # --- 4. DCCD — standard bar, max 100%, green/yellow/red ---
+        y = y_start + 3 * spacing
+        dccd = snap.dccd_command_pct if not diff_stale else 0.0
+        frac = min(1.0, dccd / 100.0)
+        if dccd > 70:
+            dccd_color = RED
+        elif dccd > 40:
+            dccd_color = YELLOW
+        else:
+            dccd_color = GREEN
+        val_str = f"{dccd:.0f}%" if not diff_stale else "---"
+        self._paint_standard_bar(p, bar_x, y, label_w, bar_w, bar_h, val_w,
+                                 "DCCD", frac, dccd_color, val_str)
+
+        # --- 5. F GRIP — standard bar, max 100%, green/yellow/red ---
+        y = y_start + 4 * spacing
+        fg = self._front_grip_pct
+        frac = min(1.0, fg / 100.0)
+        if fg > 90:
+            fg_color = GREEN
+        elif fg > 80:
+            fg_color = YELLOW
+        else:
+            fg_color = RED
+        val_str = f"{fg:.0f}%"
+        self._paint_standard_bar(p, bar_x, y, label_w, bar_w, bar_h, val_w,
+                                 "F GRIP", frac, fg_color, val_str)
+
+        # --- 6. R GRIP — standard bar, max 100%, green/yellow/red ---
+        y = y_start + 5 * spacing
+        rg = self._rear_grip_pct
+        frac = min(1.0, rg / 100.0)
+        if rg > 90:
+            rg_color = GREEN
+        elif rg > 80:
+            rg_color = YELLOW
+        else:
+            rg_color = RED
+        val_str = f"{rg:.0f}%"
+        self._paint_standard_bar(p, bar_x, y, label_w, bar_w, bar_h, val_w,
+                                 "R GRIP", frac, rg_color, val_str)
+
+    def _paint_standard_bar(
+        self, p: QPainter,
+        bar_x: int, y: float, label_w: int, bar_w: int, bar_h: int,
+        val_w: int, label: str, frac: float, fill_color: str, val_str: str,
+    ) -> None:
+        """Paint a single standard (left-to-right) bar with label and value."""
+        # Label
+        p.setFont(QFont("Helvetica", 13, QFont.Weight.Bold))
+        p.setPen(QPen(QColor(GRAY)))
+        p.drawText(QRectF(bar_x, y, label_w, bar_h),
+                   Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, label)
+
+        bx = bar_x + label_w
+        # Background
+        p.fillRect(int(bx), int(y + 2), int(bar_w), int(bar_h - 4), QColor(BG_ACCENT))
+        # Fill
+        if frac > 0:
+            fw = int(bar_w * min(1.0, frac))
+            p.fillRect(int(bx), int(y + 2), fw, int(bar_h - 4), QColor(fill_color))
+
+        # Value text
+        p.setFont(QFont("Helvetica", 13, QFont.Weight.Bold))
+        p.setPen(QPen(QColor(fill_color) if val_str != "---" else QColor(GRAY)))
+        p.drawText(QRectF(bx + bar_w + 4, y, val_w, bar_h),
+                   Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, val_str)
+
+    def _paint_centered_bar(
+        self, p: QPainter,
+        bar_x: int, y: float, label_w: int, bar_w: int, bar_h: int,
+        val_w: int, label: str, norm: float, fill_color: str, val_str: str,
+    ) -> None:
+        """Paint a centered bar (deviation from center) with label and value."""
+        # Label
+        p.setFont(QFont("Helvetica", 13, QFont.Weight.Bold))
+        p.setPen(QPen(QColor(GRAY)))
+        p.drawText(QRectF(bar_x, y, label_w, bar_h),
+                   Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, label)
+
+        bx = bar_x + label_w
+        # Background
+        p.fillRect(int(bx), int(y + 2), int(bar_w), int(bar_h - 4), QColor(BG_ACCENT))
+        # Center line
+        center = bx + bar_w / 2
+        p.setPen(QPen(QColor(GRAY), 1))
+        p.drawLine(int(center), int(y + 2), int(center), int(y + bar_h - 2))
+
+        # Fill from center
+        if abs(norm) > 0.01:
+            fill_px = int(abs(norm) * (bar_w / 2))
+            if norm >= 0:
+                p.fillRect(int(center), int(y + 2), fill_px, int(bar_h - 4), QColor(fill_color))
             else:
-                # Standard bar
-                p.fillRect(int(bx), int(y + 2), int(bar_w), int(bar_h - 4), QColor(BG_ACCENT))
-                if frac is not None and frac > 0:
-                    fw = int(bar_w * min(1.0, abs(frac)))
-                    p.fillRect(int(bx), int(y + 2), fw, int(bar_h - 4), QColor(fill_color))
+                p.fillRect(int(center - fill_px), int(y + 2), fill_px, int(bar_h - 4), QColor(fill_color))
 
-            # Value text
-            p.setFont(QFont("Helvetica", 13, QFont.Weight.Bold))
-            p.setPen(QPen(QColor(fill_color) if val_str != "---" else QColor(GRAY)))
-            p.drawText(QRectF(bx + bar_w + 4, y, val_w, bar_h),
-                       Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, val_str)
+        # Value text
+        p.setFont(QFont("Helvetica", 13, QFont.Weight.Bold))
+        p.setPen(QPen(QColor(fill_color) if val_str != "---" else QColor(GRAY)))
+        p.drawText(QRectF(bx + bar_w + 4, y, val_w, bar_h),
+                   Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, val_str)
 
     # ------------------------------------------------------------------
-    # Middle band: G-force circle (right, 350..800) — PRESERVED
+    # Middle band: Friction ellipse (right, 350..800)
     # ------------------------------------------------------------------
 
-    def _paint_g_force_circle(self, p: QPainter, snap: DiffState) -> None:
-        cx = _G_CENTER_X
-        cy = _G_CENTER_Y
-        r1 = _G_RADIUS
-        r05 = _G_RING_05
-
+    def _paint_g_ellipse(self, p: QPainter, snap: DiffState) -> None:
         p.fillRect(350, 100, 450, 340, QColor(BG_DARK))
-
-        # Concentric rings
-        p.setPen(QPen(QColor(DIM), 1))
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawEllipse(QPointF(cx, cy), r05, r05)
-        p.drawEllipse(QPointF(cx, cy), r1, r1)
-
-        # Ring labels
-        p.setFont(QFont("Helvetica", 7))
-        p.setPen(QPen(QColor(GRAY)))
-        p.drawText(QRectF(cx + r05 + 2, cy - 10, 24, 12), Qt.AlignmentFlag.AlignLeft, "0.5g")
-        p.drawText(QRectF(cx + r1 + 2, cy - 10, 24, 12), Qt.AlignmentFlag.AlignLeft, "1.0g")
-
-        # Crosshair lines
-        p.setPen(QPen(QColor(DIM), 1, Qt.PenStyle.DotLine))
-        p.drawLine(QPointF(cx - r1, cy), QPointF(cx + r1, cy))
-        p.drawLine(QPointF(cx, cy - r1), QPointF(cx, cy + r1))
-
-        # Axis labels (ACCEL omitted — G magnitude number sits there instead)
-        p.setFont(QFont("Helvetica", 9, QFont.Weight.Bold))
-        p.setPen(QPen(QColor(GRAY)))
-        p.drawText(QRectF(cx - 20, cy - r1 - 16, 40, 14), Qt.AlignmentFlag.AlignCenter, "BRAKE")
-        p.drawText(QRectF(cx - r1 - 14, cy - 7, 14, 14), Qt.AlignmentFlag.AlignCenter, "L")
-        p.drawText(QRectF(cx + r1 + 2, cy - 7, 14, 14), Qt.AlignmentFlag.AlignCenter, "R")
-
-        # Trail dots — fading from dim to bright
-        trail_len = len(self._g_trail)
-        if trail_len > 1:
-            for i, (lat_g, lon_g) in enumerate(self._g_trail):
-                if i == trail_len - 1:
-                    continue
-                alpha = int(30 + 180 * (i / trail_len))
-                dot_color = QColor(CYAN)
-                dot_color.setAlpha(alpha)
-                px, py = self._g_to_pixel(lat_g, lon_g, cx, cy, r1)
-                p.setPen(Qt.PenStyle.NoPen)
-                p.setBrush(dot_color)
-                p.drawEllipse(QPointF(px, py), 2, 2)
-
-        # Current G dot — bright cyan
-        lat_g = snap.imu_accel_y
-        lon_g = snap.imu_accel_x
-        px, py = self._g_to_pixel(lat_g, lon_g, cx, cy, r1)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor(CYAN))
-        p.drawEllipse(QPointF(px, py), 5, 5)
-
-        # G magnitude — inside circle, lower third (reads as part of gauge)
-        g_mag = math.sqrt(lat_g ** 2 + lon_g ** 2)
-        p.setFont(QFont("Helvetica", 22, QFont.Weight.Bold))
-        p.setPen(QPen(QColor(WHITE)))
-        p.drawText(
-            QRectF(cx - 60, cy + r1 * 0.45, 120, 30),
-            Qt.AlignmentFlag.AlignCenter, f"{g_mag:.2f}g",
-        )
-
-    @staticmethod
-    def _g_to_pixel(
-        lat_g: float, lon_g: float, cx: float, cy: float, r_px: float
-    ) -> tuple[float, float]:
-        """Convert G values to pixel coordinates, clamped to max radius."""
-        g_mag = math.sqrt(lat_g ** 2 + lon_g ** 2)
-        if g_mag > _G_MAX:
-            scale = _G_MAX / g_mag
-            lat_g *= scale
-            lon_g *= scale
-        px = cx + (lat_g / _G_MAX) * r_px
-        py = cy - (lon_g / _G_MAX) * r_px
-        return px, py
+        paint_g_ellipse(p, _G_CENTER_X, _G_CENTER_Y, 130, snap, self._g_trail,
+                        balance_ratio=self._balance_ratio, max_trail_dots=20,
+                        accent_color=CYAN)
 
     # ------------------------------------------------------------------
     # Color helpers

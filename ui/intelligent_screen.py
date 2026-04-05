@@ -14,6 +14,8 @@ Layout:
 
 from __future__ import annotations
 
+from collections import deque
+
 import numpy as np
 from PySide6.QtCore import Qt, QRectF, QPointF
 from PySide6.QtGui import (
@@ -34,6 +36,7 @@ from ui.road_condition import (
     any_zone_low_grip,
     worst_state_label,
 )
+from ui.g_force_ellipse import paint_g_ellipse
 from ui.theme import (
     BG_DARK,
     BG_PANEL,
@@ -590,6 +593,48 @@ class IntelligentScreenWidget(QWidget):
             p.setFont(_font(11))
             p.setPen(QPen(QColor(DIM)))
             p.drawText(vdc_x + 10, int(vdc_dot_y) + 4, "VDC")
+
+        # --- GPS altitude + satellite count (lower-right) ---
+        gps_stale = snap is None or snap.is_gps_stale()
+        gps_x = 580
+        gps_y = row2_y + 4
+
+        # Elevation
+        p.setFont(_font(11, bold=True))
+        if gps_stale:
+            p.setPen(QPen(QColor(GRAY)))
+            p.drawText(QRectF(gps_x, gps_y, 170, 18),
+                       Qt.AlignRight | Qt.AlignVCenter, "ELEV ---")
+        else:
+            p.setPen(QPen(QColor(WHITE)))
+            p.drawText(QRectF(gps_x, gps_y, 170, 18),
+                       Qt.AlignRight | Qt.AlignVCenter,
+                       f"ELEV {snap.gps_altitude_m:.0f} m")
+
+        # Satellite count with status dot
+        sat_y = gps_y + 20
+        if gps_stale:
+            sat_text = "--- SAT"
+            dot_color = QColor(GRAY)
+        else:
+            sat_text = f"{snap.gps_satellites} SAT"
+            dot_color = QColor(GREEN) if snap.gps_satellites >= 6 else QColor(GRAY)
+
+        # Dot
+        p.setPen(Qt.NoPen)
+        p.setBrush(dot_color)
+        p.drawEllipse(QPointF(gps_x + 126, sat_y + 9), 5, 5)
+
+        # Text
+        p.setFont(_font(11))
+        p.setPen(QPen(QColor(WHITE) if not gps_stale else QColor(GRAY)))
+        p.drawText(QRectF(gps_x, sat_y, 120, 18),
+                   Qt.AlignRight | Qt.AlignVCenter, sat_text)
+
+        # --- Mini G-dot (no trail) ---
+        g_cx = 720.0
+        g_cy = row2_y + 2
+        paint_g_ellipse(p, g_cx, g_cy, 40, snap, deque(), max_trail_dots=0)
 
     # ==================================================================
     # VOICE TICKER (y=448..478, left side)

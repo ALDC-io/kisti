@@ -829,11 +829,15 @@ def main():
         _ticker_timer.timeout.connect(_push_ticker)
         _ticker_timer.start()
 
-        # --- Technique analyzer (Sport screen coaching at 1Hz) ---
+        # --- Coaching analyzers (Sport + Sharp screen at 1Hz) ---
         from coaching.technique_analyzer import TechniqueAnalyzer
+        from coaching.balance_analyzer import BalanceAnalyzer
+        from coaching.grip_analyzer import GripAnalyzer
         from coaching.condition_rules import evaluate as _eval_conditions
         from coaching.session_lap_tracker import SessionLapTracker as _SessionLapTracker
         _technique_analyzer = TechniqueAnalyzer()
+        _balance_analyzer = BalanceAnalyzer()
+        _grip_analyzer = GripAnalyzer()
         _session_lap_tracker = _SessionLapTracker()
 
         _coaching_timer = QTimer()
@@ -841,6 +845,8 @@ def main():
 
         def _coaching_tick():
             snap = bridge.snapshot()
+
+            # Technique analyzer — brake G, trail brake, coaching text
             _technique_analyzer.feed(snap)
             text, sentiment = _technique_analyzer.analyze()
             # SC-3: safety conditions override technique coaching on Sport screen
@@ -849,6 +855,25 @@ def main():
                 text, sentiment = cond
             window._sport_screen.update_coaching(text, sentiment)
             _session_lap_tracker.record_tick(text, sentiment)
+
+            # Balance analyzer — understeer/oversteer via bicycle model
+            _balance_analyzer.feed(snap)
+            ratio = _balance_analyzer.current_ratio()
+            bal_text, bal_sentiment = _balance_analyzer.coaching_text()
+            window._sport_screen.update_balance(ratio, bal_text, bal_sentiment)
+            window._sharp_screen.update_balance(ratio, bal_text, bal_sentiment)
+
+            # Grip analyzer — per-axle traction from wheel speeds
+            _grip_analyzer.feed(snap)
+            front = _grip_analyzer.front_grip_pct()
+            rear = _grip_analyzer.rear_grip_pct()
+            window._sport_screen.update_grip(front, rear)
+            window._sharp_screen.update_grip(front, rear)
+
+            # Brake analysis — longitudinal G as peak brake G to Sport screen
+            peak_g = abs(snap.imu_accel_x) if snap.imu_accel_x < -0.1 else 0.0
+            trail = 1.0 if (snap.imu_accel_x < -0.3 and abs(snap.imu_accel_y) > 0.3) else 0.0
+            window._sport_screen.update_brake_analysis(peak_g, trail * 100.0)
 
         _coaching_timer.timeout.connect(_coaching_tick)
         _coaching_timer.start()

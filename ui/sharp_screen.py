@@ -21,7 +21,6 @@ Layout (800x480):
 
 from __future__ import annotations
 
-import math
 from collections import deque
 from typing import Optional
 
@@ -30,6 +29,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
 from model.vehicle_state import DiffState
+from ui.g_force_ellipse import paint_g_ellipse
 from ui.road_condition import (
     paint_zone_tint,
     paint_edge_glow,
@@ -84,8 +84,6 @@ _G_PANEL_X = 480      # Right side: G-force circle
 _G_CENTER_X = 640     # Circle center X (midpoint of 480..800)
 _G_CENTER_Y = 170     # Circle center Y (raised to fit magnitude label above sector strip)
 _G_RADIUS = 80        # Outer ring = 1.0g
-_G_RING_05 = 40       # Inner ring = 0.5g
-_G_MAX = 1.5          # Clamp G values
 
 # Road surface temp thresholds (forward-facing grill FLIR)
 _FLIR_COLD = 5.0      # Ice risk
@@ -192,6 +190,12 @@ class SportSharpScreenWidget(QWidget):
         # Voice ticker (fed from main.py at 1Hz)
         self._voice_ticker: list[str] = []
 
+        # Balance / grip / brake quality (fed from coaching analyzers)
+        self._balance_ratio: float = 1.0
+        self._front_grip_pct: float = 100.0
+        self._rear_grip_pct: float = 100.0
+        self._sector_brake_quality: list[str] = []  # "green"/"yellow"/"red" per sector
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -215,6 +219,19 @@ class SportSharpScreenWidget(QWidget):
         """
         self._timing = timing_data
         self.update()
+
+    def update_balance(self, ratio: float, text: str, sentiment: str) -> None:
+        """Accept balance ratio from BalanceAnalyzer."""
+        self._balance_ratio = ratio
+
+    def update_grip(self, front_pct: float, rear_pct: float) -> None:
+        """Accept grip percentages from GripAnalyzer."""
+        self._front_grip_pct = front_pct
+        self._rear_grip_pct = rear_pct
+
+    def update_brake_quality(self, sector_qualities: list[str]) -> None:
+        """Accept brake quality ratings per sector from TechniqueAnalyzer."""
+        self._sector_brake_quality = sector_qualities
 
     # ------------------------------------------------------------------
     # Painting
@@ -356,79 +373,11 @@ class SportSharpScreenWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _draw_g_force_circle(self, p: QPainter) -> None:
-        snap = self._snap
-        cx = _G_CENTER_X
-        cy = _G_CENTER_Y
-        r1 = _G_RADIUS
-        r05 = _G_RING_05
-
         # Clear the right panel area
         p.fillRect(_G_PANEL_X, _MID_Y0, _W - _G_PANEL_X, _MID_Y1 - _MID_Y0, QColor(BG_DARK))
-
-        # Concentric rings
-        p.setPen(QPen(QColor(DIM), 1))
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawEllipse(QPointF(cx, cy), r05, r05)
-        p.drawEllipse(QPointF(cx, cy), r1, r1)
-
-        # Ring labels
-        p.setFont(QFont("Helvetica", 7))
-        p.setPen(QPen(QColor(GRAY)))
-        p.drawText(QRectF(cx + r05 + 2, cy - 10, 24, 12), Qt.AlignLeft, "0.5")
-        p.drawText(QRectF(cx + r1 + 2, cy - 10, 24, 12), Qt.AlignLeft, "1.0")
-
-        # Crosshair
-        p.setPen(QPen(QColor(DIM), 1, Qt.PenStyle.DotLine))
-        p.drawLine(QPointF(cx - r1, cy), QPointF(cx + r1, cy))
-        p.drawLine(QPointF(cx, cy - r1), QPointF(cx, cy + r1))
-
-        # Trail dots — fading
-        trail_len = len(self._g_trail)
-        if trail_len > 1:
-            for i, (lat_g, lon_g) in enumerate(self._g_trail):
-                if i == trail_len - 1:
-                    continue
-                alpha = int(30 + 180 * (i / trail_len))
-                dot_color = QColor(MODE_SS_ACCENT)
-                dot_color.setAlpha(alpha)
-                px, py = self._g_to_pixel(lat_g, lon_g, cx, cy, r1)
-                p.setPen(Qt.PenStyle.NoPen)
-                p.setBrush(dot_color)
-                p.drawEllipse(QPointF(px, py), 2, 2)
-
-        # Current G dot
-        if snap is not None:
-            lat_g = snap.imu_accel_y
-            lon_g = snap.imu_accel_x
-        else:
-            lat_g, lon_g = 0.0, 0.0
-        px, py = self._g_to_pixel(lat_g, lon_g, cx, cy, r1)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor(MODE_SS_ACCENT))
-        p.drawEllipse(QPointF(px, py), 4, 4)
-
-        # G magnitude below circle
-        g_mag = math.sqrt(lat_g ** 2 + lon_g ** 2)
-        p.setFont(QFont("Helvetica", 18, QFont.Bold))
-        p.setPen(QPen(QColor(WHITE)))
-        p.drawText(
-            QRectF(cx - 50, cy + r1 + 4, 100, 24),
-            Qt.AlignCenter, f"{g_mag:.2f}g",
-        )
-
-    @staticmethod
-    def _g_to_pixel(
-        lat_g: float, lon_g: float, cx: float, cy: float, r_px: float
-    ) -> tuple[float, float]:
-        """Convert G values to pixel coordinates, clamped to max radius."""
-        g_mag = math.sqrt(lat_g ** 2 + lon_g ** 2)
-        if g_mag > _G_MAX:
-            scale = _G_MAX / g_mag
-            lat_g *= scale
-            lon_g *= scale
-        px = cx + (lat_g / _G_MAX) * r_px
-        py = cy - (lon_g / _G_MAX) * r_px
-        return px, py
+        paint_g_ellipse(p, _G_CENTER_X, _G_CENTER_Y, 80, self._snap, self._g_trail,
+                        balance_ratio=self._balance_ratio, max_trail_dots=10,
+                        accent_color=MODE_SS_ACCENT)
 
     # ------------------------------------------------------------------
     # Sector strip (y=280..380) — taller colored blocks with times
@@ -531,6 +480,21 @@ class SportSharpScreenWidget(QWidget):
                 p.setFont(QFont("Helvetica", 10))
                 p.drawText(rect, Qt.AlignCenter, f"S{i + 1}")
 
+        # --- Brake quality dots above completed sectors ---
+        if self._sector_brake_quality:
+            dot_y = _SECTOR_Y0 - 8
+            dot_r = 4
+            color_map = {"green": QColor(GREEN), "yellow": QColor(YELLOW), "red": QColor(RED)}
+            for i in range(min(len(self._sector_brake_quality), sector_count)):
+                # Only show dots for completed sectors (with times)
+                if i < len(sector_times) and sector_times[i] is not None and sector_times[i] > 0:
+                    quality = self._sector_brake_quality[i]
+                    dot_color = color_map.get(quality, QColor(DIM))
+                    dot_x = _BAR_X + i * sector_w + sector_w / 2
+                    p.setPen(Qt.PenStyle.NoPen)
+                    p.setBrush(dot_color)
+                    p.drawEllipse(QPointF(dot_x, dot_y), dot_r, dot_r)
+
     # ------------------------------------------------------------------
     # FLIR brake temp strip (y=280..380) — shown when no sector data
     # ------------------------------------------------------------------
@@ -574,6 +538,10 @@ class SportSharpScreenWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _draw_safety_vitals(self, p: QPainter) -> None:
+        """Dark cockpit safety vitals — invisible when normal, loud when not.
+
+        Normal = DIM (barely visible). Warning = YELLOW. Critical = RED.
+        """
         snap = self._snap
         strip_y = _VITALS_Y0
         strip_h = _VITALS_Y1 - _VITALS_Y0
@@ -585,14 +553,10 @@ class SportSharpScreenWidget(QWidget):
         oil_temp = snap.oil_temp_c if snap else 0.0
         stale = snap.is_engine_stale() if snap else True
 
-        # Road surface from forward FLIR
-        flir_ok = snap is not None and not snap.is_road_surface_stale()
-        road_temp = snap.road_temp_center if flir_ok else 0.0
-
-        # 4 safety zones: OIL | COOL | OIL T | ROAD
+        # 4 safety zones: OIL | COOL | OIL T | GRIP
         zone_w = _W / 4
 
-        # --- OIL PSI ---
+        # --- OIL PSI (dark cockpit) ---
         oil_warn = oil_psi <= _OIL_WARN_LOW and not stale
         oil_crit = oil_psi <= _OIL_CRIT_LOW and not stale
         if oil_crit:
@@ -600,11 +564,11 @@ class SportSharpScreenWidget(QWidget):
         elif oil_warn:
             lc, vc = QColor(YELLOW), QColor(YELLOW)
         else:
-            lc, vc = QColor(GRAY), QColor(WHITE)
+            lc, vc = QColor(DIM), QColor(DIM)
         self._draw_vital(p, 0, zone_w, "OIL", f"{oil_psi:.0f}", "PSI",
-                         lc, vc if not stale else QColor(GRAY), large=oil_warn)
+                         lc, vc if not stale else QColor(DIM), large=oil_crit)
 
-        # --- COOLANT ---
+        # --- COOLANT (dark cockpit) ---
         cool_warn = coolant >= _COOL_WARN and not stale
         cool_crit = coolant >= _COOL_CRIT and not stale
         if cool_crit:
@@ -612,11 +576,11 @@ class SportSharpScreenWidget(QWidget):
         elif cool_warn:
             lc, vc = QColor(YELLOW), QColor(YELLOW)
         else:
-            lc, vc = QColor(GRAY), QColor(WHITE)
+            lc, vc = QColor(DIM), QColor(DIM)
         self._draw_vital(p, zone_w, zone_w, "COOL", f"{coolant:.0f}", "\u00b0C",
-                         lc, vc if not stale else QColor(GRAY), large=cool_warn)
+                         lc, vc if not stale else QColor(DIM), large=cool_crit)
 
-        # --- OIL TEMP ---
+        # --- OIL TEMP (dark cockpit) ---
         oil_t_warn = oil_temp > _OILT_WARN and not stale
         oil_t_crit = oil_temp > _OILT_CRIT and not stale
         if oil_t_crit:
@@ -624,19 +588,12 @@ class SportSharpScreenWidget(QWidget):
         elif oil_t_warn:
             lc, vc = QColor(YELLOW), QColor(YELLOW)
         else:
-            lc, vc = QColor(GRAY), QColor(WHITE)
+            lc, vc = QColor(DIM), QColor(DIM)
         self._draw_vital(p, zone_w * 2, zone_w, "OIL T", f"{oil_temp:.0f}", "\u00b0C",
-                         lc, vc if not stale else QColor(GRAY), large=oil_t_warn)
+                         lc, vc if not stale else QColor(DIM), large=oil_t_crit)
 
-        # --- ROAD SURFACE (forward FLIR) ---
-        road_warn = road_temp < 5 and flir_ok  # Ice risk
-        if road_warn:
-            lc, vc = QColor(RED), QColor(RED)
-        else:
-            lc, vc = QColor(GRAY), QColor(WHITE)
-        road_val = f"{road_temp:.0f}" if flir_ok else "---"
-        self._draw_vital(p, zone_w * 3, zone_w, "ROAD", road_val, "\u00b0C",
-                         lc, vc if flir_ok else QColor(GRAY), large=road_warn)
+        # --- GRIP (replaces ROAD) ---
+        self._draw_grip_vital(p, zone_w * 3, zone_w)
 
     def _draw_vital(
         self,
@@ -672,6 +629,82 @@ class SportSharpScreenWidget(QWidget):
         p.setFont(QFont("Helvetica", 12))
         unit_rect = QRectF(x, _VITALS_Y0 + 72, w, 18)
         p.drawText(unit_rect, Qt.AlignCenter, unit)
+
+    def _draw_grip_vital(self, p: QPainter, x: float, w: float) -> None:
+        """Draw GRIP mini-bar with F/R percentages — dark cockpit style.
+
+        3-zone color bar: green (>90%), yellow (80-90%), red (<80%).
+        DIM when grip is healthy, YELLOW/RED when degraded.
+        """
+        front = self._front_grip_pct
+        rear = self._rear_grip_pct
+        worst = min(front, rear)
+
+        # Dark cockpit: determine severity
+        if worst < 80:
+            lc = QColor(RED)
+            large = True
+        elif worst < 90:
+            lc = QColor(YELLOW)
+            large = False
+        else:
+            lc = QColor(DIM)
+            large = False
+
+        # "GRIP" label
+        p.setPen(lc)
+        p.setFont(QFont("Helvetica", 13, QFont.Bold))
+        p.drawText(QRectF(x, _VITALS_Y0 + 4, w, 20), Qt.AlignCenter, "GRIP")
+
+        # Bar geometry — two bars side by side (F left, R right)
+        bar_w = (w - 20) / 2  # each bar
+        bar_h = 28
+        bar_y = _VITALS_Y0 + 30
+        f_x = x + 6
+        r_x = x + 6 + bar_w + 8
+
+        for pct, bx, label in [
+            (front, f_x, "F"),
+            (rear, r_x, "R"),
+        ]:
+            # Bar background
+            p.fillRect(QRectF(bx, bar_y, bar_w, bar_h), QColor(BG_PANEL))
+
+            # Filled portion — color based on grip level
+            if pct >= 90:
+                bar_color = QColor(GREEN)
+            elif pct >= 80:
+                bar_color = QColor(YELLOW)
+            else:
+                bar_color = QColor(RED)
+
+            fill_w = max(0, min(1.0, pct / 100.0)) * bar_w
+            # Dark cockpit: low alpha when healthy, bright when degraded
+            if pct >= 90:
+                bar_color.setAlpha(40)
+            elif pct >= 80:
+                bar_color.setAlpha(160)
+            else:
+                bar_color.setAlpha(220)
+            p.fillRect(QRectF(bx, bar_y, fill_w, bar_h), bar_color)
+
+            # Sub-label (F / R) above bar
+            sub_color = lc if worst < 90 else QColor(DIM)
+            p.setPen(sub_color)
+            p.setFont(QFont("Helvetica", 10, QFont.Bold))
+            p.drawText(QRectF(bx, bar_y - 14, bar_w, 14), Qt.AlignCenter, label)
+
+            # Percentage inside bar
+            pct_color = QColor(WHITE) if pct < 90 else QColor(DIM)
+            font_size = 16 if large else 13
+            p.setPen(pct_color)
+            p.setFont(QFont("Helvetica", font_size, QFont.Bold))
+            p.drawText(QRectF(bx, bar_y, bar_w, bar_h), Qt.AlignCenter, f"{pct:.0f}")
+
+        # Unit label below bars
+        p.setPen(lc)
+        p.setFont(QFont("Helvetica", 12))
+        p.drawText(QRectF(x, _VITALS_Y0 + 72, w, 18), Qt.AlignCenter, "%")
 
     # ------------------------------------------------------------------
     # Sector insight helper
