@@ -267,7 +267,8 @@ class LiveThermalFeed(QWidget):
         p.fillRect(0, 0, w, 16, QColor(0, 0, 0, 160))
         p.setPen(QColor(WHITE))
         p.setFont(QFont("Helvetica", 8, QFont.Bold))
-        p.drawText(4, 12, "FLIR LEPTON 3.5  160x120  9fps")
+        from sensors.flir_lepton_reader import _LEPTON_W, _LEPTON_H
+        p.drawText(4, 12, f"FLIR LEPTON  {_LEPTON_W}x{_LEPTON_H}  9fps")
 
         # Staleness indicator (top-right)
         if staleness_ms >= 0:

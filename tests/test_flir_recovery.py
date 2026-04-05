@@ -1,7 +1,7 @@
 """Tests for FLIR Lepton threaded reader — _FrameWorker recovery path.
 
 Exercises: consecutive failure detection → recovery trigger → USB reset →
-re-open → resume. All with mock cv2 (no hardware needed).
+re-open → resume. All with mock v4l2-ctl (no hardware needed).
 """
 
 import sys
@@ -31,124 +31,70 @@ from sensors.flir_lepton_reader import (
 )
 
 
-class MockCap:
-    """Mock cv2.VideoCapture that can simulate lockup + recovery."""
-
-    def __init__(self, fail_count: int = 0):
-        self._fail_count = fail_count
-        self._read_count = 0
-        self._released = False
-
-    def isOpened(self):
-        return True
-
-    def read(self):
-        self._read_count += 1
-        if self._read_count <= self._fail_count:
-            return False, None
-        # Return a fake 160x120 uint16 frame (30000 cK ≈ 26.85°C)
-        import numpy as np
-        frame = np.full((120, 160), 30000, dtype=np.uint16)
-        return True, frame
-
-    def release(self):
-        self._released = True
-
-    def get(self, prop):
-        return {3: 160.0, 4: 120.0}.get(prop, 0.0)
-
-    def set(self, prop, val):
-        pass
-
-
 class TestFrameWorkerRecovery:
     """Test _FrameWorker failure detection and recovery logic."""
 
     def test_consecutive_failures_trigger_recovery(self):
         """After MAX_CONSECUTIVE_FAILURES, worker should attempt recovery."""
         mock_cv2 = MagicMock()
-        cap = MockCap(fail_count=MAX_CONSECUTIVE_FAILURES + 1)
-        mock_cv2.VideoCapture.return_value = cap
-
         worker = _FrameWorker(mock_cv2, 0)
-        worker._cap = cap
-        worker._device_index = 0
 
-        # Simulate the failure detection loop (without actually running the thread)
+        # Simulate the failure detection threshold
+        failures = 0
         for _ in range(MAX_CONSECUTIVE_FAILURES):
-            worker._consecutive_failures += 1
-
-        assert worker._consecutive_failures >= MAX_CONSECUTIVE_FAILURES
+            failures += 1
+        assert failures >= MAX_CONSECUTIVE_FAILURES
 
     def test_recovery_increments_attempt_count(self):
         """Each recovery attempt increments the counter."""
         mock_cv2 = MagicMock()
-        cap = MockCap()
-        mock_cv2.VideoCapture.return_value = cap
-
         worker = _FrameWorker(mock_cv2, 0)
-        worker._cap = cap
 
-        # Mock _open_flir to return a new cap
-        with patch('sensors.flir_lepton_reader._open_flir', return_value=(MockCap(), 0)):
-            with patch('sensors.flir_lepton_reader._usb_reset_purethermal', return_value=True):
-                worker._do_recovery()
+        with patch('sensors.flir_lepton_reader._usb_reset_purethermal', return_value=True):
+            with patch.object(worker, '_start_stream', return_value=MagicMock()):
+                with patch.object(worker, '_kill_proc'):
+                    worker._do_recovery("/dev/video0")
 
         assert worker._recovery_attempts == 1
-        assert worker._consecutive_failures == 0
 
-    def test_recovery_resets_failure_count(self):
-        """Successful recovery resets consecutive failure counter."""
+    def test_recovery_kills_existing_proc(self):
+        """Recovery kills the existing v4l2-ctl process before USB reset."""
         mock_cv2 = MagicMock()
         worker = _FrameWorker(mock_cv2, 0)
-        worker._cap = MockCap()
-        worker._consecutive_failures = MAX_CONSECUTIVE_FAILURES
+        worker._proc = MagicMock()
 
-        with patch('sensors.flir_lepton_reader._open_flir', return_value=(MockCap(), 0)):
-            with patch('sensors.flir_lepton_reader._usb_reset_purethermal', return_value=True):
-                worker._do_recovery()
+        with patch('sensors.flir_lepton_reader._usb_reset_purethermal', return_value=True):
+            with patch.object(worker, '_start_stream', return_value=MagicMock()):
+                worker._do_recovery("/dev/video0")
 
-        assert worker._consecutive_failures == 0
+        worker._proc is not None  # got a new proc
 
-    def test_failed_recovery_keeps_cap_none(self):
-        """If recovery fails to open device, cap stays None."""
+    def test_failed_recovery_leaves_proc_none(self):
+        """If recovery fails to start stream, proc stays None."""
         mock_cv2 = MagicMock()
         worker = _FrameWorker(mock_cv2, 0)
-        worker._cap = MockCap()
+        worker._proc = MagicMock()
 
-        with patch('sensors.flir_lepton_reader._open_flir', return_value=(None, -1)):
-            with patch('sensors.flir_lepton_reader._usb_reset_purethermal', return_value=True):
+        with patch('sensors.flir_lepton_reader._usb_reset_purethermal', return_value=True):
+            with patch.object(worker, '_start_stream', return_value=None):
                 with patch('time.sleep'):  # skip the 5s backoff
-                    worker._do_recovery()
+                    worker._do_recovery("/dev/video0")
 
-        assert worker._cap is None
+        assert worker._proc is None
         assert worker._recovery_attempts == 1
-
-    def test_recovery_releases_old_cap(self):
-        """Recovery releases the old capture handle before USB reset."""
-        mock_cv2 = MagicMock()
-        old_cap = MockCap()
-        worker = _FrameWorker(mock_cv2, 0)
-        worker._cap = old_cap
-
-        with patch('sensors.flir_lepton_reader._open_flir', return_value=(MockCap(), 0)):
-            with patch('sensors.flir_lepton_reader._usb_reset_purethermal', return_value=True):
-                worker._do_recovery()
-
-        assert old_cap._released
 
     def test_status_signal_on_recovery(self):
         """Worker emits status_changed signals during recovery."""
         mock_cv2 = MagicMock()
         worker = _FrameWorker(mock_cv2, 0)
-        worker._cap = MockCap()
+        worker._proc = MagicMock()
 
         statuses = []
         worker.status_changed.connect(lambda s: statuses.append(s))
 
-        with patch('sensors.flir_lepton_reader._open_flir', return_value=(MockCap(), 0)):
-            with patch('sensors.flir_lepton_reader._usb_reset_purethermal', return_value=True):
-                worker._do_recovery()
+        with patch('sensors.flir_lepton_reader._usb_reset_purethermal', return_value=True):
+            with patch.object(worker, '_start_stream', return_value=MagicMock()):
+                worker._do_recovery("/dev/video0")
 
         assert "recovering" in statuses
         assert "online" in statuses

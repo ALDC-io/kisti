@@ -58,17 +58,52 @@ WARM_MIN_BLOB_PX = 20      # minimum blob size (pixels)
 WARM_DEBOUNCE_FRAMES = 2   # consecutive frames required
 WARM_BASELINE_ALPHA = 0.1  # EMA smoothing (lower = slower adaptation)
 
-# Zone boundaries for 160px wide frame
+# Lepton resolution — detected at runtime, defaults updated by _detect_lepton_res()
+_LEPTON_W = 160
+_LEPTON_H = 120
+
+# Zone boundaries for warm-object detection (updated by _detect_lepton_res)
 _ZONE_LEFT_MAX = 53        # pixels 0-52 = LEFT
 _ZONE_CENTER_MAX = 107     # pixels 53-106 = CENTER, 107-159 = RIGHT
+
+# ROI presets per resolution
+_ROI_160x120 = (
+    (5,   45, 45, 30),   # left
+    (58,  45, 45, 30),   # center
+    (110, 45, 45, 30),   # right
+)
+_ROI_80x60 = (
+    (2,  22, 23, 15),    # left  (half of 160x120)
+    (29, 22, 23, 15),    # center
+    (55, 22, 23, 15),    # right
+)
+
+
+def _detect_lepton_res(w: float, h: float) -> None:
+    """Set module globals to match detected Lepton sensor resolution."""
+    global _LEPTON_W, _LEPTON_H, _ZONE_LEFT_MAX, _ZONE_CENTER_MAX
+    if w <= 80:
+        _LEPTON_W, _LEPTON_H = 80, 60
+        _ZONE_LEFT_MAX = 26
+        _ZONE_CENTER_MAX = 53
+    else:
+        _LEPTON_W, _LEPTON_H = 160, 120
+        _ZONE_LEFT_MAX = 53
+        _ZONE_CENTER_MAX = 107
 
 
 @dataclass
 class ROIConfig:
-    """Region of Interest rectangles for road surface zones in the 160x120 frame."""
+    """Region of Interest rectangles for road surface zones in the thermal frame."""
     left:   tuple[int, int, int, int] = (5,   45, 45, 30)
     center: tuple[int, int, int, int] = (58,  45, 45, 30)
     right:  tuple[int, int, int, int] = (110, 45, 45, 30)
+
+    @classmethod
+    def for_resolution(cls, w: int) -> "ROIConfig":
+        """Return ROI preset for detected resolution."""
+        roi = _ROI_80x60 if w <= 80 else _ROI_160x120
+        return cls(left=roi[0], center=roi[1], right=roi[2])
 
 
 def _raw_to_celsius(raw_value: float) -> float:
@@ -93,8 +128,10 @@ def _open_flir(cv2, device_index: int = DEVICE_INDEX_AUTO):
         if cap.isOpened():
             w = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
             h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
-            if w == 160 and h == 120:
-                log.info("FLIR Lepton found at /dev/video%d (%.0fx%.0f)", idx, w, h)
+            if (w == 160 and h == 120) or (w == 80 and h in (60, 63)):
+                _detect_lepton_res(w, h)
+                log.info("FLIR Lepton found at /dev/video%d (%.0fx%.0f), using %dx%d",
+                         idx, w, h, _LEPTON_W, _LEPTON_H)
                 _configure_y16(cap, cv2)
                 return cap, idx
             cap.release()
@@ -102,12 +139,19 @@ def _open_flir(cv2, device_index: int = DEVICE_INDEX_AUTO):
 
 
 def _configure_y16(cap, cv2) -> None:
-    """Configure VideoCapture for Y16 radiometric output."""
+    """Configure VideoCapture for Y16 radiometric output.
+
+    Skips resolution change if the device already reports the target size —
+    mid-stream V4L2 format renegotiation can stall Lepton 2 on PureThermal.
+    """
     cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
     y16 = cv2.VideoWriter_fourcc('Y', '1', '6', ' ')
     cap.set(cv2.CAP_PROP_FOURCC, y16)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 160)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 120)
+    cur_w = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+    cur_h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+    if cur_w != _LEPTON_W or cur_h != _LEPTON_H:
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, _LEPTON_W)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, _LEPTON_H)
 
 
 def _usb_reset_purethermal() -> bool:
@@ -147,11 +191,14 @@ def _usb_reset_purethermal() -> bool:
 
 
 class _FrameWorker(QThread):
-    """Worker thread that owns cap.read() — main thread never blocks.
+    """Worker thread that streams FLIR frames via v4l2-ctl subprocess.
 
-    Reads frames at ~9Hz. On failure, self-heals: releases handle,
-    USB-resets PureThermal, re-opens device. All blocking I/O stays
-    in this thread.
+    OpenCV's V4L2 cap.read() uses select() which times out on some
+    Lepton/PureThermal combos (especially Lepton 2 at 80x60). The
+    v4l2-ctl --stream-mmap path uses DQBUF directly and works reliably.
+
+    Frames are read from the subprocess stdout pipe as raw Y16 bytes,
+    then reshaped to numpy uint16 arrays and emitted via signal.
     """
     frame_ready = Signal(object)   # emits numpy ndarray (uint16 thermal)
     status_changed = Signal(str)   # "online", "recovering", "offline"
@@ -160,66 +207,106 @@ class _FrameWorker(QThread):
         super().__init__(parent)
         self._cv2 = cv2_mod
         self._device_index = device_index
-        self._cap = None
+        self._proc = None
         self._stop = False
-        self._consecutive_failures = 0
         self._recovery_attempts = 0
 
     def run(self):
-        # Open device in worker thread
-        self._cap, self._device_index = _open_flir(self._cv2, self._device_index)
-        if self._cap is None:
+        import numpy as np
+        self._np = np
+
+        frame_bytes = _LEPTON_W * _LEPTON_H * 2  # Y16 = 2 bytes/pixel
+        dev = f"/dev/video{self._device_index}"
+
+        self._proc = self._start_stream(dev)
+        if self._proc is None:
             self.status_changed.emit("offline")
             return
 
         self.status_changed.emit("online")
+        consecutive_failures = 0
 
         while not self._stop:
             try:
-                ret, frame = self._cap.read()
+                data = self._proc.stdout.read(frame_bytes)
             except Exception:
-                ret, frame = False, None
+                data = b""
 
-            if not ret or frame is None:
-                self._consecutive_failures += 1
-                if self._consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+            if len(data) == frame_bytes:
+                consecutive_failures = 0
+                frame = self._np.frombuffer(data, dtype=np.uint16).reshape(
+                    _LEPTON_H, _LEPTON_W
+                )
+                self.frame_ready.emit(frame)
+            else:
+                consecutive_failures += 1
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
                     if self._recovery_attempts >= MAX_RECOVERY_ATTEMPTS:
-                        log.error("FLIR: %d recovery attempts exhausted — giving up", MAX_RECOVERY_ATTEMPTS)
+                        log.error("FLIR: %d recovery attempts exhausted — giving up",
+                                  MAX_RECOVERY_ATTEMPTS)
                         self.status_changed.emit("offline")
                         break
-                    self._do_recovery()
+                    self._do_recovery(dev)
+                    consecutive_failures = 0
                 else:
-                    time.sleep(0.1)  # brief back-off on failure
-                continue
+                    time.sleep(0.1)
 
-            self._consecutive_failures = 0
-            self.frame_ready.emit(frame)
-            # No sleep — cap.read() blocks until next frame (~111ms at 9Hz native rate)
+        self._kill_proc()
 
-        if self._cap is not None:
-            self._cap.release()
+    def _start_stream(self, dev: str):
+        """Launch v4l2-ctl streaming subprocess.
 
-    def _do_recovery(self):
-        """Release, USB-reset, re-open. All in worker thread — main thread unaffected."""
+        Sets Y16 format in a separate call before streaming — combining
+        --set-fmt-video with --stream-mmap in one invocation silently
+        fails on some v4l2-ctl versions (the 'Y16 ' fourcc trailing
+        space gets mangled).
+        """
+        try:
+            # Set Y16 radiometric format (trailing space in fourcc is required)
+            subprocess.run(
+                ["v4l2-ctl", "-d", dev, "--set-fmt-video",
+                 f"width={_LEPTON_W},height={_LEPTON_H},pixelformat=Y16 "],
+                capture_output=True, timeout=5,
+            )
+            proc = subprocess.Popen(
+                ["v4l2-ctl", "-d", dev, "--stream-mmap", "--stream-to=-"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+            )
+            log.info("v4l2-ctl stream started on %s (%dx%d Y16)", dev, _LEPTON_W, _LEPTON_H)
+            return proc
+        except FileNotFoundError:
+            log.error("v4l2-ctl not found — install v4l-utils")
+            return None
+        except Exception as exc:
+            log.error("v4l2-ctl launch failed: %s", exc)
+            return None
+
+    def _kill_proc(self):
+        if self._proc is not None:
+            try:
+                self._proc.terminate()
+                self._proc.wait(timeout=3)
+            except Exception:
+                try:
+                    self._proc.kill()
+                except Exception:
+                    pass
+            self._proc = None
+
+    def _do_recovery(self, dev: str):
+        """Kill stream, USB-reset, re-launch."""
         self._recovery_attempts += 1
         self.status_changed.emit("recovering")
-        log.warning("FLIR recovery attempt %d — releasing device", self._recovery_attempts)
+        log.warning("FLIR recovery attempt %d — restarting stream", self._recovery_attempts)
 
-        if self._cap is not None:
-            try:
-                self._cap.release()
-            except Exception:
-                pass
-            self._cap = None
-
+        self._kill_proc()
         _usb_reset_purethermal()
 
-        self._cap, self._device_index = _open_flir(self._cv2)
-        if self._cap is not None:
-            self._consecutive_failures = 0
+        self._proc = self._start_stream(dev)
+        if self._proc is not None:
             self.status_changed.emit("online")
-            log.info("FLIR recovered on /dev/video%d (attempt %d)",
-                     self._device_index, self._recovery_attempts)
+            log.info("FLIR recovered on %s (attempt %d)", dev, self._recovery_attempts)
         else:
             log.warning("FLIR recovery failed — will retry in 5s")
             time.sleep(5)
@@ -277,9 +364,12 @@ class FLIRLeptonReader(QObject):
         # Probe for device on main thread (fast — just open/check/close)
         cap, idx = _open_flir(cv2, self._device_index)
         if cap is None:
-            log.info("No FLIR Lepton (160x120) found on /dev/video0-4")
+            log.info("No FLIR Lepton found on /dev/video0-4")
             return False
         cap.release()  # worker will re-open
+
+        # Update ROIs for detected resolution
+        self._roi = ROIConfig.for_resolution(_LEPTON_W)
 
         # Start worker thread
         self._worker = _FrameWorker(cv2, idx)
@@ -333,9 +423,9 @@ class FLIRLeptonReader(QObject):
                      frame.dtype, frame.shape, float(np.mean(frame)))
 
         # OpenCV Y16 bug: may return uint16 data as flattened uint8
-        if frame.dtype == np.uint8 and frame.shape != (120, 160):
+        if frame.dtype == np.uint8 and frame.shape != (_LEPTON_H, _LEPTON_W):
             try:
-                frame = frame.view(np.uint16).reshape(120, 160)
+                frame = frame.view(np.uint16).reshape(_LEPTON_H, _LEPTON_W)
             except (ValueError, AttributeError):
                 pass
 
