@@ -206,16 +206,17 @@ class TestSIDriveStaleness:
     """SI-Drive staleness fallback to Intelligent."""
 
     def test_staleness_fallback(self, manager, bridge):
-        """After 5s stale, falls back to Intelligent."""
+        """After stale timeout, falls back to Intelligent."""
         import time
 
         # Switch to Sport
         bridge.update_si_drive(mode=1)
         assert manager.si_drive_mode == SIDriveMode.SPORT
 
-        # Manually set the frame timestamp to 6 seconds ago
+        # Manually set the frame timestamp past the stale timeout
+        timeout = manager.SI_DRIVE_STALE_TIMEOUT_S
         with bridge._lock:
-            bridge._state.si_drive_frame_ts = time.monotonic() - 6.0
+            bridge._state.si_drive_frame_ts = time.monotonic() - (timeout + 1.0)
 
         received = []
         manager.si_drive_changed.connect(lambda v: received.append(v))

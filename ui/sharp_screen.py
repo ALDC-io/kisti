@@ -69,7 +69,7 @@ _MID_Y1 = 280
 _SECTOR_Y0 = 280
 _SECTOR_Y1 = 380
 _VITALS_Y0 = 380
-_VITALS_Y1 = 480
+_VITALS_Y1 = 460  # Shortened to leave room for alert bar at y=460..480
 
 # Delta bar geometry
 _BAR_MARGIN = 10
@@ -253,6 +253,7 @@ class SportSharpScreenWidget(QWidget):
         self._draw_g_force_circle(p)
         self._draw_sector_strip(p)
         self._draw_safety_vitals(p)
+        self._draw_weather_indicator(p)
         self._paint_voice_ticker(p)
 
         # Edge glow for LOW_GRIP only (can't distract during laps)
@@ -541,6 +542,7 @@ class SportSharpScreenWidget(QWidget):
         """Dark cockpit safety vitals — invisible when normal, loud when not.
 
         Normal = DIM (barely visible). Warning = YELLOW. Critical = RED.
+        Canyon-first: OIL | COOL | GRIP | BARO (hPa/hr).
         """
         snap = self._snap
         strip_y = _VITALS_Y0
@@ -550,10 +552,9 @@ class SportSharpScreenWidget(QWidget):
 
         oil_psi = snap.oil_psi if snap else 0.0
         coolant = snap.coolant_temp if snap else 0.0
-        oil_temp = snap.oil_temp_c if snap else 0.0
         stale = snap.is_engine_stale() if snap else True
 
-        # 4 safety zones: OIL | COOL | OIL T | GRIP
+        # 4 safety zones: OIL | COOL | GRIP | BARO
         zone_w = _W / 4
 
         # --- OIL PSI (dark cockpit) ---
@@ -580,20 +581,104 @@ class SportSharpScreenWidget(QWidget):
         self._draw_vital(p, zone_w, zone_w, "COOL", f"{coolant:.0f}", "\u00b0C",
                          lc, vc if not stale else QColor(DIM), large=cool_crit)
 
-        # --- OIL TEMP (dark cockpit) ---
-        oil_t_warn = oil_temp > _OILT_WARN and not stale
-        oil_t_crit = oil_temp > _OILT_CRIT and not stale
-        if oil_t_crit:
+        # --- GRIP (moved to zone 3 — canyon priority) ---
+        self._draw_grip_vital(p, zone_w * 2, zone_w)
+
+        # --- BARO hPa/hr (canyon weather awareness) ---
+        self._draw_baro_vital(p, zone_w * 3, zone_w)
+
+    def _draw_baro_vital(self, p: QPainter, x: float, w: float) -> None:
+        """BARO hPa/hr vital — canyon weather awareness in the vitals strip.
+
+        Dark cockpit: DIM when CLEAR, escalates through CYAN/YELLOW/RED.
+        Shows rate value so the driver learns to read pressure trends.
+        Fog risk shown as label override when dew spread is closing.
+        """
+        snap = self._snap
+        rate = snap.pressure_trend_hpa_hr if snap else 0.0
+        threat = snap.weather_threat_level if snap else "CLEAR"
+        dew_spread = snap.dew_point_spread_c if snap else 99.0
+        humidity = snap.ambient_humidity_pct if snap else 0.0
+
+        # Fog detection: dew spread <1.5C + humidity >93%
+        fog_risk = dew_spread < 1.5 and humidity > 93.0
+
+        # EC warning awareness
+        has_ec = (snap.ec_available and snap.ec_warning_level in ("warning", "watch")
+                  ) if snap else False
+
+        # Dark cockpit coloring by threat level (EC can escalate)
+        if threat == "STORM":
             lc, vc = QColor(RED), QColor(RED)
-        elif oil_t_warn:
+        elif threat == "RAIN_LIKELY":
             lc, vc = QColor(YELLOW), QColor(YELLOW)
+        elif fog_risk:
+            lc, vc = QColor(CYAN), QColor(CYAN)
+        elif threat == "CHANGING" or has_ec:
+            lc, vc = QColor(CYAN), QColor(CYAN)
         else:
             lc, vc = QColor(DIM), QColor(DIM)
-        self._draw_vital(p, zone_w * 2, zone_w, "OIL T", f"{oil_temp:.0f}", "\u00b0C",
-                         lc, vc if not stale else QColor(DIM), large=oil_t_crit)
 
-        # --- GRIP (replaces ROAD) ---
-        self._draw_grip_vital(p, zone_w * 3, zone_w)
+        # Label: FOG overrides BARO when fog conditions are met
+        label = "FOG" if fog_risk else "BARO"
+
+        # Value: show rate with sign (negative = falling = weather incoming)
+        value = f"{rate:+.1f}"
+        unit = "hPa/hr"
+
+        self._draw_vital(p, x, w, label, value, unit, lc, vc)
+
+    def _draw_weather_indicator(self, p: QPainter) -> None:
+        """Full-width alert bar at bottom (y=462..480). Highest severity wins.
+
+        Canyon-first: FOG gets its own alert (visibility is #1 canyon danger).
+        """
+        snap = self._snap
+        if snap is None:
+            return
+        threat = snap.weather_threat_level
+        has_ec = snap.ec_available and snap.ec_warning_level != "none"
+        dew_spread = snap.dew_point_spread_c
+        humidity = snap.ambient_humidity_pct
+        fog_risk = dew_spread < 1.5 and humidity > 93.0
+
+        text = ""
+        bg = QColor(30, 80, 160)
+        fg = QColor(255, 255, 255)
+
+        rate = snap.pressure_trend_hpa_hr
+        if threat == "STORM":
+            text = f"STORM INCOMING — pressure falling {abs(rate):.1f} hPa/hr"
+            bg = QColor(180, 20, 20)
+        elif threat == "RAIN_LIKELY":
+            text = f"RAIN LIKELY — pressure falling {abs(rate):.1f} hPa/hr"
+            bg = QColor(200, 120, 0)
+        elif fog_risk:
+            text = "FOG — low visibility, reduce speed"
+            bg = QColor(30, 80, 160)
+        elif has_ec:
+            lvl = snap.ec_warning_level
+            if lvl == "warning":
+                bg = QColor(180, 20, 20)
+            elif lvl == "watch":
+                bg = QColor(200, 120, 0)
+            elif lvl == "advisory":
+                bg, fg = QColor(250, 204, 21), QColor(0, 0, 0)
+            desc = snap.ec_warning_description.split("\n")[0].strip()
+            text = "EC: " + (desc[:75] + ("..." if len(desc) > 75 else "") if desc else snap.ec_warning_text)
+
+        if not text:
+            return
+
+        # Full-width bar at very bottom of Sport Sharp
+        bar_y, bar_h = 460, 20
+        p.setPen(Qt.NoPen)
+        p.setBrush(bg)
+        p.drawRect(QRectF(0, bar_y, _W, bar_h))
+        p.setFont(QFont("Helvetica", 10, QFont.Bold))
+        p.setPen(QPen(fg))
+        p.drawText(QRectF(0, bar_y, _W, bar_h),
+                   Qt.AlignCenter, text)
 
     def _draw_vital(
         self,
@@ -613,21 +698,21 @@ class SportSharpScreenWidget(QWidget):
         """
         # Label — 13pt min for readability
         p.setPen(label_color)
-        p.setFont(QFont("Helvetica", 13, QFont.Bold))
-        label_rect = QRectF(x, _VITALS_Y0 + 4, w, 20)
+        p.setFont(QFont("Helvetica", 12, QFont.Bold))
+        label_rect = QRectF(x, _VITALS_Y0 + 2, w, 16)
         p.drawText(label_rect, Qt.AlignCenter, label)
 
         # Value — large, bold, Helvetica to match rest of UI
         font_size = 32 if large else FONT_BIG  # 32pt warning, 26pt normal
         p.setPen(value_color)
         p.setFont(QFont("Helvetica", font_size, QFont.Bold))
-        value_rect = QRectF(x, _VITALS_Y0 + 26, w, 44)
+        value_rect = QRectF(x, _VITALS_Y0 + 18, w, 36)
         p.drawText(value_rect, Qt.AlignCenter, value)
 
         # Unit — smaller, below value
         p.setPen(label_color)
-        p.setFont(QFont("Helvetica", 12))
-        unit_rect = QRectF(x, _VITALS_Y0 + 72, w, 18)
+        p.setFont(QFont("Helvetica", 11))
+        unit_rect = QRectF(x, _VITALS_Y0 + 54, w, 16)
         p.drawText(unit_rect, Qt.AlignCenter, unit)
 
     def _draw_grip_vital(self, p: QPainter, x: float, w: float) -> None:
@@ -653,13 +738,13 @@ class SportSharpScreenWidget(QWidget):
 
         # "GRIP" label
         p.setPen(lc)
-        p.setFont(QFont("Helvetica", 13, QFont.Bold))
-        p.drawText(QRectF(x, _VITALS_Y0 + 4, w, 20), Qt.AlignCenter, "GRIP")
+        p.setFont(QFont("Helvetica", 12, QFont.Bold))
+        p.drawText(QRectF(x, _VITALS_Y0 + 2, w, 16), Qt.AlignCenter, "GRIP")
 
         # Bar geometry — two bars side by side (F left, R right)
         bar_w = (w - 20) / 2  # each bar
-        bar_h = 28
-        bar_y = _VITALS_Y0 + 30
+        bar_h = 24
+        bar_y = _VITALS_Y0 + 22
         f_x = x + 6
         r_x = x + 6 + bar_w + 8
 
@@ -703,8 +788,8 @@ class SportSharpScreenWidget(QWidget):
 
         # Unit label below bars
         p.setPen(lc)
-        p.setFont(QFont("Helvetica", 12))
-        p.drawText(QRectF(x, _VITALS_Y0 + 72, w, 18), Qt.AlignCenter, "%")
+        p.setFont(QFont("Helvetica", 11))
+        p.drawText(QRectF(x, _VITALS_Y0 + 54, w, 16), Qt.AlignCenter, "%")
 
     # ------------------------------------------------------------------
     # Sector insight helper

@@ -215,7 +215,8 @@ class ModeManager(QObject):
             self.warmup_changed.emit(int(self._warmup))
 
     # SI-Drive staleness threshold (seconds without 0x6B0 frame)
-    SI_DRIVE_STALE_TIMEOUT_S = 5.0
+    # 3600s for bench testing without CAN; revert to 5.0 for car install
+    SI_DRIVE_STALE_TIMEOUT_S = 3600.0
 
     def _check_si_drive_staleness(self, state: DiffState) -> None:
         """Fall back to Intelligent if SI-Drive signal is stale."""

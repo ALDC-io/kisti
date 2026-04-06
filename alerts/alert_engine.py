@@ -120,6 +120,10 @@ class AlertEngine(QObject):
         "grip_low_grip",          # safety: LOW_GRIP entry only (RWR/TCAS principle:
                                   # most critical transition needs audio, not just visual)
         # grip_wet, grip_cold, grip_cleared are visual-only — no voice chatter.
+        "weather_storm",          # safety: severe system, reduce speed
+        "weather_rain_likely",    # advisory: rain probable, grip awareness
+        "weather_snow_risk",      # safety: snow risk, grip + visibility
+        "ec_weather_warning",     # EC regional warning (watch/warning level)
     })
 
     # Display-only alert types (shown on screen, no voice)
@@ -486,40 +490,97 @@ class AlertEngine(QObject):
             self._ice_risk_active = False
 
     def _check_ambient_change(self, state: DiffState) -> None:
-        """Ambient weather change alerts — runs without ECU."""
+        """Weather intelligence alerts — rate-based from WeatherEngine trends.
+
+        Uses pressure_trend_hpa_hr and weather_threat_level from DiffState
+        (fed by WeatherEngine at 1Hz) instead of raw absolute deltas.
+        """
         if not state.ambient_available:
             return
 
-        # Set baseline on first reading
-        if not self._ambient_baseline_set:
-            self._prev_ambient_pressure = state.ambient_pressure_hpa
-            self._prev_ambient_temp = state.ambient_temp_c
-            self._prev_ambient_humidity = state.ambient_humidity_pct
-            self._ambient_baseline_set = True
-            return
+        threat = state.weather_threat_level
+        p_rate = state.pressure_trend_hpa_hr
 
-        # Pressure change — weather system movement
-        p_delta = state.ambient_pressure_hpa - self._prev_ambient_pressure
-        if abs(p_delta) >= 5.0:
-            if p_delta < 0:
+        # STORM — critical, fires on all modes including Sharp
+        if threat == "STORM":
+            self._fire(Alert(
+                alert_type="weather_storm",
+                severity=AlertSeverity.WARNING,
+                message=f"Storm incoming. Pressure falling {abs(p_rate):.1f} hPa per hour. Reduce speed.",
+                short_message="Storm incoming",
+                value=state.ambient_pressure_hpa,
+            ))
+
+        # RAIN_LIKELY — warning, fires on Sport and Intelligent
+        elif threat == "RAIN_LIKELY":
+            self._fire(Alert(
+                alert_type="weather_rain_likely",
+                severity=AlertSeverity.WARNING,
+                message=f"Rain likely within 2 hours. Pressure falling {abs(p_rate):.1f} hPa per hour.",
+                short_message="Rain likely",
+                value=state.ambient_pressure_hpa,
+            ))
+
+        # CHANGING — advisory, fires on Intelligent only
+        elif threat == "CHANGING":
+            if p_rate < 0:
                 self._fire(Alert(
-                    alert_type="pressure_falling",
+                    alert_type="weather_changing",
                     severity=AlertSeverity.ADVISORY,
-                    message=f"Barometric pressure dropping: {p_delta:+.1f} hPa. Weather changing.",
-                    short_message=f"Pressure {p_delta:+.1f} hPa",
+                    message=f"Weather changing. Pressure falling {abs(p_rate):.1f} hPa per hour.",
+                    short_message="Weather changing",
                     value=state.ambient_pressure_hpa,
                 ))
             else:
                 self._fire(Alert(
-                    alert_type="pressure_rising",
+                    alert_type="weather_rising",
                     severity=AlertSeverity.INFO,
-                    message=f"Barometric pressure rising: {p_delta:+.1f} hPa. Conditions stabilising.",
-                    short_message=f"Pressure {p_delta:+.1f} hPa",
+                    message=f"Conditions stabilising. Pressure rising {p_rate:.1f} hPa per hour.",
+                    short_message="Pressure rising",
                     value=state.ambient_pressure_hpa,
                 ))
-            self._prev_ambient_pressure = state.ambient_pressure_hpa
 
-        # Temperature change
+        # Fog risk (independent of threat level)
+        if state.dew_point_spread_c <= 1.5 and state.ambient_humidity_pct >= 93.0:
+            self._fire(Alert(
+                alert_type="fog_risk",
+                severity=AlertSeverity.ADVISORY,
+                message="Fog risk. Dew point spread closing. Visibility may drop.",
+                short_message="Fog risk",
+                value=state.dew_point_spread_c,
+            ))
+
+        # Snow risk: cold + moist + system approaching
+        if (state.ambient_temp_c <= 2.0
+                and state.ambient_humidity_pct >= 80.0
+                and state.pressure_trend_hpa_hr < -0.5):
+            self._fire(Alert(
+                alert_type="weather_snow_risk",
+                severity=AlertSeverity.WARNING,
+                message=f"Snow risk. Temperature {state.ambient_temp_c:.0f} degrees, pressure falling.",
+                short_message="Snow risk",
+                value=state.ambient_temp_c,
+            ))
+
+        # Environment Canada regional warning — fires through alert_fired
+        # which routes to both Excelon display AND Link ECU MXG Strada alerts
+        if state.ec_available and state.ec_warning_level in ("warning", "watch"):
+            self._fire(Alert(
+                alert_type="ec_weather_warning",
+                severity=AlertSeverity.WARNING,
+                message=f"Environment Canada: {state.ec_warning_text}.",
+                short_message=f"EC: {state.ec_warning_text}",
+            ))
+
+        # Legacy: temperature and humidity absolute deltas (kept for gradual shifts
+        # that don't show in rate-of-change, e.g., slow multi-hour temp drops)
+        if not self._ambient_baseline_set:
+            self._prev_ambient_temp = state.ambient_temp_c
+            self._prev_ambient_humidity = state.ambient_humidity_pct
+            self._prev_ambient_pressure = state.ambient_pressure_hpa
+            self._ambient_baseline_set = True
+            return
+
         t_delta = state.ambient_temp_c - self._prev_ambient_temp
         if abs(t_delta) >= 3.0:
             if t_delta < 0:
@@ -527,39 +588,10 @@ class AlertEngine(QObject):
                     alert_type="temp_dropping",
                     severity=AlertSeverity.ADVISORY,
                     message=f"Temperature dropped {abs(t_delta):.1f} degrees. Grip may decrease.",
-                    short_message=f"Temp {t_delta:+.1f}°C",
-                    value=state.ambient_temp_c,
-                ))
-            else:
-                self._fire(Alert(
-                    alert_type="temp_rising",
-                    severity=AlertSeverity.INFO,
-                    message=f"Temperature up {t_delta:.1f} degrees. Conditions improving.",
-                    short_message=f"Temp {t_delta:+.1f}°C",
+                    short_message=f"Temp {t_delta:+.1f}\u00b0C",
                     value=state.ambient_temp_c,
                 ))
             self._prev_ambient_temp = state.ambient_temp_c
-
-        # Humidity change
-        h_delta = state.ambient_humidity_pct - self._prev_ambient_humidity
-        if abs(h_delta) >= 15.0:
-            if h_delta > 0:
-                self._fire(Alert(
-                    alert_type="humidity_rising",
-                    severity=AlertSeverity.ADVISORY,
-                    message=f"Humidity up {h_delta:.0f} percent. Condensation risk increasing.",
-                    short_message=f"Humidity {h_delta:+.0f}%",
-                    value=state.ambient_humidity_pct,
-                ))
-            else:
-                self._fire(Alert(
-                    alert_type="humidity_dropping",
-                    severity=AlertSeverity.INFO,
-                    message=f"Humidity down {abs(h_delta):.0f} percent. Drier conditions.",
-                    short_message=f"Humidity {h_delta:+.0f}%",
-                    value=state.ambient_humidity_pct,
-                ))
-            self._prev_ambient_humidity = state.ambient_humidity_pct
 
     def _fire(self, alert: Alert) -> None:
         """Fire an alert if not suppressed by mode. Each type fires once per session."""

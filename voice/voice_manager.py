@@ -377,6 +377,10 @@ class VoiceManager(QObject):
         elif self._mic:
             mic_status = "no device"
 
+        # Voice is ready — transition from OFF to IDLE so alerts can speak
+        self._set_state(VoiceState.IDLE)
+        self._toggle_state = VoiceToggleState.NORMAL
+
         log.info("Voice manager started (STT=%s, TTS=%s, LLM=%s, Mic=%s)",
                  "real" if self._stt.is_real else "mock",
                  "real" if self._tts.is_real else "mock",

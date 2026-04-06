@@ -1126,24 +1126,21 @@ class TestAmbientAlertEngine:
         assert len(ambient_alerts) == 0
 
     def test_ambient_pressure_drop_fires_alert(self):
-        """Pressure drop >= 5 hPa fires advisory."""
+        """Falling pressure with RAIN_LIKELY threat fires weather alert."""
         from alerts.alert_engine import AlertEngine
         bridge = self._make_bridge()
         engine = AlertEngine(bridge)
         alerts = []
         engine.alert_fired.connect(lambda a: alerts.append(a))
 
-        # Baseline
-        bridge.update_ambient(20.0, 50.0, 1013.0, 0.0, 9.0)
-        engine._evaluate()
-
-        # Significant pressure drop
+        # Set ambient with weather trend data indicating rain likely
         bridge.update_ambient(20.0, 50.0, 1007.0, 0.0, 9.0)
+        bridge.update_weather_trends(-1.8, 2.0, 3.0, "RAIN_LIKELY")
         engine._evaluate()
 
-        pressure_alerts = [a for a in alerts if a.alert_type == "pressure_falling"]
+        pressure_alerts = [a for a in alerts if a.alert_type == "weather_rain_likely"]
         assert len(pressure_alerts) == 1
-        assert pressure_alerts[0].severity.label == "advisory"
+        assert pressure_alerts[0].severity.label == "warning"
 
     def test_ambient_temp_drop_fires_alert(self):
         """Temperature drop >= 3°C fires advisory."""
@@ -1163,21 +1160,19 @@ class TestAmbientAlertEngine:
         assert len(temp_alerts) == 1
 
     def test_ambient_humidity_rise_fires_alert(self):
-        """Humidity rise >= 15% fires advisory."""
+        """Storm-level weather threat fires weather_storm alert."""
         from alerts.alert_engine import AlertEngine
         bridge = self._make_bridge()
         engine = AlertEngine(bridge)
         alerts = []
         engine.alert_fired.connect(lambda a: alerts.append(a))
 
-        bridge.update_ambient(20.0, 40.0, 1013.0, 0.0, 9.0)
-        engine._evaluate()
-
         bridge.update_ambient(20.0, 60.0, 1013.0, 0.0, 9.0)
+        bridge.update_weather_trends(-4.0, 5.0, 1.5, "STORM")
         engine._evaluate()
 
-        hum_alerts = [a for a in alerts if a.alert_type == "humidity_rising"]
-        assert len(hum_alerts) == 1
+        storm_alerts = [a for a in alerts if a.alert_type == "weather_storm"]
+        assert len(storm_alerts) == 1
 
     def test_no_alert_below_threshold(self):
         """Small changes below threshold produce no alert."""

@@ -112,6 +112,52 @@ def _brake_heat_color(temp_c: float) -> QColor:
         return QColor(r, g, 0)
 
 
+def _draw_trend_arrow_large(p: QPainter, x: float, y: float, h: float,
+                            rate: float, threshold: float = 0.5) -> None:
+    """Draw a trend arrow matching the adjacent 38pt value height.
+
+    x, y = top-left of arrow area. h = height of the value text cell.
+    Arrow is vertically centered in h, ~24px tall, 16px wide head.
+    """
+    abs_rate = abs(rate)
+    if abs_rate < threshold * 0.3:
+        # Stable — no arrow (reading is already white = fine)
+        return
+
+    # Color by rate magnitude
+    if abs_rate < threshold:
+        color = QColor(GREEN)
+    elif abs_rate < threshold * 3:
+        color = QColor(YELLOW)
+    else:
+        color = QColor(RED)
+
+    p.save()
+    p.setPen(QPen(color, 4.0))
+    p.setRenderHint(QPainter.Antialiasing, True)
+
+    # Arrow geometry — vertically centered in the cell
+    arrow_h = 24.0
+    cy = y + h / 2.0  # vertical center
+    cx = x + 10.0     # horizontal center
+    top = cy - arrow_h / 2.0
+    bot = cy + arrow_h / 2.0
+    head_w = 8.0      # half-width of arrowhead
+
+    if rate > 0:
+        # Up arrow
+        p.drawLine(QPointF(cx, bot), QPointF(cx, top))
+        p.drawLine(QPointF(cx, top), QPointF(cx - head_w, top + 8))
+        p.drawLine(QPointF(cx, top), QPointF(cx + head_w, top + 8))
+    else:
+        # Down arrow
+        p.drawLine(QPointF(cx, top), QPointF(cx, bot))
+        p.drawLine(QPointF(cx, bot), QPointF(cx - head_w, bot - 8))
+        p.drawLine(QPointF(cx, bot), QPointF(cx + head_w, bot - 8))
+
+    p.restore()
+
+
 def _wheel_delta_color(abs_delta: float) -> str:
     """Wheel speed delta color: cyan=small, yellow=moderate, red=severe."""
     if abs_delta > _WS_SEVERE:
@@ -155,12 +201,21 @@ class IntelligentScreenWidget(QWidget):
         # Paint counter for edge glow pulse animation
         self._paint_count: int = 0
 
+        # Alert banner rotation index (cycles every 20s when multiple alerts)
+        self._alert_index: int = 0
+
         # Force periodic repaint even without data (1 Hz)
         from PySide6.QtCore import QTimer
         self._repaint_timer = QTimer(self)
         self._repaint_timer.setInterval(1000)
         self._repaint_timer.timeout.connect(self.update)
         self._repaint_timer.start()
+
+        # Alert rotation timer — advance banner every 20s
+        self._alert_rotate_timer = QTimer(self)
+        self._alert_rotate_timer.setInterval(20_000)
+        self._alert_rotate_timer.timeout.connect(self._rotate_alert)
+        self._alert_rotate_timer.start()
 
         if flir_reader is not None:
             flir_reader.frame_updated.connect(self._on_frame_updated)
@@ -186,6 +241,11 @@ class IntelligentScreenWidget(QWidget):
     def set_coaching_level(self, level: int) -> None:
         """Update coaching level from ModeManager (K5 button)."""
         self._coaching_level = level
+
+    def _rotate_alert(self) -> None:
+        """Advance alert banner index every 20s."""
+        self._alert_index += 1
+        self.update()
 
     def _on_frame_updated(self, frame) -> None:
         """Receive raw uint16 thermal frame — enhance contrast, colormap, cache.
@@ -242,9 +302,11 @@ class IntelligentScreenWidget(QWidget):
 
         self._draw_weather(p)
         self._draw_flir_panel(p)
+        self._draw_ec_banner(p)
         self._draw_status_strip(p)
         self._draw_coaching_bar(p)
         self._paint_voice_ticker(p)
+        self._draw_info_line(p)
 
         # Edge glow for LOW_GRIP — drawn last so it's on top
         if snap is not None and not snap.is_road_surface_stale():
@@ -336,6 +398,13 @@ class IntelligentScreenWidget(QWidget):
         p.drawText(QRectF(cols[2], 24, col_w, 56),
                    Qt.AlignLeft | Qt.AlignVCenter, hum_text)
 
+        # Humidity trend arrow — after value
+        if available:
+            hum_fm = p.fontMetrics()
+            hum_tw = hum_fm.horizontalAdvance(hum_text)
+            _draw_trend_arrow_large(p, cols[2] + hum_tw + 6, 24, 56,
+                                    snap.humidity_trend_pct_hr, threshold=2.0)
+
         p.setFont(_font(10))
         p.setPen(QPen(QColor(GRAY)))
         p.drawText(QRectF(cols[2], 82, col_w, 16),
@@ -351,19 +420,49 @@ class IntelligentScreenWidget(QWidget):
         if available:
             prs_text = f"{snap.ambient_pressure_hpa:.0f}"
             prs_color = QColor(WHITE)
+            # Color baro value by threat level
+            threat = snap.weather_threat_level
+            if threat == "STORM":
+                prs_color = QColor(RED)
+            elif threat == "RAIN_LIKELY":
+                prs_color = QColor(YELLOW)
+            elif threat == "CHANGING":
+                prs_color = QColor(MODE_I_ACCENT)
         else:
             prs_text = "---"
             prs_color = QColor(GRAY)
 
         p.setFont(_font(38, bold=True))
         p.setPen(QPen(prs_color))
-        p.drawText(QRectF(cols[3], 24, prs_right - cols[3], 56),
-                   Qt.AlignRight | Qt.AlignVCenter, prs_text)
+        # Shift text left to leave room for arrow on the right
+        prs_fm = p.fontMetrics()
+        prs_tw = prs_fm.horizontalAdvance(prs_text)
+        prs_text_x = prs_right - prs_tw - 26
+        p.drawText(QRectF(prs_text_x, 24, prs_tw, 56),
+                   Qt.AlignLeft | Qt.AlignVCenter, prs_text)
+
+        # Baro trend arrow — after value
+        if available:
+            _draw_trend_arrow_large(p, prs_text_x + prs_tw + 6, 24, 56,
+                                    snap.pressure_trend_hpa_hr, threshold=0.5)
 
         p.setFont(_font(10))
         p.setPen(QPen(QColor(GRAY)))
         p.drawText(QRectF(cols[3], 82, prs_right - cols[3], 16),
                    Qt.AlignRight | Qt.AlignVCenter, "hPa")
+
+        # Weather threat text removed — consolidated into rotating FLIR banner.
+
+        # EC regional alert banner — drawn after FLIR so it overlays the thermal image.
+        # Rendered in _draw_ec_banner() which is called after _draw_flir_panel().
+
+        # EC forecast condition (top-left, subtle)
+        if snap is not None and snap.ec_available and snap.ec_forecast_condition:
+            p.setFont(_font(9))
+            p.setPen(QPen(QColor(GRAY)))
+            p.drawText(QRectF(cols[0], 98, 200, 14),
+                       Qt.AlignLeft | Qt.AlignVCenter,
+                       f"EC: {snap.ec_forecast_condition}")
 
         # "NO SENSOR" overlay when unavailable
         if not available and (snap is None or snap.is_road_surface_stale()):
@@ -413,6 +512,72 @@ class IntelligentScreenWidget(QWidget):
             return
 
         # Coaching text moved to _draw_coaching_bar (below status strip)
+
+    def _draw_ec_banner(self, p: QPainter) -> None:
+        """Alert banner overlaid on FLIR panel — rotates every 20s when multiple.
+
+        Builds list of active alerts (weather engine + EC), sorted by severity.
+        Cycles through them so the driver sees all active warnings.
+        """
+        snap = self._snap
+        if snap is None:
+            return
+
+        # Build list of (severity, text, bg_color) tuples
+        alerts: list[tuple[int, str, QColor]] = []
+
+        # Weather engine alerts (white text on red/orange for readability)
+        threat = snap.weather_threat_level
+        rate = snap.pressure_trend_hpa_hr
+        if threat == "STORM":
+            alerts.append((50, f"STORM INCOMING — pressure falling {abs(rate):.1f} hPa/hr",
+                           QColor(180, 20, 20)))
+        elif threat == "RAIN_LIKELY":
+            alerts.append((25, f"RAIN LIKELY — pressure falling {abs(rate):.1f} hPa/hr",
+                           QColor(200, 120, 0)))
+        # CHANGING is too subtle for a banner — BARO color already shows it
+
+        # EC alerts — show actual description, not just "Special Weather Statement"
+        if snap.ec_available and snap.ec_warning_level != "none":
+            lvl = snap.ec_warning_level
+            ec_colors = {
+                "warning": QColor(180, 20, 20),
+                "watch": QColor(200, 120, 0),
+                "advisory": QColor(250, 204, 21),
+            }
+            bg = ec_colors.get(lvl, QColor(30, 80, 160))
+            sev = {"warning": 45, "watch": 30, "advisory": 20, "statement": 10}.get(lvl, 10)
+            # Use first line of description, fall back to alert name
+            desc = snap.ec_warning_description.split("\n")[0].strip()
+            if desc:
+                # Truncate to fit 800px banner (~75 chars at font 10, with EC: prefix)
+                ec_display = "EC: " + desc[:75] + ("..." if len(desc) > 75 else "")
+            else:
+                ec_display = "EC: " + snap.ec_warning_text
+            alerts.append((sev, ec_display, bg))
+
+        if not alerts:
+            return
+
+        # Sort by severity descending, rotate through the list
+        alerts.sort(key=lambda a: a[0], reverse=True)
+        idx = self._alert_index % len(alerts)
+        _, text, bg_color = alerts[idx]
+
+        # Full-width banner at top of FLIR panel
+        # White text on dark backgrounds (red/orange), black on light (yellow/grey)
+        severity = alerts[idx][0]
+        text_color = QColor(255, 255, 255) if severity >= 10 else QColor(0, 0, 0)
+
+        banner_y = 118
+        banner_h = 22
+        p.setPen(Qt.NoPen)
+        p.setBrush(bg_color)
+        p.drawRect(QRectF(0, banner_y, _W, banner_h))
+        p.setFont(_font(10, bold=True))
+        p.setPen(QPen(text_color))
+        p.drawText(QRectF(0, banner_y, _W, banner_h),
+                   Qt.AlignCenter, text)
 
     def _draw_warmup_badge(self, p: QPainter, y0: int) -> None:
         """Draw warm-up state badge (COLD / WARMING / READY) overlaid on FLIR panel."""
@@ -641,16 +806,41 @@ class IntelligentScreenWidget(QWidget):
     # ==================================================================
 
     def _draw_coaching_bar(self, p: QPainter) -> None:
-        """Coaching/warning text at the very bottom of the screen (y=458..480)."""
+        """Coaching/warning text above info line (y=448..466)."""
         if not self._coaching_text:
             return
         sentiment_colors = {"green": GREEN, "amber": YELLOW, "dim": GRAY}
         coach_color = QColor(sentiment_colors.get(self._coaching_sentiment, GRAY))
-        p.fillRect(QRectF(0, 458, _W, 22), QColor(BG_PANEL))
-        p.setFont(_font(12, bold=True))
+        p.fillRect(QRectF(0, 448, _W, 18), QColor(BG_PANEL))
+        p.setFont(_font(11, bold=True))
         p.setPen(QPen(coach_color))
-        p.drawText(QRectF(20, 458, _W - 40, 22),
+        p.drawText(QRectF(20, 448, _W - 40, 18),
                    Qt.AlignLeft | Qt.AlignVCenter, self._coaching_text)
+
+    def _draw_info_line(self, p: QPainter) -> None:
+        """INFO LINE at bottom — matches MXG Strada placement (y=466..480).
+
+        Alerts are shown in the FLIR banner above. This line shows
+        supplementary status only (pressure rate, or dim placeholder).
+        """
+        snap = self._snap
+        text = ""
+        if snap is not None and snap.weather_threat_level == "CLEAR":
+            rate = snap.pressure_trend_hpa_hr
+            if abs(rate) > 0.3:
+                text = f"Pressure {rate:+.1f} hPa/hr"
+
+        p.fillRect(QRectF(0, 466, _W, 14), QColor(BG_PANEL))
+        if text:
+            p.setFont(_font(8))
+            p.setPen(QPen(QColor(GRAY)))
+            p.drawText(QRectF(0, 466, _W, 14),
+                       Qt.AlignCenter, text)
+        else:
+            p.setFont(_font(8))
+            p.setPen(QPen(QColor(DIM)))
+            p.drawText(QRectF(0, 466, _W, 14),
+                       Qt.AlignCenter, "INFO LINE")
 
     def _paint_voice_ticker(self, p: QPainter) -> None:
         """Voice ticker — sits above coaching bar (y=412..455)."""

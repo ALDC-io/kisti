@@ -274,6 +274,21 @@ class DiffState:
     dew_point_c: float = 0.0             # °C
     ambient_available: bool = False
 
+    # Weather trends (fed by WeatherEngine at 1Hz)
+    pressure_trend_hpa_hr: float = 0.0    # hPa/hr (negative = falling)
+    humidity_trend_pct_hr: float = 0.0    # %RH/hr (positive = rising)
+    dew_point_spread_c: float = 99.0      # temp - dew_point (small = rain imminent)
+    weather_threat_level: str = "CLEAR"   # CLEAR / CHANGING / RAIN_LIKELY / STORM
+
+    # Environment Canada regional weather (polled every 10-15 min)
+    ec_warning_level: str = "none"        # "none"/"statement"/"advisory"/"watch"/"warning"
+    ec_warning_text: str = ""             # Short warning name (e.g. "Snowfall Warning")
+    ec_warning_description: str = ""      # Actual alert content (truncated to fit banner)
+    ec_condition: str = ""                # Current EC condition (e.g. "Sunny", "Rain")
+    ec_forecast_condition: str = ""       # Next-hour forecast condition
+    ec_available: bool = False
+    ec_data_age_s: float = 0.0            # Seconds since last successful EC fetch
+
     # Warm-up state (computed, not from CAN)
     warmup_state: WarmUpState = WarmUpState.COLD
 
@@ -734,6 +749,39 @@ class DiffStateBridge(QObject):
         else:
             self._zone_pending[zone_idx] = new_ss
             self._zone_hysteresis[zone_idx] = 1
+
+    def update_weather_trends(
+        self,
+        p_rate: float,
+        h_rate: float,
+        dew_spread: float,
+        threat_label: str,
+    ) -> None:
+        """Called from WeatherEngine at 1Hz with computed trend data."""
+        with self._lock:
+            self._state.pressure_trend_hpa_hr = p_rate
+            self._state.humidity_trend_pct_hr = h_rate
+            self._state.dew_point_spread_c = dew_spread
+            self._state.weather_threat_level = threat_label
+
+    def update_ec_weather(
+        self,
+        warning_level: str,
+        warning_text: str,
+        condition: str,
+        forecast_condition: str,
+        data_age_s: float,
+        warning_description: str = "",
+    ) -> None:
+        """Called from EC weather poller with regional weather data."""
+        with self._lock:
+            self._state.ec_warning_level = warning_level
+            self._state.ec_warning_text = warning_text
+            self._state.ec_warning_description = warning_description
+            self._state.ec_condition = condition
+            self._state.ec_forecast_condition = forecast_condition
+            self._state.ec_available = True
+            self._state.ec_data_age_s = data_age_s
 
     def update_ambient(
         self,

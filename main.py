@@ -145,6 +145,16 @@ def main():
 
     # Core: CAN bus bridge
     bridge = DiffStateBridge()
+
+    # SIGUSR1: cycle SI Drive mode (for dev/demo without CAN hardware)
+    _usr1_mode = [0]  # mutable counter: 0=I, 1=S, 2=S#
+
+    def _cycle_si_drive(*_args):
+        _usr1_mode[0] = (_usr1_mode[0] + 1) % 3
+        bridge.update_si_drive(_usr1_mode[0])
+        log.info("SIGUSR1 → SI Drive mode %d", _usr1_mode[0])
+
+    signal.signal(signal.SIGUSR1, _cycle_si_drive)
     listener, mock = create_can_source(bridge)
     # Demo mode: start mock CAN with SI-Drive cycling for trade shows
     if args.demo and mock is not None:
@@ -180,13 +190,51 @@ def main():
         except Exception as exc:
             log.info("Ambient sensor unavailable: %s", exc)
 
+    # Weather nowcasting engine — feeds trend data into DiffState
+    from sensors.weather_engine import WeatherEngine
+    weather_engine = WeatherEngine()
+
+    # Environment Canada regional weather (extends prediction window)
+    ec_poller = None
+    try:
+        from sensors.ec_weather import ECWeatherPoller
+        ec_poller = ECWeatherPoller()
+        ec_poller.start()
+    except Exception as exc:
+        log.info("EC weather poller unavailable: %s", exc)
+
     if ambient_source:
-        ambient_source.reading_updated.connect(
-            lambda r: bridge.update_ambient(
+        def _on_ambient_for_bridge_and_weather(r):
+            bridge.update_ambient(
                 r.temperature_c, r.humidity_pct, r.pressure_hpa,
                 r.density_altitude_ft, r.dew_point_c,
             )
-        )
+            # Fuse hyperlocal sensors with EC regional data
+            import time as _wtime
+            ec_level = "none"
+            ec_age = 9999.0
+            if ec_poller:
+                ec = ec_poller.data
+                if ec.available:
+                    ec_level = ec.highest_warning
+                    ec_age = (_wtime.monotonic() - ec.fetch_ts) if ec.fetch_ts else 9999.0
+                    bridge.update_ec_weather(
+                        ec.highest_warning, ec.warning_text,
+                        ec.ec_condition, ec.forecast_condition, ec_age,
+                        warning_description=ec.warning_description,
+                    )
+            wx = weather_engine.feed(
+                r.pressure_hpa, r.humidity_pct,
+                r.temperature_c, r.dew_point_c,
+                ec_warning_level=ec_level,
+                ec_data_age_s=ec_age,
+            )
+            bridge.update_weather_trends(
+                wx.pressure_trend_hpa_hr, wx.humidity_trend_pct_hr,
+                wx.dew_point_spread_c, wx.threat_label,
+            )
+
+        ambient_source.reading_updated.connect(_on_ambient_for_bridge_and_weather)
 
     # FLIR Lepton thermal camera (road surface temps — forward-facing)
     flir_reader = None
@@ -250,8 +298,9 @@ def main():
             alert_eng.alert_fired.connect(_on_alert)
 
             # Safety-critical alerts → dedicated voice routing
+            # voice_alert is gated by VOICE_ALERT_TYPES — always speak, all modes
             alert_eng.voice_alert.connect(
-                lambda a: voice_mgr.speak_alert(a.message, a.severity.label)
+                lambda a: voice_mgr.speak_alert(a.message, "critical")
             )
 
             # Wire analyze run (K3) to voice query
@@ -963,16 +1012,16 @@ def main():
                 )
             except Exception:
                 pass
-            _speak(change.message, urgency="alert")
+            # Voice handled by alert engine (rate-based, deduplicated, mode-aware).
+            # condition_changed is for DuckDB logging only.
 
         ambient_source.reading_updated.connect(_on_ambient_reading)
         ambient_source.condition_changed.connect(_on_condition_changed)
         log.info("Ambient DuckDB recording enabled (1/min + change events)")
 
     elif ambient_source:
-        ambient_source.condition_changed.connect(
-            lambda c: _speak(c.message, urgency="alert")
-        )
+        # Voice handled by alert engine — condition_changed is legacy path
+        pass
 
     # --- Ambient simulation lifecycle ---
     if args.sim_ambient and ambient_source:

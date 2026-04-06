@@ -1,5 +1,61 @@
 # KiSTI - Progress
 
+## Session: 2026-04-05 (kisti-weather-intelligence — Dual-Layer Sensor + EC Integration)
+
+### Status: COMPLETE
+
+### Completed
+- **WeatherEngine** (285 lines) — Rate-of-change threat detection with rolling 10-min window (600s, 30 samples). Linear regression for pressure/humidity trends (hPa/hr, %/hr). 4 threat levels: CLEAR (0.5), CHANGING (1.5), RAIN_LIKELY (3.5), STORM (5.0+). Multi-sensor fusion rules: rain (baro+dew+humidity), fog, snow, cold front. Thread-safe @ 1Hz.
+- **ECWeatherPoller** (322 lines) — Background daemon polling api.weather.gc.ca/collections/weather-alerts (10 min) and citypageweather-realtime (15 min). Default city_id=bc-35 (Coquitlam), configurable via EC_CITY_ID/EC_BBOX env vars. Parses nested GeoJSON, extracts warnings with severity ranking. Graceful offline degradation.
+- **Dual-layer weather fusion** — EC warnings upgrade threat (watch→CHANGING, warning→RAIN_LIKELY) but never downgrade. Hyperlocal sensors (Yoctopuce 1Hz) are ground truth; EC is prediction window extension. Both integrated into DiffStateBridge.
+- **Voice + Display alerts** — 6 new weather alert types (weather_changing, weather_rising, weather_rain_likely, weather_snow_risk, weather_storm, ec_weather_warning). All routed through AlertEngine.voice_alert (safety-critical). Once-per-session deduplication prevents repetitive voice updates. EC warnings fire through both Excelon display alert line AND Link ECU MXG alerts.
+- **Screen display integration** — Intelligent screen: pressure/humidity trend arrows (24px tall, 4px pen, positioned left of metrics). Weather threat text below status card (CLEAR invisible, CHANGING/RAIN_LIKELY/STORM yellow/red). EC warning banner (yellow=warning, blue=watch, 1-hour age timeout). EC forecast in gray at top-left.
+- **System integration** — GDM auto-login configured (skip GNOME desktop). SIGUSR1 handler for SI Drive mode cycling (I→S→S# dev tool). Main.py wiring: YoctopuceReader → WeatherEngine → AlertEngine → Display.
+- **Hardware validation** — Deployed to Jetson, verified EC poller fetching from api.weather.gc.ca. Stress-tested with frozen burgers on FLIR (LOW GRIP detection) and kettle steam (-8.9 hPa/hr → STORM alert, dedup confirmed).
+
+### Key Decisions
+- **Voice alert deduplication essential** — At driving speed, hearing "pressure falling" every 1-10s is not actionable. Screen feedback is instant. Dense voice updates reduce signal-to-noise for emergencies. Implemented once-per-session dedup in AlertEngine._fired_types.
+- **EC city_id should match user location** — Changed default from bc-48 (Kelowna) to bc-35 (Coquitlam). EC data accuracy depends on geographic proximity.
+- **Pressure units: hPa not kPa** — Meteorology standard. hPa values (1000-1020) easier to reason about than kPa (100-102). Rate-of-change thresholds naturally express in hPa/hr.
+- **Trend arrows sized 24px** — Initially 10px was too small while driving. 24px tall, 4px pen matches reading size for visibility.
+- **Hyperlocal wins during conflict** — Sensors > EC when opinions differ. Yoctopuce is ground truth at the car; EC is regional prediction.
+
+### Don't Repeat
+- Voice repetition kills usability — dedup on alert_type, not every pressure delta
+- Hardcoded EC location wastes development — always use env vars for configurable APIs
+- Pressure units need explicit specification — hPa vs kPa wasn't assumed; user clarified
+- Tiny visual elements disappear in car — start with 20px+ for automotive screens
+
+### Learnings Captured to Zeus Memory
+- ✅ cce_success_log: Weather Intelligence System complete (c0754bac)
+- ✅ cce_decision_log: Voice alert deduplication essential (6 learnings posted)
+- ✅ cce_decision_log: EC city_id reflects user location
+- ✅ cce_decision_log: Pressure in hPa (meteorology standard)
+- ✅ cce_failed_approach: Pressure in kPa rejected by user
+- ✅ cce_failed_approach: Tiny 10px arrows required upsizing to 24px
+
+### Files Changed
+- `sensors/weather_engine.py` — NEW, 285 lines, WeatherEngine class
+- `sensors/ec_weather.py` — NEW, 322 lines, ECWeatherPoller class
+- `tests/test_weather_engine.py` — NEW, 11 tests
+- `tests/test_ec_weather.py` — NEW, 16 tests
+- `model/vehicle_state.py` — MODIFIED, added weather_trend fields to DiffState
+- `alerts/alert_engine.py` — MODIFIED, added 6 weather alert types, once-per-session dedup
+- `ui/intelligent_screen.py` — MODIFIED, added trend arrows, EC warning banner, threat text
+- `main.py` — MODIFIED, wired WeatherEngine + ECWeatherPoller, SIGUSR1 handler
+
+### Test Count
+- Before: 1187 tests (from previous screen-redesign session)
+- After: 1214 tests (+27 weather + alert tests)
+
+### Next Session
+1. GPS-based EC region lookup once GPS09 Pro installed (currently hardcoded to bc-35)
+2. Threshold tuning against real driving data (MIN_SAMPLES_SHORT, WINDOW_SHORT_S)
+3. Voice alert verification during actual weather event
+4. EC forecast integration into Sport/Sharp screens (currently Intelligent only)
+
+---
+
 ## Session: 2026-04-05 (kisti-screen-redesign Phases 3-6 — Rebuild + Jetson Deploy)
 
 ### Status: COMPLETE

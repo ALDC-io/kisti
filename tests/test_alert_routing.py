@@ -32,6 +32,10 @@ class TestAlertRouting:
             "fuel_pressure_critical",
             "ice_risk_imminent",
             "grip_low_grip",
+            "weather_storm",
+            "weather_rain_likely",
+            "weather_snow_risk",
+            "ec_weather_warning",
         }
         assert AlertEngine.VOICE_ALERT_TYPES == expected
 

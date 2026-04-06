@@ -184,6 +184,9 @@ class SportScreenWidget(QWidget):
         p.setPen(QPen(QColor(CHROME_DARK), 1))
         p.drawLine(0, 100, w, 100)
 
+        # Weather threat pill (dim-until-warning, dark cockpit)
+        self._paint_weather_threat(p, snap)
+
         # --- Middle + bottom band (y=100..440) ---
         self._paint_technique_panel(p, snap, diff_stale, dynamics_stale)
         self._paint_g_ellipse(p, snap)
@@ -289,6 +292,54 @@ class SportScreenWidget(QWidget):
         if not snap.is_road_surface_stale():
             paint_zone_bar(p, 516, 12, 268, 72, zones,
                            paint_count=self._paint_count, show_labels=True)
+
+    # ------------------------------------------------------------------
+    # Weather threat pill (dark cockpit — invisible when CLEAR)
+    # ------------------------------------------------------------------
+
+    def _paint_weather_threat(self, p: QPainter, snap: DiffState) -> None:
+        """Full-width alert bar at bottom (y=424..440). Highest severity wins."""
+        threat = snap.weather_threat_level
+        has_ec = snap.ec_available and snap.ec_warning_level != "none"
+
+        if threat == "CLEAR" and not has_ec:
+            return
+
+        # Pick highest severity alert
+        text = ""
+        bg = QColor(30, 80, 160)
+        fg = QColor(255, 255, 255)
+
+        rate = snap.pressure_trend_hpa_hr
+        if threat == "STORM":
+            text = f"STORM INCOMING — pressure falling {abs(rate):.1f} hPa/hr"
+            bg = QColor(180, 20, 20)
+        elif threat == "RAIN_LIKELY":
+            text = f"RAIN LIKELY — pressure falling {abs(rate):.1f} hPa/hr"
+            bg = QColor(200, 120, 0)
+        elif has_ec:
+            lvl = snap.ec_warning_level
+            if lvl == "warning":
+                bg = QColor(180, 20, 20)
+            elif lvl == "watch":
+                bg = QColor(200, 120, 0)
+            elif lvl == "advisory":
+                bg, fg = QColor(250, 204, 21), QColor(0, 0, 0)
+            desc = snap.ec_warning_description.split("\n")[0].strip()
+            text = "EC: " + (desc[:75] + ("..." if len(desc) > 75 else "") if desc else snap.ec_warning_text)
+
+        if not text:
+            return
+
+        # Full-width bar at bottom of Sport screen
+        bar_y, bar_h = 424, 16
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(bg)
+        p.drawRect(QRectF(0, bar_y, 800, bar_h))
+        p.setFont(QFont("Helvetica", 9, QFont.Weight.Bold))
+        p.setPen(QPen(fg))
+        p.drawText(QRectF(0, bar_y, 800, bar_h),
+                   Qt.AlignmentFlag.AlignCenter, text)
 
     # ------------------------------------------------------------------
     # Middle band: Technique panel (left, 0..350)
@@ -481,7 +532,7 @@ class SportScreenWidget(QWidget):
                        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, elided)
 
     # ------------------------------------------------------------------
-    # Coaching text (below G circle, y=398..418)
+    # Coaching text (below G magnitude, y=418..438)
     # ------------------------------------------------------------------
 
     def _paint_coaching(self, p: QPainter) -> None:
@@ -492,7 +543,7 @@ class SportScreenWidget(QWidget):
         p.setPen(color)
         p.setFont(QFont("Helvetica", 14, QFont.Weight.Bold))
         p.drawText(
-            QRectF(0, 398, 800, 20),
+            QRectF(0, 418, 800, 20),
             Qt.AlignmentFlag.AlignCenter, self._coaching_text,
         )
 
