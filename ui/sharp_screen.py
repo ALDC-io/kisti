@@ -1,31 +1,38 @@
-"""KiSTI - Sport Sharp Screen (SI-Drive=2)
+"""KiSTI - Sport Sharp Screen (SI-Drive=2) — CANYON MODE
 
-TRACK / ATTACK / CANYON — timing + intensity feedback.
-100% QPainter in paintEvent. No composite QWidget layouts.
+Dark cockpit canyon driving display.  "Am I safe?  What's changing?"
+G-force ellipse dominates the screen.  Everything else is peripheral,
+invisible when nominal, escalating visibility when abnormal.
 
 MXG Strada handles: gear, speed, RPM, boost, lambda, oil, coolant.
 KiSTI Sport Sharp shows ONLY what the MXG cannot:
-  - Lap timing + delta + sectors (track)
-  - G-force circle (canyon intensity / cornering commitment)
-  - Safety vitals (dim-until-warning)
+  - G-force circle (cornering commitment, braking quality)
+  - Road surface conditions (FLIR + DriveBC)
+  - Grip estimation (front/rear axle)
+  - Weather intelligence (BARO, EC, DriveBC, fog)
+  - DCCD center-diff lock
+  - Balance (understeer/oversteer)
 
-"Am I faster?" — timing for track, G-force for canyons. Dual-mode.
+800x480 QPainter, dark cockpit principle throughout.
+Track variant preserved in sharp_screen_track.py.
 
 Layout (800x480):
-  y=0..90    Delta bar (full width, green=faster, red=slower)
-  y=90..280  LEFT (0..480): Lap time + lap count + best + theo
-             RIGHT (480..800): G-force circle with trail
-  y=280..380 Sector strip (colored blocks with times)
-  y=380..480 Safety vitals (dim until warning) — 4 zones
+  y=0..30    Header: balance(L) | DCCD arc(C) | weather pill(R)
+  y=30..400  HERO: G-force ellipse (r=170, center 400,215)
+             Left edge: grip bars (F/R)
+             Right edge: road zone bars (L/C/R)
+  y=400..460 Bottom strip: BARO | road bar | road temp | voice ticker
+  y=460..480 Alert bar (severity-driven, full width)
 """
 
 from __future__ import annotations
 
+import math
 from collections import deque
 from typing import Optional
 
 from PySide6.QtCore import Qt, QRectF, QPointF
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPainterPath
 from PySide6.QtWidgets import QWidget
 
 from model.vehicle_state import DiffState
@@ -33,6 +40,7 @@ from ui.g_force_ellipse import paint_g_ellipse
 from ui.road_condition import (
     paint_zone_tint,
     paint_edge_glow,
+    paint_zone_bar,
     zone_states_from_snap,
     any_zone_low_grip,
 )
@@ -48,7 +56,6 @@ from ui.theme import (
     CYAN,
     MODE_SS_ACCENT,
     FONT_BASE,
-    FONT_HEADER,
     FONT_BIG,
     FONT_XLARGE,
     FONT_MEGA,
@@ -73,109 +80,76 @@ def _drivebc_event_banner(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Constants
+# Layout constants
 # ---------------------------------------------------------------------------
 
 _W = 800
 _H = 480
 
-# Section Y boundaries
-_DELTA_Y0 = 0
-_DELTA_Y1 = 90
-_MID_Y0 = 90
-_MID_Y1 = 280
-_SECTOR_Y0 = 280
-_SECTOR_Y1 = 380
-_VITALS_Y0 = 380
-_VITALS_Y1 = 460  # Shortened to leave room for alert bar at y=460..480
+# Zone boundaries
+_HEADER_Y1 = 30
+_HERO_Y0 = 30
+_HERO_Y1 = 400
+_STRIP_Y0 = 400
+_STRIP_Y1 = 460
+_ALERT_Y0 = 460
+_ALERT_Y1 = 480
 
-# Delta bar geometry
-_BAR_MARGIN = 10
-_BAR_H = 70
-_BAR_Y = (_DELTA_Y1 - _BAR_H) // 2 + _DELTA_Y0
-_BAR_X = _BAR_MARGIN
-_BAR_W = _W - 2 * _BAR_MARGIN
+# G-force hero ellipse
+_G_CENTER_X = 400
+_G_CENTER_Y = 215
+_G_RADIUS = 170
 
-# Timing / G-force split in mid panel (y=90..280)
-_TIMING_W = 480       # Left side: timing data
-_G_PANEL_X = 480      # Right side: G-force circle
-_G_CENTER_X = 640     # Circle center X (midpoint of 480..800)
-_G_CENTER_Y = 170     # Circle center Y (raised to fit magnitude label above sector strip)
-_G_RADIUS = 80        # Outer ring = 1.0g
+# Grip bars (left edge, vertical)
+_GRIP_X = 8
+_GRIP_BAR_W = 16
+_GRIP_GAP = 8
+_GRIP_Y0 = 120
+_GRIP_Y1 = 340
 
-# Road surface temp thresholds (forward-facing grill FLIR)
-_FLIR_COLD = 5.0      # Ice risk
-_FLIR_GREEN = 15.0    # Cool but safe
-_FLIR_YELLOW = 40.0   # Warm/optimal
-_FLIR_RED = 55.0      # Very hot pavement
+# Road zone bar (right edge, vertical)
+_ROAD_X = 760
+_ROAD_BAR_W = 32
+_ROAD_Y0 = 120
+_ROAD_Y1 = 340
 
-# Safety thresholds — sourced from data/build_record.py BASELINES
-_OIL_WARN_LOW = 15.0   # PSI
-_OIL_CRIT_LOW = 10.0   # PSI
-_COOL_WARN = 100.0      # Celsius
-_COOL_CRIT = 105.0      # Celsius
-_OILT_WARN = 130.0      # Celsius
-_OILT_CRIT = 140.0      # Celsius
-_BRKT_WARN = 450.0      # Celsius
-_BRKT_CRIT = 500.0      # Celsius
+# Safety thresholds (dark cockpit escalation)
+_OIL_WARN_LOW = 15.0
+_OIL_CRIT_LOW = 10.0
+_COOL_WARN = 100.0
+_COOL_CRIT = 105.0
 
 
-def _fmt_time_ms(ms: int) -> str:
-    """Format milliseconds as MM:SS.xxx — zero-padded."""
-    if ms <= 0:
-        return "--:--.---"
-    minutes = ms // 60000
-    seconds = (ms % 60000) // 1000
-    millis = ms % 1000
-    return f"{minutes:02d}:{seconds:02d}.{millis:03d}"
+# ---------------------------------------------------------------------------
+# Font helper
+# ---------------------------------------------------------------------------
+
+def _font(size: int, bold: bool = False) -> QFont:
+    f = QFont("Helvetica", size)
+    if bold:
+        f.setWeight(QFont.Bold)
+    return f
 
 
-def _fmt_delta_ms(ms: int) -> str:
-    """Format delta with sign and 3 decimal places."""
-    sign = "+" if ms >= 0 else "-"
-    abs_ms = abs(ms)
-    seconds = abs_ms // 1000
-    frac = abs_ms % 1000
-    return f"{sign}{seconds}.{frac:03d}"
+# ---------------------------------------------------------------------------
+# Surface state colors (matching road_condition.py)
+# ---------------------------------------------------------------------------
 
+from model.vehicle_state import SurfaceState
 
-def _brake_heat_color(temp_c: float) -> QColor:
-    """Blue (cold) -> Green (optimal) -> Yellow (warm) -> Red (hot) for brake temps."""
-    if temp_c <= _FLIR_COLD:
-        return QColor(80, 180, 255)     # Light blue
-    elif temp_c <= _FLIR_GREEN:
-        t = (temp_c - _FLIR_COLD) / max(1, _FLIR_GREEN - _FLIR_COLD)
-        r = int(80 * (1 - t))
-        g = int(180 * (1 - t) + 200 * t)
-        b = int(255 * (1 - t) + 80 * t)
-        return QColor(r, g, b)
-    elif temp_c <= _FLIR_YELLOW:
-        t = (temp_c - _FLIR_GREEN) / max(1, _FLIR_YELLOW - _FLIR_GREEN)
-        r = int(255 * t)
-        g = int(200 * (1 - t) + 170 * t)
-        b = int(80 * (1 - t))
-        return QColor(r, g, b)
-    else:
-        t = min(1.0, (temp_c - _FLIR_YELLOW) / max(1, _FLIR_RED - _FLIR_YELLOW))
-        r = 255
-        g = int(170 * (1 - t) + 30 * t)
-        return QColor(r, g, 0)
+_ZONE_COLORS = {
+    SurfaceState.DRY: QColor(0, 204, 102, 100),        # green, low alpha
+    SurfaceState.WET: QColor(0, 100, 255, 170),         # blue
+    SurfaceState.COLD: QColor(0, 200, 255, 200),        # cyan
+    SurfaceState.LOW_GRIP: QColor(255, 26, 26, 240),    # red
+}
 
-
-def _oil_color(psi: float) -> QColor:
-    if psi <= _OIL_CRIT_LOW:
-        return QColor(RED)
-    if psi <= _OIL_WARN_LOW:
-        return QColor(YELLOW)
-    return QColor(GREEN)
-
-
-def _coolant_color(temp: float) -> QColor:
-    if temp >= _COOL_CRIT:
-        return QColor(RED)
-    if temp >= _COOL_WARN:
-        return QColor(YELLOW)
-    return QColor(GREEN)
+_ZONE_ALPHA = {
+    SurfaceState.DRY: 100,
+    SurfaceState.WET: 170,
+    SurfaceState.COLD: 200,
+    SurfaceState.LOW_GRIP: 240,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -183,12 +157,11 @@ def _coolant_color(temp: float) -> QColor:
 # ---------------------------------------------------------------------------
 
 class SportSharpScreenWidget(QWidget):
-    """Sport Sharp (S#) full-screen QPainter widget — 800x480.
+    """Sport Sharp (S#) canyon-focused QPainter widget — 800x480.
 
-    "Am I faster?" — timing for track, G-force for canyons.
-    Ultra-sparse dark layout for maximum attack driving.
-    Data fed via update_state(snap) at 20 Hz from DiffStateBridge.
-    Timing data fed via update_timing(timing_data) from TimingManager.
+    "Am I safe?  What's changing?"
+    Dark cockpit: nearly black when nominal, lights up when conditions
+    demand attention.  G-force ellipse dominates the screen.
     """
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
@@ -202,20 +175,20 @@ class SportSharpScreenWidget(QWidget):
         # G-force dot trail (canyon intensity feedback)
         self._g_trail: deque[tuple[float, float]] = deque(maxlen=40)
 
-        # Sector pulse animation
+        # Paint counter for edge glow pulse
         self._paint_count: int = 0
 
         # Voice ticker (fed from main.py at 1Hz)
         self._voice_ticker: list[str] = []
 
-        # Balance / grip / brake quality (fed from coaching analyzers)
+        # Balance / grip (fed from coaching analyzers)
         self._balance_ratio: float = 1.0
         self._front_grip_pct: float = 100.0
         self._rear_grip_pct: float = 100.0
-        self._sector_brake_quality: list[str] = []  # "green"/"yellow"/"red" per sector
+        self._sector_brake_quality: list[str] = []
 
     # ------------------------------------------------------------------
-    # Public API
+    # Public API (unchanged from track version)
     # ------------------------------------------------------------------
 
     def update_state(self, snap: DiffState) -> None:
@@ -229,12 +202,7 @@ class SportSharpScreenWidget(QWidget):
         self._voice_ticker = lines
 
     def update_timing(self, timing_data: dict) -> None:
-        """Accept timing data from TimingManager.
-
-        Expected keys: lap_count, current_lap_time_ms, delta_ms,
-        predicted_lap_ms, sector_times, current_sector, sector_count,
-        best_lap_ms, best_sector_times, track_name, theoretical_best_ms
-        """
+        """Accept timing data — cached but not displayed in canyon mode."""
         self._timing = timing_data
         self.update()
 
@@ -248,11 +216,11 @@ class SportSharpScreenWidget(QWidget):
         self._rear_grip_pct = rear_pct
 
     def update_brake_quality(self, sector_qualities: list[str]) -> None:
-        """Accept brake quality ratings per sector from TechniqueAnalyzer."""
+        """Accept brake quality — cached but not displayed in canyon mode."""
         self._sector_brake_quality = sector_qualities
 
     # ------------------------------------------------------------------
-    # Painting
+    # Paint
     # ------------------------------------------------------------------
 
     def paintEvent(self, event) -> None:  # noqa: N802
@@ -260,396 +228,332 @@ class SportSharpScreenWidget(QWidget):
         p.setRenderHint(QPainter.Antialiasing)
         p.fillRect(0, 0, _W, _H, QColor(BG_DARK))
 
-        # Per-zone road condition background tint (minimal on race screen)
         snap = self._snap
         zones = zone_states_from_snap(snap)
-        if snap is not None and not snap.is_road_surface_stale():
-            paint_zone_tint(p, _W, _H, zones, alpha=12)
 
-        self._draw_delta_bar(p)
-        self._draw_timing_panel(p)
-        self._draw_g_force_circle(p)
-        self._draw_sector_strip(p)
-        self._draw_safety_vitals(p)
-        self._draw_weather_indicator(p)
-        self._paint_voice_ticker(p)
-
-        # Edge glow for LOW_GRIP only (can't distract during laps)
+        # 1. Full-screen road condition tint (dark cockpit: DRY = no tint)
         if snap is not None and not snap.is_road_surface_stale():
+            paint_zone_tint(p, _W, _H, zones, alpha=10)
+
+        # 2. Hero: G-force ellipse (dominates screen)
+        self._paint_hero_ellipse(p)
+
+        # 3. Header bar (balance, DCCD, weather) — ghost-dim
+        self._paint_header(p)
+
+        # 4. Left edge: grip bars
+        self._paint_grip_bars(p)
+
+        # 5. Right edge: road zone bars (vertical)
+        self._paint_road_zones(p, zones)
+
+        # 6. Bottom strip: BARO, road bar, DriveBC temp, voice ticker
+        self._paint_bottom_strip(p, zones)
+
+        # 7. Alert bar (y=460..480)
+        self._paint_alert_bar(p)
+
+        # 8. Edge glow for LOW_GRIP (drawn last — on top of everything)
+        if snap is not None and not snap.is_road_surface_stale():
+            self._paint_count += 1
             paint_edge_glow(p, _W, _H, any_zone_low_grip(zones), self._paint_count)
 
         p.end()
 
     # ------------------------------------------------------------------
-    # Delta bar (y=0..90) — full width, big delta text
+    # Hero: G-force ellipse (y=30..400, full width)
     # ------------------------------------------------------------------
 
-    def _draw_delta_bar(self, p: QPainter) -> None:
-        has_timing = bool(self._timing.get("current_lap_time_ms"))
-        delta_ms = self._timing.get("delta_ms", 0)
+    def _paint_hero_ellipse(self, p: QPainter) -> None:
+        """G-force friction ellipse — the reason this screen exists."""
+        paint_g_ellipse(
+            p,
+            _G_CENTER_X,
+            _G_CENTER_Y,
+            _G_RADIUS,
+            self._snap,
+            self._g_trail,
+            balance_ratio=self._balance_ratio,
+            max_trail_dots=30,
+            accent_color=MODE_SS_ACCENT,
+        )
 
-        bar_rect = QRectF(_BAR_X, _BAR_Y, _BAR_W, _BAR_H)
-        p.fillRect(bar_rect, QColor(BG_PANEL))
+    # ------------------------------------------------------------------
+    # Header bar (y=0..30) — ghost-dim peripheral awareness
+    # ------------------------------------------------------------------
 
-        p.setPen(QPen(QColor(DIM), 1))
-        p.drawRect(bar_rect)
+    def _paint_header(self, p: QPainter) -> None:
+        snap = self._snap
 
-        if not has_timing:
-            p.setPen(QColor(GRAY))
-            p.setFont(QFont("Helvetica", FONT_HEADER, QFont.Bold))
-            p.drawText(bar_rect, Qt.AlignCenter, "NO TIMING")
-            return
+        # --- Balance indicator (left) ---
+        ratio = self._balance_ratio
+        if ratio < 0.95:
+            p.setFont(_font(11, bold=True))
+            p.setPen(QPen(QColor(0, 150, 255, 180)))  # blue
+            p.drawText(QRectF(10, 4, 90, 22), Qt.AlignLeft | Qt.AlignVCenter, "UNDER")
+        elif ratio > 1.05:
+            p.setFont(_font(11, bold=True))
+            p.setPen(QPen(QColor(255, 50, 50, 180)))  # red
+            p.drawText(QRectF(10, 4, 90, 22), Qt.AlignLeft | Qt.AlignVCenter, "OVER")
 
-        center_x = _BAR_X + _BAR_W / 2.0
-        max_delta_ms = 5000.0
-        clamped = max(-max_delta_ms, min(max_delta_ms, float(delta_ms)))
-        fill_frac = clamped / max_delta_ms
+        # --- DCCD arc gauge (center) ---
+        dccd_pct = snap.dccd_pct if snap else 0.0
+        stale = snap is None or snap.is_diff_stale()
+        cx, cy, arc_r = 400, 16, 12
 
-        if abs(fill_frac) > 0.001:
-            fill_w = abs(fill_frac) * (_BAR_W / 2.0)
-            inner_margin = 2
-            fill_h = _BAR_H - 2 * inner_margin
-            fill_y = _BAR_Y + inner_margin
+        # DIM outline always (driver expects to see it)
+        p.setPen(QPen(QColor(DIM), 2))
+        p.setBrush(Qt.NoBrush)
+        p.drawArc(QRectF(cx - arc_r, cy - arc_r, arc_r * 2, arc_r * 2),
+                  0 * 16, 180 * 16)  # top semicircle
 
-            if fill_frac > 0:
+        if not stale and dccd_pct > 5:
+            # Fill proportional to lock percentage
+            if dccd_pct > 70:
                 fill_color = QColor(RED)
-                fill_rect = QRectF(center_x, fill_y, fill_w, fill_h)
+            elif dccd_pct > 40:
+                fill_color = QColor(YELLOW)
             else:
                 fill_color = QColor(GREEN)
-                fill_rect = QRectF(center_x - fill_w, fill_y, fill_w, fill_h)
 
-            p.fillRect(fill_rect, fill_color)
+            sweep = int(180 * (dccd_pct / 100.0))
+            p.setPen(Qt.NoPen)
+            p.setBrush(fill_color)
+            # Draw filled arc (pie slice)
+            path = QPainterPath()
+            path.moveTo(cx, cy)
+            path.arcTo(QRectF(cx - arc_r, cy - arc_r, arc_r * 2, arc_r * 2),
+                       0, sweep)
+            path.closeSubpath()
+            p.drawPath(path)
 
-        p.setPen(QPen(QColor(WHITE), 1))
-        p.drawLine(int(center_x), _BAR_Y + 2, int(center_x), _BAR_Y + _BAR_H - 2)
+        # DCCD label
+        p.setFont(_font(8))
+        p.setPen(QPen(QColor(DIM) if (stale or dccd_pct <= 5) else QColor(GRAY)))
+        p.drawText(QRectF(cx - 20, cy - arc_r - 10, 40, 10),
+                   Qt.AlignCenter, "DCCD")
 
-        delta_text = _fmt_delta_ms(delta_ms)
-        text_color = QColor(GREEN) if delta_ms < 0 else QColor(RED) if delta_ms > 0 else QColor(WHITE)
-        p.setPen(text_color)
-        p.setFont(QFont("Helvetica", FONT_XLARGE, QFont.Bold))
-        p.drawText(bar_rect, Qt.AlignCenter, delta_text)
+        # DCCD percentage (only when >5%)
+        if not stale and dccd_pct > 5:
+            p.setFont(_font(9, bold=True))
+            p.setPen(QPen(fill_color))
+            p.drawText(QRectF(cx - 20, cy + arc_r + 1, 40, 12),
+                       Qt.AlignCenter, f"{dccd_pct:.0f}%")
 
-    # ------------------------------------------------------------------
-    # Timing panel (full width, y=90..280) — huge center lap time
-    # ------------------------------------------------------------------
+        # --- Weather threat pill (right) ---
+        if snap is not None:
+            threat = snap.weather_threat_level
+            has_ec = snap.ec_available and snap.ec_warning_level not in ("none", "")
 
-    def _draw_timing_panel(self, p: QPainter) -> None:
-        timing = self._timing
-        panel_h = _MID_Y1 - _MID_Y0  # 190px
-        tw = _TIMING_W  # Left side only (480px)
+            pill_text = ""
+            pill_color = None
 
-        lap_count = timing.get("lap_count", 0)
-        current_lap_ms = timing.get("current_lap_time_ms", 0)
-        predicted_ms = timing.get("predicted_lap_ms", 0)
-        best_ms = timing.get("best_lap_ms", 0)
-        theoretical_ms = timing.get("theoretical_best_ms", 0)
+            if threat == "STORM":
+                pill_text, pill_color = "STORM", QColor(RED)
+            elif threat == "RAIN_LIKELY":
+                pill_text, pill_color = "RAIN", QColor(YELLOW)
+            elif has_ec:
+                lvl = snap.ec_warning_level
+                if lvl in ("warning", "watch"):
+                    pill_text = "EC"
+                    pill_color = QColor(YELLOW) if lvl == "warning" else QColor(CYAN)
 
-        # --- Row 1: LAP label + track name (top) ---
-        lap_label = f"LAP {lap_count}" if lap_count > 0 else "LAP --"
-        p.setPen(QColor(GRAY))
-        p.setFont(QFont("Helvetica", 14, QFont.Bold))
-        p.drawText(QRectF(20, _MID_Y0 + 4, 120, 24), Qt.AlignLeft | Qt.AlignVCenter, lap_label)
+            if pill_text and pill_color:
+                p.setFont(_font(10, bold=True))
+                fm = p.fontMetrics()
+                pw = fm.horizontalAdvance(pill_text) + 16
+                px = _W - 10 - pw
+                py = 5
+                ph = 20
 
-        track_name = timing.get("track_name", "")
-        if track_name:
-            p.setPen(QColor(DIM))
-            p.setFont(QFont("Helvetica", 12))
-            p.drawText(QRectF(150, _MID_Y0 + 4, 300, 24), Qt.AlignLeft | Qt.AlignVCenter, track_name)
-
-        # --- Row 2: Current lap time — large, left-side centered ---
-        lap_time_str = _fmt_time_ms(current_lap_ms)
-        p.setPen(QColor(WHITE))
-        p.setFont(QFont("Courier", FONT_MEGA, QFont.Bold))  # 48pt — still big, fits left panel
-        time_rect = QRectF(0, _MID_Y0 + 30, tw, 70)
-        p.drawText(time_rect, Qt.AlignCenter, lap_time_str)
-
-        # --- Row 3: Predicted lap — medium ---
-        if predicted_ms > 0:
-            pred_str = f"PRED  {_fmt_time_ms(predicted_ms)}"
-            p.setPen(QColor(GRAY))
-            p.setFont(QFont("Courier", FONT_BIG, QFont.Bold))
-            pred_rect = QRectF(0, _MID_Y0 + 102, tw, 28)
-            p.drawText(pred_rect, Qt.AlignCenter, pred_str)
-
-        # --- Row 4: Best lap + Theoretical best — stacked left ---
-        info_y = _MID_Y0 + panel_h - 42
-
-        if best_ms > 0:
-            best_str = f"BEST  {_fmt_time_ms(best_ms)}"
-            p.setPen(QColor(DIM))
-            p.setFont(QFont("Helvetica", FONT_BASE, QFont.Bold))
-            p.drawText(QRectF(20, info_y, tw - 40, 20), Qt.AlignLeft | Qt.AlignVCenter, best_str)
-
-        if theoretical_ms > 0:
-            theo_str = f"THEO  {_fmt_time_ms(theoretical_ms)}"
-            p.setPen(QColor(DIM))
-            p.setFont(QFont("Helvetica", FONT_BASE, QFont.Bold))
-            p.drawText(QRectF(20, info_y + 20, tw - 40, 20), Qt.AlignLeft | Qt.AlignVCenter, theo_str)
+                p.setPen(Qt.NoPen)
+                p.setBrush(pill_color)
+                p.setOpacity(0.3)
+                p.drawRoundedRect(QRectF(px, py, pw, ph), 4, 4)
+                p.setOpacity(1.0)
+                p.setPen(QPen(pill_color))
+                p.drawText(QRectF(px, py, pw, ph), Qt.AlignCenter, pill_text)
 
     # ------------------------------------------------------------------
-    # G-force circle (right side of mid panel, 480..800, y=90..280)
-    # Canyon intensity feedback — smaller than Sport's but same data.
+    # Left edge: grip bars (x=8..48, y=120..340)
     # ------------------------------------------------------------------
 
-    def _draw_g_force_circle(self, p: QPainter) -> None:
-        # Clear the right panel area
-        p.fillRect(_G_PANEL_X, _MID_Y0, _W - _G_PANEL_X, _MID_Y1 - _MID_Y0, QColor(BG_DARK))
-        paint_g_ellipse(p, _G_CENTER_X, _G_CENTER_Y, 80, self._snap, self._g_trail,
-                        balance_ratio=self._balance_ratio, max_trail_dots=10,
-                        accent_color=MODE_SS_ACCENT)
+    def _paint_grip_bars(self, p: QPainter) -> None:
+        """Front/rear grip bars — dark cockpit: invisible when healthy."""
+        front = self._front_grip_pct
+        rear = self._rear_grip_pct
 
-    # ------------------------------------------------------------------
-    # Sector strip (y=280..380) — taller colored blocks with times
-    # ------------------------------------------------------------------
+        bars = [
+            ("F", front, _GRIP_X),
+            ("R", rear, _GRIP_X + _GRIP_BAR_W + _GRIP_GAP),
+        ]
 
-    def _draw_sector_strip(self, p: QPainter) -> None:
-        sector_count = self._timing.get("sector_count", 0)
-        strip_h = _SECTOR_Y1 - _SECTOR_Y0
+        bar_h = _GRIP_Y1 - _GRIP_Y0
 
-        if sector_count <= 0:
-            # No timing — show FLIR brake temps instead of empty strip
-            self._draw_flir_strip(p)
-            return
-
-        lap_in_progress = self._timing.get("lap_in_progress", False)
-        if not lap_in_progress:
-            # No active lap — show black placeholders (no stale red fills)
-            sector_w = _BAR_W / sector_count
-            gap = 3
-            for i in range(sector_count):
-                sx = _BAR_X + i * sector_w
-                rect = QRectF(sx + gap / 2, _SECTOR_Y0 + 3, sector_w - gap, strip_h - 6)
-                p.fillRect(rect, QColor(BG_DARK))
-            return
-
-        self._paint_count += 1
-
-        current_sector = self._timing.get("current_sector", 0)
-        sector_times = self._timing.get("sector_times", [])
-        best_sector_times = self._timing.get("best_sector_times", [])
-
-        sector_w = _BAR_W / sector_count
-        gap = 3
-
-        for i in range(sector_count):
-            sx = _BAR_X + i * sector_w
-            rect = QRectF(sx + gap / 2, _SECTOR_Y0 + 3, sector_w - gap, strip_h - 6)
-
-            if i < len(sector_times) and sector_times[i] is not None and sector_times[i] > 0:
-                sector_ms = sector_times[i]
-                best_ms = best_sector_times[i] if i < len(best_sector_times) and best_sector_times[i] else None
-
-                if best_ms is not None and sector_ms <= best_ms:
-                    fill_color = QColor(GREEN)
-                else:
-                    fill_color = QColor(RED)
-
-                p.fillRect(rect, fill_color)
-
-                # Sector time — large and readable
-                time_str = f"{sector_ms / 1000.0:.1f}"
-                p.setPen(QColor(WHITE))
-                p.setFont(QFont("Helvetica", FONT_HEADER, QFont.Bold))
-                p.drawText(rect, Qt.AlignCenter, time_str)
-
-                # Sector insight + delta vs best — below the time
-                if best_ms is not None:
-                    diff_ms = sector_ms - best_ms
-
-                    # Mini-insight text (between time and delta)
-                    insight_text, insight_color = self._sector_insight(sector_ms, best_ms)
-                    if insight_text:
-                        p.setPen(insight_color)
-                        p.setFont(QFont("Helvetica", 11))
-                        insight_rect = QRectF(
-                            rect.x(), rect.y() + rect.height() * 0.48,
-                            rect.width(), 16)
-                        p.drawText(insight_rect, Qt.AlignCenter, insight_text)
-
-                    # Delta string
-                    diff_str = _fmt_delta_ms(diff_ms)
-                    diff_color = QColor(WHITE)
-                    diff_color.setAlpha(200)
-                    p.setPen(diff_color)
-                    p.setFont(QFont("Helvetica", 10))
-                    diff_rect = QRectF(rect.x(), rect.y() + rect.height() - 22, rect.width(), 18)
-                    p.drawText(diff_rect, Qt.AlignCenter, diff_str)
-
-            elif i == current_sector:
-                # Active sector — pulsing border
-                p.fillRect(rect, QColor(BG_PANEL))
-                pulse_alpha = 120 + int(80 * (1.0 if self._paint_count % 20 < 10 else 0.4))
-                pen_color = QColor(YELLOW)
-                pen_color.setAlpha(pulse_alpha)
-                p.setPen(QPen(pen_color, 2))
-                p.drawRect(rect)
-
-                # Sector number label
-                p.setPen(QColor(DIM))
-                p.setFont(QFont("Helvetica", 12))
-                p.drawText(rect, Qt.AlignCenter, f"S{i + 1}")
+        for label, pct, x in bars:
+            # Determine color and alpha
+            if pct < 80:
+                color = QColor(RED)
+                alpha = 220
+            elif pct < 90:
+                color = QColor(YELLOW)
+                alpha = 160
             else:
-                # Future sector — dim
-                p.fillRect(rect, QColor(BG_PANEL))
-                p.setPen(QPen(QColor(DIM), 1))
-                p.drawRect(rect)
+                color = QColor(GREEN)
+                alpha = 30  # Dark cockpit: barely visible when healthy
 
-                # Sector number label
-                p.setPen(QColor(DIM))
-                p.setFont(QFont("Helvetica", 10))
-                p.drawText(rect, Qt.AlignCenter, f"S{i + 1}")
+            # Background slot
+            slot_color = QColor(BG_PANEL)
+            p.setPen(Qt.NoPen)
+            p.setBrush(slot_color)
+            p.drawRoundedRect(QRectF(x, _GRIP_Y0, _GRIP_BAR_W, bar_h), 3, 3)
 
-        # --- Brake quality dots above completed sectors ---
-        if self._sector_brake_quality:
-            dot_y = _SECTOR_Y0 - 8
-            dot_r = 4
-            color_map = {"green": QColor(GREEN), "yellow": QColor(YELLOW), "red": QColor(RED)}
-            for i in range(min(len(self._sector_brake_quality), sector_count)):
-                # Only show dots for completed sectors (with times)
-                if i < len(sector_times) and sector_times[i] is not None and sector_times[i] > 0:
-                    quality = self._sector_brake_quality[i]
-                    dot_color = color_map.get(quality, QColor(DIM))
-                    dot_x = _BAR_X + i * sector_w + sector_w / 2
-                    p.setPen(Qt.PenStyle.NoPen)
-                    p.setBrush(dot_color)
-                    p.drawEllipse(QPointF(dot_x, dot_y), dot_r, dot_r)
+            # Fill from bottom up
+            fill_h = max(0, min(1.0, pct / 100.0)) * bar_h
+            fill_y = _GRIP_Y1 - fill_h
+            fill_color = QColor(color)
+            fill_color.setAlpha(alpha)
+            p.setBrush(fill_color)
+            p.drawRoundedRect(QRectF(x, fill_y, _GRIP_BAR_W, fill_h), 3, 3)
+
+            # Label at top
+            p.setFont(_font(9))
+            label_color = QColor(DIM) if pct >= 90 else color
+            p.setPen(QPen(label_color))
+            p.drawText(QRectF(x, _GRIP_Y0 - 14, _GRIP_BAR_W, 12),
+                       Qt.AlignCenter, label)
+
+            # Percentage text — only when degraded
+            if pct < 90:
+                p.setFont(_font(12, bold=True))
+                p.setPen(QPen(color))
+                mid_y = _GRIP_Y0 + bar_h / 2 - 8
+                p.drawText(QRectF(x - 4, mid_y, _GRIP_BAR_W + 8, 16),
+                           Qt.AlignCenter, f"{pct:.0f}")
 
     # ------------------------------------------------------------------
-    # FLIR brake temp strip (y=280..380) — shown when no sector data
+    # Right edge: road zone bars (x=760..792, y=120..340)
     # ------------------------------------------------------------------
 
-    def _draw_flir_strip(self, p: QPainter) -> None:
-        """Road condition strip — fills sector area when no timing active.
+    def _paint_road_zones(self, p: QPainter, zones: list) -> None:
+        """Vertical road condition bars — L/C/R zones, dark cockpit."""
+        zone_h = (_ROAD_Y1 - _ROAD_Y0 - 8) // 3  # 3 zones with gaps
+        labels = ["L", "C", "R"]
 
-        Uses surface classification colors (not just heat gradient) for each
-        of the 3 FLIR zones. Immediate visual feedback on road conditions.
-        """
+        for i, (state, label) in enumerate(zip(zones, labels)):
+            y = _ROAD_Y0 + i * (zone_h + 4)
+            color = _ZONE_COLORS.get(state, QColor(GREEN))
+            alpha = _ZONE_ALPHA.get(state, 100)
+
+            # LOW_GRIP pulse
+            if state == SurfaceState.LOW_GRIP:
+                pulse = int(30 * math.sin(self._paint_count * 0.06))
+                alpha = min(255, alpha + pulse)
+
+            fill = QColor(color)
+            fill.setAlpha(alpha)
+
+            p.setPen(Qt.NoPen)
+            p.setBrush(fill)
+            p.drawRoundedRect(QRectF(_ROAD_X, y, _ROAD_BAR_W, zone_h), 3, 3)
+
+            # Zone label
+            label_color = QColor(DIM) if state == SurfaceState.DRY else QColor(WHITE)
+            p.setFont(_font(9))
+            p.setPen(QPen(label_color))
+            p.drawText(QRectF(_ROAD_X, y, _ROAD_BAR_W, zone_h),
+                       Qt.AlignCenter, label)
+
+    # ------------------------------------------------------------------
+    # Bottom strip (y=400..460): BARO | road bar | road temp | ticker
+    # ------------------------------------------------------------------
+
+    def _paint_bottom_strip(self, p: QPainter, zones: list) -> None:
         snap = self._snap
-        road_ok = snap is not None and not snap.is_road_surface_stale()
 
-        y0 = _SECTOR_Y0
-        strip_h = _SECTOR_Y1 - _SECTOR_Y0
+        # Dark background for strip
+        p.fillRect(QRectF(0, _STRIP_Y0, _W, _STRIP_Y1 - _STRIP_Y0), QColor(BG_PANEL))
 
-        if not road_ok:
-            p.fillRect(QRectF(10, y0, _W - 20, strip_h), QColor(BG_PANEL))
-            return
-
-        # 3-zone bars using surface state classification colors
-        states = zone_states_from_snap(snap)
-        zone_w = _W / 3.0
-        bar_y = y0 + 22
-        bar_h = strip_h - 28
-
-        for i, ss in enumerate(states):
-            zx = i * zone_w
-            col = QColor(ss.color)
-            col.setAlpha(100)
-            p.fillRect(QRectF(zx + 2, bar_y, zone_w - 4, bar_h), col)
-
-        # Label
-        p.setFont(QFont("Courier", FONT_BASE, QFont.Weight.Bold))
-        p.setPen(QColor(GRAY))
-        p.drawText(QRectF(10, y0, _W - 20, 20),
-                   Qt.AlignmentFlag.AlignCenter, "ROAD CONDITION")
-
-    # ------------------------------------------------------------------
-    # Safety vitals (y=380..480) — 5 zones, DIM until warning
-    # ------------------------------------------------------------------
-
-    def _draw_safety_vitals(self, p: QPainter) -> None:
-        """Dark cockpit safety vitals — invisible when normal, loud when not.
-
-        Normal = DIM (barely visible). Warning = YELLOW. Critical = RED.
-        Canyon-first: OIL | COOL | GRIP | BARO (hPa/hr).
-        """
-        snap = self._snap
-        strip_y = _VITALS_Y0
-        strip_h = _VITALS_Y1 - _VITALS_Y0
-
-        p.fillRect(QRectF(0, strip_y, _W, strip_h), QColor(BG_DARK))
-
-        oil_psi = snap.oil_psi if snap else 0.0
-        coolant = snap.coolant_temp if snap else 0.0
-        stale = snap.is_engine_stale() if snap else True
-
-        # 4 safety zones: OIL | COOL | GRIP | BARO
-        zone_w = _W / 4
-
-        # --- OIL PSI (dark cockpit) ---
-        oil_warn = oil_psi <= _OIL_WARN_LOW and not stale
-        oil_crit = oil_psi <= _OIL_CRIT_LOW and not stale
-        if oil_crit:
-            lc, vc = QColor(RED), QColor(RED)
-        elif oil_warn:
-            lc, vc = QColor(YELLOW), QColor(YELLOW)
-        else:
-            lc, vc = QColor(DIM), QColor(DIM)
-        self._draw_vital(p, 0, zone_w, "OIL", f"{oil_psi:.0f}", "PSI",
-                         lc, vc if not stale else QColor(DIM), large=oil_crit)
-
-        # --- COOLANT (dark cockpit) ---
-        cool_warn = coolant >= _COOL_WARN and not stale
-        cool_crit = coolant >= _COOL_CRIT and not stale
-        if cool_crit:
-            lc, vc = QColor(RED), QColor(RED)
-        elif cool_warn:
-            lc, vc = QColor(YELLOW), QColor(YELLOW)
-        else:
-            lc, vc = QColor(DIM), QColor(DIM)
-        self._draw_vital(p, zone_w, zone_w, "COOL", f"{coolant:.0f}", "\u00b0C",
-                         lc, vc if not stale else QColor(DIM), large=cool_crit)
-
-        # --- GRIP (moved to zone 3 — canyon priority) ---
-        self._draw_grip_vital(p, zone_w * 2, zone_w)
-
-        # --- BARO hPa/hr (canyon weather awareness) ---
-        self._draw_baro_vital(p, zone_w * 3, zone_w)
-
-    def _draw_baro_vital(self, p: QPainter, x: float, w: float) -> None:
-        """BARO hPa/hr vital — canyon weather awareness in the vitals strip.
-
-        Dark cockpit: DIM when CLEAR, escalates through CYAN/YELLOW/RED.
-        Shows rate value so the driver learns to read pressure trends.
-        Fog risk shown as label override when dew spread is closing.
-        """
-        snap = self._snap
+        # --- BARO trend (x=10..160) ---
         rate = snap.pressure_trend_hpa_hr if snap else 0.0
         threat = snap.weather_threat_level if snap else "CLEAR"
         dew_spread = snap.dew_point_spread_c if snap else 99.0
         humidity = snap.ambient_humidity_pct if snap else 0.0
-
-        # Fog detection: dew spread <1.5C + humidity >93%
         fog_risk = dew_spread < 1.5 and humidity > 93.0
 
-        # EC warning awareness
-        has_ec = (snap.ec_available and snap.ec_warning_level in ("warning", "watch")
-                  ) if snap else False
-
-        # Dark cockpit coloring by threat level (EC can escalate)
         if threat == "STORM":
             lc, vc = QColor(RED), QColor(RED)
         elif threat == "RAIN_LIKELY":
             lc, vc = QColor(YELLOW), QColor(YELLOW)
         elif fog_risk:
             lc, vc = QColor(CYAN), QColor(CYAN)
-        elif threat == "CHANGING" or has_ec:
+        elif threat == "CHANGING":
             lc, vc = QColor(CYAN), QColor(CYAN)
         else:
             lc, vc = QColor(DIM), QColor(DIM)
 
-        # Label: FOG overrides BARO when fog conditions are met
         label = "FOG" if fog_risk else "BARO"
-
-        # Value: show rate with sign (negative = falling = weather incoming)
         value = f"{rate:+.1f}"
         unit = "hPa/hr"
 
-        self._draw_vital(p, x, w, label, value, unit, lc, vc)
+        p.setFont(_font(9))
+        p.setPen(QPen(lc))
+        p.drawText(QRectF(10, _STRIP_Y0 + 2, 150, 14), Qt.AlignLeft, label)
+        p.setFont(_font(18, bold=True))
+        p.setPen(QPen(vc))
+        p.drawText(QRectF(10, _STRIP_Y0 + 16, 150, 26), Qt.AlignLeft, value)
+        p.setFont(_font(8))
+        p.setPen(QPen(lc))
+        p.drawText(QRectF(10, _STRIP_Y0 + 42, 150, 12), Qt.AlignLeft, unit)
 
-    def _draw_weather_indicator(self, p: QPainter) -> None:
-        """Full-width alert bar at bottom (y=460..480). Highest severity wins.
+        # --- Road condition zone bar (x=170..380) ---
+        if snap is not None and not snap.is_road_surface_stale():
+            paint_zone_bar(p, 170, _STRIP_Y0 + 12, 200, 32, zones,
+                           paint_count=self._paint_count, show_labels=True)
 
-        Canyon-first: FOG gets its own alert (visibility is #1 canyon danger).
+        # --- DriveBC road temp (x=390..500) ---
+        if snap is not None and snap.drivebc_available:
+            road_temp = snap.drivebc_road_temp_c
+            if road_temp is not None:
+                if road_temp < 0:
+                    tc = QColor(RED)
+                elif road_temp < 5:
+                    tc = QColor(YELLOW)
+                elif road_temp < 10:
+                    tc = QColor(CYAN)
+                else:
+                    tc = QColor(DIM)
+
+                p.setFont(_font(9))
+                p.setPen(QPen(tc))
+                p.drawText(QRectF(390, _STRIP_Y0 + 2, 110, 14), Qt.AlignLeft, "ROAD")
+                p.setFont(_font(18, bold=True))
+                p.drawText(QRectF(390, _STRIP_Y0 + 16, 110, 26), Qt.AlignLeft, f"{road_temp:.0f}°")
+                p.setFont(_font(8))
+                p.drawText(QRectF(390, _STRIP_Y0 + 42, 110, 12), Qt.AlignLeft,
+                           snap.drivebc_station_name[:20] if snap.drivebc_station_name else "")
+
+        # --- Voice ticker (x=510..790) ---
+        if self._voice_ticker:
+            lines = self._voice_ticker[:2]
+            alphas = [120, 60]
+            for i, line in enumerate(lines):
+                p.setFont(_font(10))
+                text_color = QColor(WHITE)
+                text_color.setAlpha(alphas[i] if i < len(alphas) else 40)
+                p.setPen(QPen(text_color))
+                y = _STRIP_Y0 + 6 + i * 24
+                p.drawText(QRectF(510, y, 280, 20),
+                           Qt.AlignRight | Qt.AlignVCenter, line)
+
+    # ------------------------------------------------------------------
+    # Alert bar (y=460..480) — severity-driven, full width
+    # ------------------------------------------------------------------
+
+    def _paint_alert_bar(self, p: QPainter) -> None:
+        """Full-width alert bar. Highest severity wins.
+
+        Canyon-first: FOG gets its own alert.
         """
         snap = self._snap
         if snap is None:
@@ -708,170 +612,12 @@ class SportSharpScreenWidget(QWidget):
         candidates.sort(key=lambda c: c[0], reverse=True)
         _, text, bg, fg = candidates[0]
 
-        # Full-width bar at very bottom of Sport Sharp
-        bar_y, bar_h = 460, 20
+        # Full-width bar
+        bar_y, bar_h = _ALERT_Y0, _ALERT_Y1 - _ALERT_Y0
         p.setPen(Qt.NoPen)
         p.setBrush(bg)
         p.drawRect(QRectF(0, bar_y, _W, bar_h))
-        p.setFont(QFont("Helvetica", 10, QFont.Bold))
+        p.setFont(_font(10, bold=True))
         p.setPen(QPen(fg))
         p.drawText(QRectF(0, bar_y, _W, bar_h),
                    Qt.AlignCenter, text)
-
-    def _draw_vital(
-        self,
-        p: QPainter,
-        x: float,
-        w: float,
-        label: str,
-        value: str,
-        unit: str,
-        label_color: QColor,
-        value_color: QColor,
-        large: bool = False,
-    ) -> None:
-        """Draw a single safety vital — label above, value + unit below.
-
-        Uses full 100px strip height for legibility at arm's length.
-        """
-        # Label — 13pt min for readability
-        p.setPen(label_color)
-        p.setFont(QFont("Helvetica", 12, QFont.Bold))
-        label_rect = QRectF(x, _VITALS_Y0 + 2, w, 16)
-        p.drawText(label_rect, Qt.AlignCenter, label)
-
-        # Value — large, bold, Helvetica to match rest of UI
-        font_size = 32 if large else FONT_BIG  # 32pt warning, 26pt normal
-        p.setPen(value_color)
-        p.setFont(QFont("Helvetica", font_size, QFont.Bold))
-        value_rect = QRectF(x, _VITALS_Y0 + 18, w, 36)
-        p.drawText(value_rect, Qt.AlignCenter, value)
-
-        # Unit — smaller, below value
-        p.setPen(label_color)
-        p.setFont(QFont("Helvetica", 11))
-        unit_rect = QRectF(x, _VITALS_Y0 + 54, w, 16)
-        p.drawText(unit_rect, Qt.AlignCenter, unit)
-
-    def _draw_grip_vital(self, p: QPainter, x: float, w: float) -> None:
-        """Draw GRIP mini-bar with F/R percentages — dark cockpit style.
-
-        3-zone color bar: green (>90%), yellow (80-90%), red (<80%).
-        DIM when grip is healthy, YELLOW/RED when degraded.
-        """
-        front = self._front_grip_pct
-        rear = self._rear_grip_pct
-        worst = min(front, rear)
-
-        # Dark cockpit: determine severity
-        if worst < 80:
-            lc = QColor(RED)
-            large = True
-        elif worst < 90:
-            lc = QColor(YELLOW)
-            large = False
-        else:
-            lc = QColor(DIM)
-            large = False
-
-        # "GRIP" label
-        p.setPen(lc)
-        p.setFont(QFont("Helvetica", 12, QFont.Bold))
-        p.drawText(QRectF(x, _VITALS_Y0 + 2, w, 16), Qt.AlignCenter, "GRIP")
-
-        # Bar geometry — two bars side by side (F left, R right)
-        bar_w = (w - 20) / 2  # each bar
-        bar_h = 24
-        bar_y = _VITALS_Y0 + 22
-        f_x = x + 6
-        r_x = x + 6 + bar_w + 8
-
-        for pct, bx, label in [
-            (front, f_x, "F"),
-            (rear, r_x, "R"),
-        ]:
-            # Bar background
-            p.fillRect(QRectF(bx, bar_y, bar_w, bar_h), QColor(BG_PANEL))
-
-            # Filled portion — color based on grip level
-            if pct >= 90:
-                bar_color = QColor(GREEN)
-            elif pct >= 80:
-                bar_color = QColor(YELLOW)
-            else:
-                bar_color = QColor(RED)
-
-            fill_w = max(0, min(1.0, pct / 100.0)) * bar_w
-            # Dark cockpit: low alpha when healthy, bright when degraded
-            if pct >= 90:
-                bar_color.setAlpha(40)
-            elif pct >= 80:
-                bar_color.setAlpha(160)
-            else:
-                bar_color.setAlpha(220)
-            p.fillRect(QRectF(bx, bar_y, fill_w, bar_h), bar_color)
-
-            # Sub-label (F / R) above bar
-            sub_color = lc if worst < 90 else QColor(DIM)
-            p.setPen(sub_color)
-            p.setFont(QFont("Helvetica", 10, QFont.Bold))
-            p.drawText(QRectF(bx, bar_y - 14, bar_w, 14), Qt.AlignCenter, label)
-
-            # Percentage inside bar
-            pct_color = QColor(WHITE) if pct < 90 else QColor(DIM)
-            font_size = 16 if large else 13
-            p.setPen(pct_color)
-            p.setFont(QFont("Helvetica", font_size, QFont.Bold))
-            p.drawText(QRectF(bx, bar_y, bar_w, bar_h), Qt.AlignCenter, f"{pct:.0f}")
-
-        # Unit label below bars
-        p.setPen(lc)
-        p.setFont(QFont("Helvetica", 11))
-        p.drawText(QRectF(x, _VITALS_Y0 + 54, w, 16), Qt.AlignCenter, "%")
-
-    # ------------------------------------------------------------------
-    # Sector insight helper
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _sector_insight(sector_ms: int, best_ms: int | None) -> tuple[str, QColor]:
-        """Generate mini-insight text for a completed sector.
-
-        Returns (text, color) based on delta magnitude vs best.
-        """
-        if best_ms is None or best_ms <= 0:
-            return ("", QColor(DIM))
-
-        delta_ms = sector_ms - best_ms
-        delta_pct = (delta_ms / best_ms) * 100
-
-        if delta_ms <= -500:
-            return ("big gain", QColor(GREEN))
-        elif delta_ms <= -100:
-            return ("faster", QColor(GREEN))
-        elif delta_ms <= 0:
-            return ("matched", QColor(WHITE))
-        elif delta_pct < 2:
-            return ("close", QColor(WHITE))
-        elif delta_pct < 5:
-            return ("a bit slow", QColor(YELLOW))
-        else:
-            return ("lost time", QColor(RED))
-
-    # ------------------------------------------------------------------
-    # Voice ticker (bottom of vitals strip, y=458..478)
-    # ------------------------------------------------------------------
-
-    def _paint_voice_ticker(self, p: QPainter) -> None:
-        if not self._voice_ticker:
-            return
-        p.setFont(QFont("Helvetica", 11))
-        alphas = [120, 70, 40]
-        x, y0, w = 20, 458, 380
-        for i, line in enumerate(self._voice_ticker):
-            color = QColor(WHITE)
-            color.setAlpha(alphas[min(i, 2)])
-            p.setPen(color)
-            elided = p.fontMetrics().elidedText(line, Qt.ElideRight, w)
-            p.drawText(QRectF(x, y0 + i * 15, w, 15),
-                       Qt.AlignLeft | Qt.AlignVCenter, elided)

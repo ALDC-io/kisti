@@ -21,8 +21,8 @@ def qapp():
 
 class TestSectorInsight:
     def _insight(self, sector_ms, best_ms):
-        from ui.sharp_screen import SportSharpScreenWidget
-        return SportSharpScreenWidget._sector_insight(sector_ms, best_ms)
+        from ui.sharp_screen_track import SportSharpTrackScreenWidget
+        return SportSharpTrackScreenWidget._sector_insight(sector_ms, best_ms)
 
     def test_big_gain(self, qapp):
         text, color = self._insight(30000, 31000)

@@ -376,17 +376,17 @@ class TestFLIRFields:
         assert snap2.brake_temp_fl == 500.0
 
     def test_flir_heat_color_cold(self):
-        from ui.sharp_screen import _brake_heat_color
+        from ui.sharp_screen_track import _brake_heat_color
         color = _brake_heat_color(0.0)  # below 5°C = cold blue (ice risk)
         assert color.blue() > color.red()  # blue dominant
 
     def test_flir_heat_color_optimal(self):
-        from ui.sharp_screen import _brake_heat_color
+        from ui.sharp_screen_track import _brake_heat_color
         color = _brake_heat_color(10.0)  # 5-15°C = green zone (cool road)
         assert color.green() > color.red()  # green dominant
 
     def test_flir_heat_color_hot(self):
-        from ui.sharp_screen import _brake_heat_color
+        from ui.sharp_screen_track import _brake_heat_color
         color = _brake_heat_color(60.0)  # above 55°C = red hot pavement
         assert color.red() == 255
         assert color.green() < 100
