@@ -2,76 +2,61 @@
 
 **Branch**: `kisti-headless` | **Dir**: `/home/aldc/repos/kisti` | **Jetson**: `ssh aldc@192.168.22.131` (pw: `aldc1234`)
 **Tests**: `python3 -m pytest tests/ -q --tb=short --ignore=tests/test_voice_integration.py --ignore=tests/test_voice_pipeline.py`
-**Test baseline**: 1214 tests
+**Test baseline**: 1247 tests
 **Project tracker**: `/home/jkadmin/projects/active/2026-04-05-kisti-weather-intelligence/`
 
-## What Was Done (2026-04-05 — Weather Intelligence Session)
+## What Was Done (2026-04-05/06 — Weather Intelligence + Canyon Redesign)
 
-Built and deployed complete dual-layer weather intelligence system:
+### Weather Intelligence (complete)
+- **EC weather poller** (`sensors/ec_weather.py`) — Environment Canada regional alerts, 10-15 min poll
+- **Barometric weather engine** (`sensors/weather_engine.py`) — pressure trend → STORM/RAIN_LIKELY/CHANGING
+- **DriveBC RWIS poller** (`sensors/drivebc_weather.py`) — 258 road weather stations + road events, highway-aware filtering, ahead-only ready for GPS09
+- **Unified alert banners** on all 3 screens — severity-driven, full-width, 20s rotation on Intelligent
+- **EC alerts** show actual description with "EC:" prefix (not just "special weather statement")
+- **DriveBC events** show "DriveBC: {what} ahead — {detail}" format (point-first, stripped boilerplate via `optimized_description`)
+- **Voice/banner sync** — forced repaint before TTS queue so banner is visible when driver hears alert
+- Color scheme: white-on-red (STORM/CLOSURE), white-on-blue (EC statement/DriveBC WET), white-on-orange (RAIN_LIKELY/MAJOR)
 
-1. **WeatherEngine** (`sensors/weather_engine.py`, 285 lines) — Rate-of-change threat detection with rolling 10-min window. 4 threat levels (CLEAR/CHANGING/RAIN_LIKELY/STORM). Multi-sensor fusion: rain, fog, snow, cold front.
+### Sport Sharp Canyon Redesign (complete)
+- **Rewrote `ui/sharp_screen.py`** from track-focused (lap timer, sectors) to canyon-first (dark cockpit)
+- **G-force ellipse dominates** — r=170 (2.1x larger), center 400,215, 30-dot trail
+- **Dark cockpit**: nearly black when nominal. Escalating visibility on anomaly
+- **Header**: balance indicator (L), DCCD arc gauge (C), weather pill (R) — all ghost-dim
+- **Left edge**: vertical F/R grip bars (invisible when healthy, yellow/red when degraded)
+- **Right edge**: vertical L/C/R road zone bars (surface state from FLIR)
+- **Bottom strip**: BARO trend, road zone bar, DriveBC road temp, voice ticker
+- **Alert bar**: unchanged severity-driven full-width at y=460..480
+- **Track version preserved** as `ui/sharp_screen_track.py` (`SportSharpTrackScreenWidget`) for future K6 toggle
 
-2. **ECWeatherPoller** (`sensors/ec_weather.py`, 322 lines) — Background daemon polling api.weather.gc.ca. Warnings every 10 min, forecast every 15 min. Default city_id=bc-35 (Coquitlam). Graceful offline degradation.
-
-3. **Dual-layer fusion** — EC warnings upgrade threat (watch→CHANGING, warning→RAIN_LIKELY) but never downgrade sensor readings. Hyperlocal Yoctopuce = ground truth; EC = prediction window extension.
-
-4. **Alert routing** — 6 new weather alert types routed through voice_alert signal. Once-per-session deduplication. EC warnings fire through both Excelon display AND Link ECU MXG alerts.
-
-5. **Screen display** — Intelligent screen: trend arrows (24px, 4px pen), weather threat text, EC warning banner, EC forecast. Sport/Sharp: weather pills (dark cockpit pattern).
-
-6. **System** — GDM auto-login to kisti-session (no login prompt). SIGUSR1 handler for SI Drive mode cycling.
-
-7. **Deployed** — Running on Jetson (PID 48058, fullscreen + mic). EC poller verified fetching. Stress-tested with frozen burgers (FLIR) and kettle steam (-8.9 hPa/hr STORM).
-
-### Key Files Changed
-| File | What |
-|---|---|
-| `sensors/weather_engine.py` | **NEW** — WeatherEngine with rolling window, trend detection, multi-sensor fusion |
-| `sensors/ec_weather.py` | **NEW** — ECWeatherPoller background thread for Environment Canada API |
-| `tests/test_weather_engine.py` | **NEW** — 11 tests |
-| `tests/test_ec_weather.py` | **NEW** — 16 tests (parse, offline, fusion, alert routing) |
-| `model/vehicle_state.py` | Added weather_trend + ec_weather fields to DiffState, bridge methods |
-| `alerts/alert_engine.py` | 6 weather alert types, once-per-session dedup via _fired_types set |
-| `ui/intelligent_screen.py` | Trend arrows, EC banner, threat text, baro color coding |
-| `main.py` | WeatherEngine + ECWeatherPoller wiring, SIGUSR1 handler, removed old voice paths |
+### Other Fixes
+- Sport screen: voice ticker moved from top-right (was overlapping FLIR) to y=370 right-aligned
+- DriveBC: highway-aware filtering (`DRIVEBC_HIGHWAY` env var), `update_heading()` for GPS09
+- DriveBC: `update_position()` for dynamic GPS updates
+- Note: Hwy 7 (Lougheed) has zero RWIS stations in DriveBC network
 
 ## Prioritized TODO
 
-### 1. GPS-based EC region auto-lookup (when GPS09 Pro installed)
-**Where:** `sensors/ec_weather.py:42-43` (DEFAULT_BBOX / DEFAULT_CITY_ID)
-- Currently hardcoded to bc-35 (Coquitlam). Once GPS09 Pro CAN data flows, dynamically resolve EC city_id from lat/lon.
-- EC API supports bbox query — use GPS coordinates directly for weather-alerts endpoint.
-- City page lookup needs a city_id mapping (lat/lon → nearest EC station).
+1. **Sport Sharp polish** — check bottom strip readability, verify DCCD arc renders correctly, test with real IMU data on the road
+2. **Sport screen review** — voice ticker at y=370 may still conflict with coaching text at y=418. Needs road testing
+3. **DriveBC highway auto-detect** — when GPS09 is installed, match GPS position to highway corridor and call `drivebc_poller.update_highway()` automatically
+4. **DriveBC ahead-only** — wire `drivebc_poller.update_heading()` from GPS09 heading data
+5. **S# canyon polish** — consider adding ambient temp somewhere (currently only on Intelligent screen)
+6. **K6 sub-page toggle** — wire mode_manager to switch between canyon and track S# variants
 
-### 2. Threshold tuning against real driving data
-**Where:** `sensors/weather_engine.py:16-20` (WINDOW_SHORT_S, MIN_SAMPLES_SHORT, THRESH_*)
-- Current thresholds from meteorology literature. Need validation against real BC mountain weather.
-- Log line: `Weather: CHANGING | baro -0.8 hPa/hr | hum 1.2%/hr | dew spread 12.0C`
-- If arrows too twitchy: increase MIN_SAMPLES_SHORT (currently 30)
-- If too slow: decrease WINDOW_SHORT_S (currently 600s)
-
-### 3. EC forecast integration into Sport/Sharp screens
-**Where:** `ui/sport_screen.py`, `ui/sharp_screen.py`
-- Currently only Intelligent screen shows EC data. Add EC condition/forecast to Sport/Sharp.
-- Follow dark cockpit: only show when conditions are abnormal.
-
-### 4. Voice alert verification during real weather event
-- Once-per-session dedup is working (kettle test confirmed). Need real rain/snow event validation.
-- Monitor alert_engine logs during actual driving in weather.
+## Key Files
+- `ui/sharp_screen.py` — canyon S# (new, the default)
+- `ui/sharp_screen_track.py` — track S# (preserved copy)
+- `ui/sport_screen.py` — Sport screen (voice ticker fix)
+- `ui/intelligent_screen.py` — Intelligent screen (alert rotation, EC banner)
+- `sensors/drivebc_weather.py` — DriveBC RWIS + events poller
+- `sensors/ec_weather.py` — Environment Canada poller
+- `sensors/weather_engine.py` — barometric trend analysis
+- `model/vehicle_state.py` — DiffState with DriveBC + EC fields
+- `main.py` — all wiring (DriveBC poller, EC poller, voice/banner sync)
 
 ## Architecture Notes
-
-**Dual-layer design:**
-- Hyperlocal (Yoctopuce) = ground truth at the car (1Hz, exact location)
-- Regional (EC API) = prediction window extension (10-15 min lookahead, area-wide)
-- Fusion rule: EC can upgrade threat, never downgrade. If sensors say STORM and EC says nothing → trust sensors.
-
-**EC API:** api.weather.gc.ca — free, no auth, no rate limits. GeoJSON responses with nested `{value: {en: N}}` structure.
-
-**Voice dedup:** AlertEngine._fired_types set tracks which alert types have fired. Prevents repetitive voice. display_alert and voice_alert signals skip duplicates. alert_fired still fires for DuckDB audit trail.
-
-**Dark cockpit:** CLEAR = invisible. CHANGING = yellow text. RAIN_LIKELY/STORM = red text. EC warning = yellow banner. EC watch = blue banner. All auto-dismiss after 1 hour of stale EC data.
-
-## Zeus Memory
-- Session learning: `c0754bac-508f-4ac5-bb14-0fed72a7898d`
-- Earlier session ZMID: `8e351653-1743-4b1c-b1de-5ebb3fdd40b7`
+- Alert severity ranking: STORM(50) > CLOSURE(48) > EC warning(45) > ICY road(42) > RAIN_LIKELY(25) > MAJOR event(22) > EC advisory(20) > DriveBC WET(15) > EC statement(10)
+- DriveBC: `optimized_description` field has the at-a-glance text. Raw `description` has highway/direction boilerplate
+- DriveBC: nearest RWIS station to Coquitlam = Port Mann Bridge Mid Span (Hwy 1, 7.1km)
+- `_drivebc_event_banner()` helper duplicated in all 3 screen files (small, not worth a shared module)
+- `paint_g_ellipse()` in `ui/g_force_ellipse.py` is radius-parametric — works at r=80 (Sport) and r=170 (S# canyon)
