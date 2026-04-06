@@ -81,8 +81,14 @@ RS3 has named track maps with GPS outlines. Import into KiSTI's TrackDatabase so
 - **Tested**: Successfully synced 9,759 ambient readings + database to Nextcloud `Project KiSTI/` folder
 - **Fixed import issues**: Added repo root to sys.path, wrapped voice/build_record imports with graceful fallbacks, fixed PERSONA_RESPONSES unpacking (3-element tuples)
 
-### 6. Sharp Screen Bottom Strip Cleanup
-BARO/ROAD/AIR (y=400-460) still overcrowded. Consider consolidating or minimizing for dark cockpit.
+### 6. Sharp Screen Bottom Strip Cleanup (COMPLETE ✓)
+**Done in Session 6**: Replaced 60px multi-element strip with single status line:
+- **Before**: 5 elements in 800px (BARO|zone bar|road temp|air temp|voice ticker) at y=400-460
+- **After**: Single status line at y=440-458, matching Intelligent + Sport screen pattern
+- **Dark cockpit**: Coaching > weather/road alert (only abnormal) > voice ticker > empty
+- **Weather intelligence**: `_weather_status_text()` consolidates BARO trend, road temp, air temp, fog risk — only visible when conditions are abnormal (STORM/RAIN/FOG/CHANGING/freezing)
+- **Coaching wired**: main.py now sends coaching text to Sharp screen (was missing)
+- **All 1407 tests pass** (no regressions)
 
 ## Key Files
 - `ui/intelligent_screen.py` — Reference dark cockpit pattern (status line consolidated)

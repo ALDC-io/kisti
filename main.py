@@ -957,6 +957,7 @@ def main():
             if cond:
                 text, sentiment = cond
             window._sport_screen.update_coaching(text, sentiment)
+            window._sharp_screen.update_coaching(text, sentiment)
             _session_lap_tracker.record_tick(text, sentiment)
 
             # Balance analyzer — understeer/oversteer via bicycle model

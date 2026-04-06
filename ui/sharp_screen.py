@@ -21,7 +21,7 @@ Layout (800x480):
   y=30..400  HERO: G-force ellipse (r=170, center 400,215)
              Left edge: grip bars (F/R)
              Right edge: road zone bars (L/C/R)
-  y=400..460 Bottom strip: BARO | road bar | road temp | voice ticker
+  y=440..458 Status line: coaching > weather alert > voice > empty
   y=460..480 Alert bar (severity-driven, full width)
 """
 
@@ -41,7 +41,6 @@ from ui.g_force_ellipse import paint_g_ellipse
 from ui.road_condition import (
     paint_zone_tint,
     paint_edge_glow,
-    paint_zone_bar,
     zone_states_from_snap,
     any_zone_low_grip,
 )
@@ -91,9 +90,9 @@ _H = 480
 # Zone boundaries
 _HEADER_Y1 = 30
 _HERO_Y0 = 30
-_HERO_Y1 = 400
-_STRIP_Y0 = 400
-_STRIP_Y1 = 460
+_HERO_Y1 = 440
+_STRIP_Y0 = 440
+_STRIP_Y1 = 458
 _ALERT_Y0 = 460
 _ALERT_Y1 = 480
 
@@ -184,6 +183,10 @@ class SportSharpScreenWidget(QWidget):
         self._voice_ticker: list[str] = []
         self._voice_ticker_ts: float = 0.0
 
+        # Coaching text (fed from coaching timer at 1Hz)
+        self._coaching_text: str = ""
+        self._coaching_sentiment: str = "dim"
+
         # Balance / grip (fed from coaching analyzers)
         self._balance_ratio: float = 1.0
         self._front_grip_pct: float = 100.0
@@ -199,6 +202,11 @@ class SportSharpScreenWidget(QWidget):
         self._snap = snap
         self._g_trail.append((snap.imu_accel_y, snap.imu_accel_x))
         self.update()
+
+    def update_coaching(self, text: str, sentiment: str = "dim") -> None:
+        """Accept coaching text from technique analyzer (1Hz)."""
+        self._coaching_text = text
+        self._coaching_sentiment = sentiment
 
     def update_voice_ticker(self, lines: list[str]) -> None:
         """Cache voice ticker lines (called at 1Hz from main.py)."""
@@ -252,8 +260,8 @@ class SportSharpScreenWidget(QWidget):
         # 5. Right edge: road zone bars (vertical)
         self._paint_road_zones(p, zones)
 
-        # 6. Bottom strip: BARO, road bar, DriveBC temp, voice ticker
-        self._paint_bottom_strip(p, zones)
+        # 6. Status line: coaching > weather alert > voice > empty
+        self._draw_status_line(p)
 
         # 7. Alert bar (y=460..480)
         self._paint_alert_bar(p)
@@ -469,112 +477,99 @@ class SportSharpScreenWidget(QWidget):
                        Qt.AlignCenter, label)
 
     # ------------------------------------------------------------------
-    # Bottom strip (y=400..460): BARO | road bar | road temp | ticker
+    # Status line (y=440..458): coaching > weather alert > voice > empty
+    # Matches Intelligent + Sport screen pattern — single consolidated line.
     # ------------------------------------------------------------------
 
-    def _paint_bottom_strip(self, p: QPainter, zones: list) -> None:
+    def _draw_status_line(self, p: QPainter) -> None:
+        """Single status line — coaching, weather, voice all consolidated.
+
+        Priority: coaching text > weather/road alert > voice ticker > empty.
+        Dark cockpit: invisible when nominal. Only abnormal conditions show.
+        """
         snap = self._snap
+        text = ""
+        color = QColor(GRAY)
 
-        # Dark background for strip
+        # Priority 1: coaching text (active driving feedback)
+        if self._coaching_text:
+            text = self._coaching_text
+            sentiment_colors = {"green": GREEN, "amber": YELLOW, "dim": GRAY}
+            color = QColor(sentiment_colors.get(self._coaching_sentiment, GRAY))
+
+        # Priority 2: weather/road alert (only when abnormal)
+        elif snap is not None:
+            text, color = self._weather_status_text(snap)
+
+        # Priority 3: voice ticker (2s decay)
+        if not text:
+            ticker_age = time.monotonic() - self._voice_ticker_ts
+            if self._voice_ticker and ticker_age < 2.0:
+                text = self._voice_ticker[0]
+                fade = max(0.0, min(1.0, (2.0 - ticker_age) / 0.5))
+                color = QColor(WHITE)
+                color.setAlpha(int(160 * fade))
+
+        # Dark cockpit: nothing to show = dark strip
         p.fillRect(QRectF(0, _STRIP_Y0, _W, _STRIP_Y1 - _STRIP_Y0), QColor(BG_PANEL))
+        if text:
+            p.setFont(_font(11, bold=True))
+            p.setPen(QPen(color))
+            elided = p.fontMetrics().elidedText(text, Qt.ElideRight, _W - 40)
+            p.drawText(QRectF(20, _STRIP_Y0, _W - 40, _STRIP_Y1 - _STRIP_Y0),
+                       Qt.AlignLeft | Qt.AlignVCenter, elided)
 
-        # --- BARO trend (x=10..160) ---
-        rate = snap.pressure_trend_hpa_hr if snap else 0.0
-        threat = snap.weather_threat_level if snap else "CLEAR"
-        dew_spread = snap.dew_point_spread_c if snap else 99.0
-        humidity = snap.ambient_humidity_pct if snap else 0.0
-        fog_risk = dew_spread < 1.5 and humidity > 93.0
+    def _weather_status_text(self, snap: DiffState) -> tuple[str, QColor]:
+        """Build weather/road status text — only when conditions are abnormal.
+
+        Returns ("", GRAY) when nominal (dark cockpit = invisible).
+        """
+        parts: list[str] = []
+        worst_color = QColor(GRAY)
+
+        # Barometric pressure threat
+        threat = snap.weather_threat_level or "CLEAR"
+        rate = snap.pressure_trend_hpa_hr
+        dew_spread = snap.dew_point_spread_c if snap.dew_point_spread_c else 99.0
+        humidity = snap.ambient_humidity_pct
 
         if threat == "STORM":
-            lc, vc = QColor(RED), QColor(RED)
+            parts.append(f"BARO {rate:+.1f} hPa/hr")
+            worst_color = QColor(RED)
         elif threat == "RAIN_LIKELY":
-            lc, vc = QColor(YELLOW), QColor(YELLOW)
-        elif fog_risk:
-            lc, vc = QColor(CYAN), QColor(CYAN)
+            parts.append(f"BARO {rate:+.1f} hPa/hr")
+            if worst_color != QColor(RED):
+                worst_color = QColor(YELLOW)
+        elif dew_spread < 1.5 and humidity > 93.0:
+            parts.append("FOG RISK")
+            if worst_color != QColor(RED):
+                worst_color = QColor(CYAN)
         elif threat == "CHANGING":
-            lc, vc = QColor(CYAN), QColor(CYAN)
-        else:
-            lc, vc = QColor(GRAY), QColor(GRAY)  # Nominal: visible but subdued
+            parts.append(f"BARO {rate:+.1f}")
+            if worst_color != QColor(RED) and worst_color != QColor(YELLOW):
+                worst_color = QColor(CYAN)
 
-        label = "FOG" if fog_risk else "BARO"
-        value = f"{rate:+.1f}"
-        unit = "hPa/hr"
-
-        p.setFont(_font(10))
-        p.setPen(QPen(lc))
-        p.drawText(QRectF(10, _STRIP_Y0 + 2, 150, 14), Qt.AlignLeft, label)
-        p.setFont(_font(18, bold=True))
-        p.setPen(QPen(vc))
-        p.drawText(QRectF(10, _STRIP_Y0 + 16, 150, 26), Qt.AlignLeft, value)
-        p.setFont(_font(10))
-        p.setPen(QPen(lc))
-        p.drawText(QRectF(10, _STRIP_Y0 + 42, 150, 14), Qt.AlignLeft, unit)
-
-        # --- Road condition zone bar (x=170..380) ---
-        if snap is not None and not snap.is_road_surface_stale():
-            paint_zone_bar(p, 170, _STRIP_Y0 + 12, 200, 32, zones,
-                           paint_count=self._paint_count, show_labels=True)
-
-        # --- DriveBC road temp (x=390..500) ---
-        if snap is not None and snap.drivebc_available:
+        # Road surface temperature (only when concerning)
+        if snap.drivebc_available and snap.drivebc_road_temp_c is not None:
             road_temp = snap.drivebc_road_temp_c
-            if road_temp is not None:
-                if road_temp < 0:
-                    tc = QColor(RED)
-                elif road_temp < 5:
-                    tc = QColor(YELLOW)
-                elif road_temp < 10:
-                    tc = QColor(CYAN)
-                else:
-                    tc = QColor(GRAY)  # Nominal: visible but subdued
+            if road_temp < 0:
+                parts.append(f"ROAD {road_temp:.0f}°")
+                worst_color = QColor(RED)
+            elif road_temp < 5:
+                parts.append(f"ROAD {road_temp:.0f}°")
+                if worst_color != QColor(RED):
+                    worst_color = QColor(YELLOW)
 
-                p.setFont(_font(10))
-                p.setPen(QPen(tc))
-                p.drawText(QRectF(390, _STRIP_Y0 + 2, 110, 14), Qt.AlignLeft, "ROAD")
-                p.setFont(_font(18, bold=True))
-                p.drawText(QRectF(390, _STRIP_Y0 + 16, 110, 26), Qt.AlignLeft, f"{road_temp:.0f}°")
-                p.setFont(_font(10))
-                p.drawText(QRectF(390, _STRIP_Y0 + 42, 110, 14), Qt.AlignLeft,
-                           snap.drivebc_station_name[:18] if snap.drivebc_station_name else "")
+        # Air temperature (only when near-freezing)
+        air_temp = snap.ambient_temp_c if snap.ambient_temp_c != 0.0 else (
+            snap.drivebc_air_temp_c if snap.drivebc_available and snap.drivebc_air_temp_c is not None else None
+        )
+        if air_temp is not None and air_temp < 2:
+            parts.append(f"AIR {air_temp:.0f}°")
+            if worst_color != QColor(RED) and worst_color != QColor(YELLOW):
+                worst_color = QColor(CYAN)
 
-        # --- Ambient temp (x=510..570) — air temp from DriveBC or Yoctopuce ---
-        if snap is not None:
-            air_temp = None
-            air_src = ""
-            if snap.ambient_temp_c != 0.0:
-                air_temp = snap.ambient_temp_c
-                air_src = "AMB"
-            elif snap.drivebc_available and snap.drivebc_air_temp_c is not None:
-                air_temp = snap.drivebc_air_temp_c
-                air_src = "AIR"
-            if air_temp is not None:
-                if air_temp < 2:
-                    atc = QColor(CYAN)
-                elif air_temp < 8:
-                    atc = QColor(GRAY)
-                else:
-                    atc = QColor(DIM)
-                p.setFont(_font(10))
-                p.setPen(QPen(atc))
-                p.drawText(QRectF(510, _STRIP_Y0 + 2, 60, 14), Qt.AlignLeft, air_src)
-                p.setFont(_font(16, bold=True))
-                p.drawText(QRectF(510, _STRIP_Y0 + 16, 60, 22), Qt.AlignLeft, f"{air_temp:.0f}°")
-
-        # --- Voice ticker (x=580..790) — dark cockpit: 2s decay ---
-        ticker_age = time.monotonic() - self._voice_ticker_ts
-        if self._voice_ticker and ticker_age < 2.0:
-            lines = self._voice_ticker[:2]
-            # Fade out over the last 0.5s
-            fade = max(0.0, min(1.0, (2.0 - ticker_age) / 0.5))
-            alphas = [int(160 * fade), int(90 * fade)]
-            for i, line in enumerate(lines):
-                p.setFont(_font(10))
-                text_color = QColor(WHITE)
-                text_color.setAlpha(alphas[i] if i < len(alphas) else 0)
-                p.setPen(QPen(text_color))
-                y = _STRIP_Y0 + 6 + i * 24
-                p.drawText(QRectF(580, y, 210, 20),
-                           Qt.AlignRight | Qt.AlignVCenter, line)
+        return (" | ".join(parts), worst_color) if parts else ("", QColor(GRAY))
 
     # ------------------------------------------------------------------
     # Alert bar (y=460..480) — severity-driven, full width
