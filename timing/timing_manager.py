@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import time
+from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import QObject, Signal
@@ -57,6 +58,11 @@ class TimingManager(QObject):
         if db_store is not None:
             try:
                 self._track_db = TrackDatabase(db_store._conn)
+                # Seed tracks on first run so GPS detection has real names
+                seed_path = Path(__file__).parent.parent / "data" / "tracks_seed.json"
+                if self._track_db.track_count() == 0 and seed_path.exists():
+                    n = self._track_db.seed_tracks(seed_path)
+                    log.info("Seeded %d tracks from %s", n, seed_path.name)
             except Exception as exc:
                 log.warning("TrackDatabase init failed: %s", exc)
 

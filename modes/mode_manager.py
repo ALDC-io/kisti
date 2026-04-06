@@ -120,6 +120,7 @@ class ModeManager(QObject):
         self._warmup = WarmUpState.COLD
         self._display = DisplayMode.KISTI
         self._coaching = CoachingLevel.FULL
+        self._sharp_subpage: int = 0  # 0=canyon, 1=track
 
         self._session_active = False
 
@@ -185,8 +186,13 @@ class ModeManager(QObject):
                 log.debug("K5 ignored — coaching only in Intelligent mode")
 
         if buttons & KEYPAD_K6:
-            # K6 reserved — SI-Drive handles mode selection, no sub-pages
-            log.debug("K6 pressed — reserved (SI-Drive handles mode selection)")
+            if self._si_drive == SIDriveMode.SPORT_SHARP:
+                self._sharp_subpage = 1 - self._sharp_subpage
+                label = "track" if self._sharp_subpage == 1 else "canyon"
+                log.info("S# sub-page: %s (K6)", label)
+                self.subpage_changed.emit(self._sharp_subpage)
+            else:
+                log.debug("K6 ignored — sub-page only in S# mode")
 
     def _check_warmup(self) -> None:
         """Check engine temperatures, warm-up state, and SI-Drive staleness."""
@@ -245,6 +251,11 @@ class ModeManager(QObject):
     @property
     def coaching_level(self) -> CoachingLevel:
         return self._coaching
+
+    @property
+    def sharp_subpage(self) -> int:
+        """0 = canyon (sharp_screen), 1 = track (sharp_screen_track)."""
+        return self._sharp_subpage
 
     @property
     def session_active(self) -> bool:

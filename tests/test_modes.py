@@ -144,13 +144,24 @@ class TestKeypadRouting:
         bridge.update_keypad(state=KEYPAD_K5, prev_state=0)
         assert manager.coaching_level == initial
 
-    def test_k6_reserved(self, manager, bridge):
-        """K6 is reserved — SI-Drive handles mode selection, no display cycling."""
-        assert manager.display_mode == DisplayMode.KISTI
+    def test_k6_toggles_sharp_subpage_in_sport_sharp(self, manager, bridge):
+        """K6 toggles S# sub-page between canyon (0) and track (1)."""
+        bridge.update_si_drive(mode=2)  # Sport Sharp
+        assert manager.sharp_subpage == 0
 
         bridge.update_keypad(state=KEYPAD_K6, prev_state=0)
-        # K6 is now a no-op, display mode unchanged
-        assert manager.display_mode == DisplayMode.KISTI
+        assert manager.sharp_subpage == 1
+
+        bridge.update_keypad(state=KEYPAD_K6, prev_state=0)
+        assert manager.sharp_subpage == 0
+
+    def test_k6_ignored_outside_sport_sharp(self, manager, bridge):
+        """K6 does nothing outside Sport Sharp mode."""
+        bridge.update_si_drive(mode=1)  # Sport
+        assert manager.sharp_subpage == 0
+
+        bridge.update_keypad(state=KEYPAD_K6, prev_state=0)
+        assert manager.sharp_subpage == 0
 
 
 class TestDisplayModeEnum:

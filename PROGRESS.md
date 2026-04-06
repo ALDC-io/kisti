@@ -1,25 +1,23 @@
 # KiSTI - Progress
 
-## Session: 2026-04-06 (kisti-cloud-sync-sharp-screen — FLIR Nextcloud Sync + Sharp Screen Planning)
+## Session: 2026-04-06 (kisti-track-seed-k6-toggle — Track DB Seed + K6 Sub-Page Toggle)
 
-### Status: IN PROGRESS
+### Status: COMPLETE
 
 ### Completed
-- **FLIR Nextcloud Sync** (`scripts/sync_to_cloud.py`) — Enabled on Jetson crontab, runs daily at 2 AM
-  - Created `jetson_sync_cloud.sh` wrapper (follows `jetson_auto_commit.sh` pattern)
-  - Fixed import issues: added repo root to sys.path, wrapped voice/build_record imports with graceful fallbacks
-  - Fixed PERSONA_RESPONSES unpacking (3-element tuples, not 2)
-  - Syncs: weather (Parquet+CSV+JSON), FLIR thermal, database backup (timestamped + latest), memories (team/public), LLM config + build record
-  - Tested: successfully synced 9,759 ambient readings + full DB backup to Nextcloud `Project KiSTI/`
-  - All 1407 tests pass, no regressions
+- **Track Database Seed on Startup** — `seed_tracks()` called in `TimingManager.__init__` when `track_count() == 0`. 18 tracks from `data/tracks_seed.json` load on first boot. GPS-based track detection has real names immediately
+- **K6 Sub-Page Toggle** — K6 button toggles S# screen between canyon (`sharp_screen.py`) and track (`sharp_screen_track.py`) variants. mode_manager emits `subpage_changed`, main_window swaps stack index. Both variants receive all data feeds. 2 new tests (+1 net)
+- Deployed to Jetson via rsync, __pycache__ cleared
 
 ### Priorities Addressed
-1. ✅ Multi-Provider Road Weather System — COMPLETE (Session 3)
-2. ✅ Voice UX Overhaul — COMPLETE (Session 4)
-3. ✅ AiM Strada Alert Integration — COMPLETE (Session 5)
-4. 🔒 Race Studio 3 Track Maps Import — BLOCKED (awaiting .mpl format reverse-engineering or sample files)
-5. ✅ FLIR Nextcloud Sync — COMPLETE (just finished)
-6. ⏸️ Sharp Screen Bottom Strip Cleanup — UNDER REVIEW (x=10..790 currently packed with BARO|zone bar|road temp|air temp|ticker)
+1. ✅ Track Database Seed on Startup — COMPLETE (this session)
+2. ✅ Multi-Provider Road Weather System — COMPLETE (Session 3)
+3. ✅ Voice UX Overhaul — COMPLETE (Session 4)
+4. ✅ AiM Strada Alert Integration — COMPLETE (Session 5)
+5. 🔒 Race Studio 3 Track Maps Import — BLOCKED (awaiting .mpl format reverse-engineering or sample files)
+6. ✅ FLIR Nextcloud Sync — COMPLETE (Session 6)
+7. ✅ Sharp Screen Bottom Strip Consolidation — COMPLETE (Session 6)
+8. ✅ K6 Sub-Page Toggle — COMPLETE (this session)
 
 ### Current Architecture
 - **Road weather manager**: GPS-based provider activation (BC/AB/ON/US) wired into main.py, update_position/heading at 1Hz
@@ -28,9 +26,10 @@
 - **Cloud sync**: Daily 2 AM push to Nextcloud via rclone, handles DB lock contention with copy-on-read
 
 ### Next Session Priorities
-1. **Sharp Screen Bottom Strip Consolidation** — Consider hiding BARO/AIR/ROAD when nominal (dark cockpit). Currently 5 sections in 800px (tight).
-2. **Race Studio 3 Integration** — Contact AiM support for sample .xrk/.mpl files to reverse-engineer track format
-3. **Jetson Deployment Validation** — End-to-end test: restart KiSTI, verify cron syncs at 2 AM, check Nextcloud for new files
+1. **RS3 Track Maps Import** — Blocked on AiM Strada hardware + sample .mpl files
+2. **RS3 AiM Strada Configuration** — Bind Status element to CAN ID 0x6C2 when hardware arrives
+3. **Jetson Deployment Validation** — Test K6 toggle + cron sync + all 3 screens on road
+4. **Brake Quality Feed** — Wire `update_brake_quality()` to track screen from main.py
 
 ### Don't Repeat
 - rclone requires full paths or working directory context in crontab scripts
@@ -38,13 +37,17 @@
 - DuckDB read-only access requires handle for lock contention (copy-on-read pattern works well)
 
 ### Files Changed
-- `scripts/sync_to_cloud.py` — MODIFIED (+import path fix, +PERSONA_RESPONSES unpacking, +graceful import fallbacks)
-- `scripts/jetson_sync_cloud.sh` — NEW (wrapper, sets working directory, logs to /tmp/kisti_sync_cloud.log)
-- `NEXT_SESSION_PROMPT.md` — UPDATED (marked Priority 5 COMPLETE)
+- `timing/timing_manager.py` — MODIFIED (+Path import, +seed_tracks call in __init__)
+- `modes/mode_manager.py` — MODIFIED (+_sharp_subpage state, +K6 handler, +sharp_subpage property)
+- `ui/main_window.py` — MODIFIED (+SportSharpTrackScreenWidget, +stack index 3, +_on_subpage_changed, +_si_drive_to_index)
+- `main.py` — MODIFIED (+data feeds to _sharp_screen_track for timing/coaching/balance/grip/voice/repaint)
+- `tests/test_modes.py` — MODIFIED (replaced test_k6_reserved with 2 new K6 toggle tests)
+- `NEXT_SESSION_KISTI_v8.md` — NEW (versioned handoff)
+- `NEXT_SESSION_PROMPT.md` — UPDATED (symlink to v8)
 
 ### Test Count
 - Before: 1407 tests
-- After: 1407 tests (no changes to test suite)
+- After: 1408 tests (+1 net: removed 1 no-op test, added 2 K6 toggle tests)
 
 ---
 

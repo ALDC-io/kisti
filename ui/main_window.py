@@ -23,6 +23,7 @@ from ui.status_bar import TopStatusBar
 from ui.intelligent_screen import IntelligentScreenWidget
 from ui.sport_screen import SportScreenWidget
 from ui.sharp_screen import SportSharpScreenWidget
+from ui.sharp_screen_track import SportSharpTrackScreenWidget
 from ui.kisti_mode import KistiModeWidget
 from ui.street_mode import StreetModeWidget
 from ui.track_mode import TrackModeWidget
@@ -84,18 +85,21 @@ class MainWindow(QMainWindow):
         self._track_mode = TrackModeWidget(self)
         self._track_mode.hide()
 
-        # === 3 SI-Drive screens + VIDEO overlay ===
+        # === 3 SI-Drive screens + S# track variant + VIDEO overlay ===
         self._intelligent_screen = IntelligentScreenWidget(flir_reader=flir_reader, parent=self)
         self._sport_screen = SportScreenWidget(self)
         self._sharp_screen = SportSharpScreenWidget(self)
+        self._sharp_screen_track = SportSharpTrackScreenWidget(self)
         self._video_mode = VideoModeWidget(flir_reader=flir_reader, parent=self)
 
-        self._stack.addWidget(self._intelligent_screen)  # index 0: Intelligent
-        self._stack.addWidget(self._sport_screen)        # index 1: Sport
-        self._stack.addWidget(self._sharp_screen)        # index 2: Sport Sharp
-        self._stack.addWidget(self._video_mode)          # index 3: VIDEO (thermal + cameras)
+        self._stack.addWidget(self._intelligent_screen)   # index 0: Intelligent
+        self._stack.addWidget(self._sport_screen)         # index 1: Sport
+        self._stack.addWidget(self._sharp_screen)         # index 2: Sport Sharp (canyon)
+        self._stack.addWidget(self._sharp_screen_track)   # index 3: Sport Sharp (track)
+        self._stack.addWidget(self._video_mode)           # index 4: VIDEO (thermal + cameras)
 
         self._current_si_drive: int = 0  # Default: Intelligent (real sensors view)
+        self._sharp_subpage: int = 0    # 0=canyon (index 2), 1=track (index 3)
         self._stack.setCurrentIndex(0)
 
         # Critical flash overlay (WARNING/CRITICAL visual feedback in S# mode)
@@ -106,14 +110,15 @@ class MainWindow(QMainWindow):
         # Wire mode manager signals if provided
         if self._mode_manager is not None:
             self._mode_manager.si_drive_changed.connect(self._on_si_drive_changed)
+            self._mode_manager.subpage_changed.connect(self._on_subpage_changed)
             # warmup_changed — no status bar to update
 
         # F11 fullscreen toggle
         shortcut = QShortcut(QKeySequence(Qt.Key_F11), self)
         shortcut.activated.connect(self._toggle_fullscreen)
 
-        # 1/2/3/4 keys to switch screens (dev/demo use; 4 = VIDEO/thermal)
-        for key, idx in [(Qt.Key_1, 0), (Qt.Key_2, 1), (Qt.Key_3, 2), (Qt.Key_4, 3)]:
+        # 1/2/3/4/5 keys to switch screens (dev/demo use; 4 = S# track, 5 = VIDEO)
+        for key, idx in [(Qt.Key_1, 0), (Qt.Key_2, 1), (Qt.Key_3, 2), (Qt.Key_4, 3), (Qt.Key_5, 4)]:
             sc = QShortcut(QKeySequence(key), self)
             sc.activated.connect(lambda i=idx: self._stack.setCurrentIndex(i))
 
@@ -142,14 +147,30 @@ class MainWindow(QMainWindow):
             self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
             self.showFullScreen()
 
+    def _si_drive_to_index(self, mode_int: int) -> int:
+        """Map SI-Drive mode to stack index, accounting for S# subpage."""
+        if mode_int == SIDriveMode.SPORT_SHARP:
+            return 2 + self._sharp_subpage  # 2=canyon, 3=track
+        return mode_int  # 0=Intelligent, 1=Sport
+
     def _on_si_drive_changed(self, mode_int: int) -> None:
         """Switch display to the screen for the new SI-Drive mode."""
-        if 0 <= mode_int < self._stack.count():
-            self._current_si_drive = mode_int
-            self._stack.setCurrentIndex(mode_int)
-            # No status bar to update
-            log.info("Display: SI-Drive %d (%s)",
-                     mode_int, SIDriveMode(mode_int).label)
+        if mode_int not in (0, 1, 2):
+            return
+        self._current_si_drive = mode_int
+        idx = self._si_drive_to_index(mode_int)
+        self._stack.setCurrentIndex(idx)
+        log.info("Display: SI-Drive %d (%s)",
+                 mode_int, SIDriveMode(mode_int).label)
+
+    def _on_subpage_changed(self, subpage: int) -> None:
+        """K6 toggled S# sub-page (0=canyon, 1=track)."""
+        self._sharp_subpage = subpage
+        if self._current_si_drive == SIDriveMode.SPORT_SHARP:
+            idx = 2 + subpage
+            self._stack.setCurrentIndex(idx)
+            label = "track" if subpage == 1 else "canyon"
+            log.info("S# sub-page: %s (index %d)", label, idx)
 
     def _on_radar_updated(self, radar_state):
         """Store latest radar state for merging into vehicle data pipeline."""
@@ -157,7 +178,7 @@ class MainWindow(QMainWindow):
 
     def flash_alert(self, alert) -> None:
         """Flash overlay for WARNING/CRITICAL alerts in Sport Sharp mode."""
-        if self._current_si_drive == SIDriveMode.SPORT_SHARP:
+        if self._current_si_drive == int(SIDriveMode.SPORT_SHARP):
             self._flash_overlay.flash(alert.severity, alert.short_message)
 
     def update_from_bridge(self, snap) -> None:

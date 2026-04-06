@@ -330,7 +330,7 @@ def main():
                 """Force immediate screen repaint so banner syncs with voice."""
                 if window is None:
                     return
-                for attr in ('_intelligent_screen', '_sport_screen', '_sharp_screen'):
+                for attr in ('_intelligent_screen', '_sport_screen', '_sharp_screen', '_sharp_screen_track'):
                     screen = getattr(window, attr, None)
                     if screen:
                         screen.repaint()
@@ -895,9 +895,11 @@ def main():
             if timing_mgr and _ui_tick[0] % 5 == 0:
                 if hasattr(window, '_track_mode'):
                     window._track_mode.update_timing(snap)
-                # Feed timing data to Sport Sharp screen
-                if hasattr(window, '_sharp_screen') and hasattr(timing_mgr, 'get_timing_data'):
-                    window._sharp_screen.update_timing(timing_mgr.get_timing_data())
+                # Feed timing data to both Sport Sharp screen variants
+                if hasattr(timing_mgr, 'get_timing_data'):
+                    td = timing_mgr.get_timing_data()
+                    window._sharp_screen.update_timing(td)
+                    window._sharp_screen_track.update_timing(td)
 
         bridge.state_changed.connect(_update_screen)
 
@@ -926,7 +928,7 @@ def main():
         def _push_ticker():
             lines = list(_voice_ticker_deque)
             for screen in (window._intelligent_screen, window._sport_screen,
-                           window._sharp_screen):
+                           window._sharp_screen, window._sharp_screen_track):
                 screen.update_voice_ticker(lines)
 
         _ticker_timer.timeout.connect(_push_ticker)
@@ -958,6 +960,7 @@ def main():
                 text, sentiment = cond
             window._sport_screen.update_coaching(text, sentiment)
             window._sharp_screen.update_coaching(text, sentiment)
+            window._sharp_screen_track.update_coaching(text, sentiment)
             _session_lap_tracker.record_tick(text, sentiment)
 
             # Balance analyzer — understeer/oversteer via bicycle model
@@ -966,6 +969,7 @@ def main():
             bal_text, bal_sentiment = _balance_analyzer.coaching_text()
             window._sport_screen.update_balance(ratio, bal_text, bal_sentiment)
             window._sharp_screen.update_balance(ratio, bal_text, bal_sentiment)
+            window._sharp_screen_track.update_balance(ratio, bal_text, bal_sentiment)
 
             # Grip analyzer — per-axle traction from wheel speeds
             _grip_analyzer.feed(snap)
@@ -973,6 +977,7 @@ def main():
             rear = _grip_analyzer.rear_grip_pct()
             window._sport_screen.update_grip(front, rear)
             window._sharp_screen.update_grip(front, rear)
+            window._sharp_screen_track.update_grip(front, rear)
 
             # Brake analysis — longitudinal G as peak brake G to Sport screen
             peak_g = abs(snap.imu_accel_x) if snap.imu_accel_x < -0.1 else 0.0
