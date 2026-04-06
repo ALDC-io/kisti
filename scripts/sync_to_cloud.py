@@ -224,6 +224,97 @@ def sync_memories(db_path: Path) -> int:
     return count
 
 
+def sync_flir(db_path: Path) -> int:
+    """Export FLIR thermal readings + surface transitions to Nextcloud."""
+    try:
+        import duckdb
+    except ImportError:
+        log.error("duckdb not installed")
+        return 0
+
+    if not db_path.exists():
+        log.info("No DuckDB at %s — skipping FLIR sync", db_path)
+        return 0
+
+    conn = _open_db_readonly(db_path)
+
+    try:
+        # Check table exists
+        tables = [r[0] for r in conn.execute(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
+        ).fetchall()]
+        if "flir_readings" not in tables:
+            log.info("No flir_readings table — skipping")
+            conn.close()
+            return 0
+
+        count = conn.execute("SELECT COUNT(*) FROM flir_readings").fetchone()[0]
+        if count == 0:
+            log.info("No FLIR data to sync")
+            conn.close()
+            return 0
+
+        with tempfile.TemporaryDirectory() as tmp:
+            # Export FLIR readings
+            out = Path(tmp) / "flir_readings.parquet"
+            conn.execute(
+                f"COPY (SELECT * FROM flir_readings ORDER BY timestamp) "
+                f"TO '{out}' (FORMAT PARQUET)"
+            )
+            csv_out = Path(tmp) / "flir_readings.csv"
+            conn.execute(
+                f"COPY (SELECT * FROM flir_readings ORDER BY timestamp) "
+                f"TO '{csv_out}' (FORMAT CSV, HEADER TRUE)"
+            )
+            _rclone_copy(out, f"{CLOUD_BASE}/flir/flir_readings.parquet")
+            _rclone_copy(csv_out, f"{CLOUD_BASE}/flir/flir_readings.csv")
+
+            # Export surface transitions if available
+            if "surface_transitions" in tables:
+                trans_count = conn.execute("SELECT COUNT(*) FROM surface_transitions").fetchone()[0]
+                if trans_count > 0:
+                    trans_out = Path(tmp) / "surface_transitions.parquet"
+                    conn.execute(
+                        f"COPY (SELECT * FROM surface_transitions ORDER BY timestamp) "
+                        f"TO '{trans_out}' (FORMAT PARQUET)"
+                    )
+                    _rclone_copy(trans_out, f"{CLOUD_BASE}/flir/surface_transitions.parquet")
+
+            # Summary stats
+            stats = conn.execute("""
+                SELECT
+                    COUNT(*) as total_readings,
+                    MIN(timestamp) as first_reading,
+                    MAX(timestamp) as last_reading,
+                    AVG(road_temp_center) as avg_center_c,
+                    MIN(road_temp_center) as min_center_c,
+                    MAX(road_temp_center) as max_center_c,
+                    SUM(CASE WHEN warm_object_detected THEN 1 ELSE 0 END) as warm_detections,
+                    COUNT(DISTINCT surface_state) as unique_states
+                FROM flir_readings
+            """).fetchone()
+
+            summary = {
+                "synced_at": datetime.now(timezone.utc).isoformat(),
+                "total_readings": stats[0],
+                "first_reading": str(stats[1]),
+                "last_reading": str(stats[2]),
+                "avg_road_temp_center_c": round(stats[3], 1) if stats[3] else None,
+                "min_road_temp_center_c": round(stats[4], 1) if stats[4] else None,
+                "max_road_temp_center_c": round(stats[5], 1) if stats[5] else None,
+                "warm_object_detections": stats[6],
+                "unique_surface_states": stats[7],
+            }
+            summary_path = Path(tmp) / "flir_summary.json"
+            summary_path.write_text(json.dumps(summary, indent=2))
+            _rclone_copy(summary_path, f"{CLOUD_BASE}/flir/flir_summary.json")
+
+        log.info("FLIR sync complete: %d readings", count)
+        return count
+    finally:
+        conn.close()
+
+
 def sync_llm() -> bool:
     """Sync LLM configuration (system prompt, persona, token caps) to Nextcloud."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -293,6 +384,7 @@ def main():
     parser.add_argument("--database", action="store_true", help="Sync DuckDB only")
     parser.add_argument("--memories", action="store_true", help="Sync memories only")
     parser.add_argument("--llm", action="store_true", help="Sync LLM config only")
+    parser.add_argument("--flir", action="store_true", help="Sync FLIR thermal data only")
     parser.add_argument("--db-path", type=str, default=None,
                         help="Override DuckDB path")
     args = parser.parse_args()
@@ -302,10 +394,13 @@ def main():
     if not db_path.exists():
         db_path = DEV_DB_PATH
 
-    sync_all = not (args.weather or args.database or args.memories or args.llm)
+    sync_all = not (args.weather or args.database or args.memories or args.llm or args.flir)
 
     if sync_all or args.weather:
         sync_weather(db_path)
+
+    if sync_all or args.flir:
+        sync_flir(db_path)
 
     if sync_all or args.database:
         sync_database(db_path)
