@@ -363,13 +363,14 @@ class SportScreenWidget(QWidget):
         _, text, bg, fg = candidates[0]
 
         # Full-width bar at bottom of Sport screen
-        bar_y, bar_h = 424, 16
+        w = self.width()
+        bar_y, bar_h = 422, 18
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(bg)
-        p.drawRect(QRectF(0, bar_y, 800, bar_h))
-        p.setFont(QFont("Helvetica", 9, QFont.Weight.Bold))
+        p.drawRect(QRectF(0, bar_y, w, bar_h))
+        p.setFont(QFont("Helvetica", 10, QFont.Weight.Bold))
         p.setPen(QPen(fg))
-        p.drawText(QRectF(0, bar_y, 800, bar_h),
+        p.drawText(QRectF(0, bar_y, w, bar_h),
                    Qt.AlignmentFlag.AlignCenter, text)
 
     # ------------------------------------------------------------------
@@ -551,16 +552,17 @@ class SportScreenWidget(QWidget):
     def _paint_voice_ticker(self, p: QPainter) -> None:
         if not self._voice_ticker:
             return
-        p.setFont(QFont("Helvetica", 11))
+        # Below technique panel, above coaching — right-aligned
+        p.setFont(QFont("Helvetica", 10))
         alphas = [120, 70, 40]
-        x, y0, w = 515, 12, 270
-        for i, line in enumerate(self._voice_ticker[:5]):
+        x, y0, w = 380, 370, 400
+        for i, line in enumerate(self._voice_ticker[:3]):
             color = QColor(WHITE)
             color.setAlpha(alphas[min(i, 2)])
             p.setPen(color)
             elided = p.fontMetrics().elidedText(line, Qt.TextElideMode.ElideRight, w)
             p.drawText(QRectF(x, y0 + i * 15, w, 15),
-                       Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, elided)
+                       Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, elided)
 
     # ------------------------------------------------------------------
     # Coaching text (below G magnitude, y=418..438)

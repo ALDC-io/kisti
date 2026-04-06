@@ -490,7 +490,7 @@ class SportSharpScreenWidget(QWidget):
         elif threat == "CHANGING":
             lc, vc = QColor(CYAN), QColor(CYAN)
         else:
-            lc, vc = QColor(DIM), QColor(DIM)
+            lc, vc = QColor(GRAY), QColor(GRAY)  # Nominal: visible but subdued
 
         label = "FOG" if fog_risk else "BARO"
         value = f"{rate:+.1f}"
@@ -522,7 +522,7 @@ class SportSharpScreenWidget(QWidget):
                 elif road_temp < 10:
                     tc = QColor(CYAN)
                 else:
-                    tc = QColor(DIM)
+                    tc = QColor(GRAY)  # Nominal: visible but subdued
 
                 p.setFont(_font(9))
                 p.setPen(QPen(tc))
