@@ -289,6 +289,19 @@ class DiffState:
     ec_available: bool = False
     ec_data_age_s: float = 0.0            # Seconds since last successful EC fetch
 
+    # DriveBC road weather (RWIS stations, polled every 5-10 min)
+    drivebc_road_condition: str = ""          # DRY/WET/ICY/SNOWY/FROSTY/MOIST/SLUSHY
+    drivebc_road_temp_c: float | None = None  # Road surface temperature from RWIS
+    drivebc_station_name: str = ""            # Nearest RWIS station name
+    drivebc_station_distance_km: float = 99.0 # Distance to nearest station
+    drivebc_precipitation_mm: float = 0.0     # Current precipitation
+    drivebc_wind_kph: float = 0.0             # Wind speed
+    drivebc_event_count: int = 0              # Number of nearby road events
+    drivebc_event_text: str = ""              # Most severe nearby event description
+    drivebc_event_severity: str = ""          # CLOSURE/MAJOR/MINOR
+    drivebc_available: bool = False
+    drivebc_data_age_s: float = 0.0
+
     # Warm-up state (computed, not from CAN)
     warmup_state: WarmUpState = WarmUpState.COLD
 
@@ -782,6 +795,33 @@ class DiffStateBridge(QObject):
             self._state.ec_forecast_condition = forecast_condition
             self._state.ec_available = True
             self._state.ec_data_age_s = data_age_s
+
+    def update_drivebc(
+        self,
+        road_condition: str,
+        road_temp_c: float | None,
+        station_name: str,
+        station_distance_km: float,
+        precipitation_mm: float,
+        wind_kph: float,
+        event_count: int,
+        event_text: str,
+        event_severity: str,
+        data_age_s: float,
+    ) -> None:
+        """Called from DriveBC poller with road weather data."""
+        with self._lock:
+            self._state.drivebc_road_condition = road_condition
+            self._state.drivebc_road_temp_c = road_temp_c
+            self._state.drivebc_station_name = station_name
+            self._state.drivebc_station_distance_km = station_distance_km
+            self._state.drivebc_precipitation_mm = precipitation_mm
+            self._state.drivebc_wind_kph = wind_kph
+            self._state.drivebc_event_count = event_count
+            self._state.drivebc_event_text = event_text
+            self._state.drivebc_event_severity = event_severity
+            self._state.drivebc_available = True
+            self._state.drivebc_data_age_s = data_age_s
 
     def update_ambient(
         self,

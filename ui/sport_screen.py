@@ -299,37 +299,51 @@ class SportScreenWidget(QWidget):
 
     def _paint_weather_threat(self, p: QPainter, snap: DiffState) -> None:
         """Full-width alert bar at bottom (y=424..440). Highest severity wins."""
+        # Build candidates: (severity, text, bg, fg)
+        candidates: list[tuple[int, str, QColor, QColor]] = []
+        white = QColor(255, 255, 255)
+        black = QColor(0, 0, 0)
+
         threat = snap.weather_threat_level
-        has_ec = snap.ec_available and snap.ec_warning_level != "none"
-
-        if threat == "CLEAR" and not has_ec:
-            return
-
-        # Pick highest severity alert
-        text = ""
-        bg = QColor(30, 80, 160)
-        fg = QColor(255, 255, 255)
-
         rate = snap.pressure_trend_hpa_hr
         if threat == "STORM":
-            text = f"STORM INCOMING — pressure falling {abs(rate):.1f} hPa/hr"
-            bg = QColor(180, 20, 20)
+            candidates.append((50, f"STORM INCOMING — pressure falling {abs(rate):.1f} hPa/hr",
+                               QColor(180, 20, 20), white))
         elif threat == "RAIN_LIKELY":
-            text = f"RAIN LIKELY — pressure falling {abs(rate):.1f} hPa/hr"
-            bg = QColor(200, 120, 0)
-        elif has_ec:
-            lvl = snap.ec_warning_level
-            if lvl == "warning":
-                bg = QColor(180, 20, 20)
-            elif lvl == "watch":
-                bg = QColor(200, 120, 0)
-            elif lvl == "advisory":
-                bg, fg = QColor(250, 204, 21), QColor(0, 0, 0)
-            desc = snap.ec_warning_description.split("\n")[0].strip()
-            text = "EC: " + (desc[:75] + ("..." if len(desc) > 75 else "") if desc else snap.ec_warning_text)
+            candidates.append((25, f"RAIN LIKELY — pressure falling {abs(rate):.1f} hPa/hr",
+                               QColor(200, 120, 0), white))
 
-        if not text:
+        if snap.ec_available and snap.ec_warning_level != "none":
+            lvl = snap.ec_warning_level
+            ec_bg = {"warning": QColor(180, 20, 20), "watch": QColor(200, 120, 0),
+                     "advisory": QColor(250, 204, 21)}.get(lvl, QColor(30, 80, 160))
+            ec_fg = black if lvl == "advisory" else white
+            ec_sev = {"warning": 45, "watch": 30, "advisory": 20, "statement": 10}.get(lvl, 10)
+            desc = snap.ec_warning_description.split("\n")[0].strip()
+            ec_text = "EC: " + (desc[:75] + ("..." if len(desc) > 75 else "") if desc else snap.ec_warning_text)
+            candidates.append((ec_sev, ec_text, ec_bg, ec_fg))
+
+        if snap.drivebc_available and snap.drivebc_road_condition:
+            cond = snap.drivebc_road_condition.upper()
+            if cond in ("ICY", "SNOWY", "FROSTY"):
+                dbc_text = f"DriveBC: {cond} road — {snap.drivebc_station_name}"
+                candidates.append((42, dbc_text, QColor(180, 20, 20), white))
+            elif cond in ("WET", "SLUSHY", "MOIST"):
+                dbc_text = f"DriveBC: {cond} road — {snap.drivebc_station_name}"
+                candidates.append((15, dbc_text, QColor(30, 80, 160), white))
+
+        if snap.drivebc_available and snap.drivebc_event_count > 0:
+            sev = snap.drivebc_event_severity
+            evt_sev = 48 if sev == "CLOSURE" else 22
+            evt_bg = QColor(180, 20, 20) if sev == "CLOSURE" else QColor(200, 120, 0)
+            candidates.append((evt_sev, f"DriveBC: {snap.drivebc_event_text[:70]}", evt_bg, white))
+
+        if not candidates:
             return
+
+        # Pick highest severity
+        candidates.sort(key=lambda c: c[0], reverse=True)
+        _, text, bg, fg = candidates[0]
 
         # Full-width bar at bottom of Sport screen
         bar_y, bar_h = 424, 16

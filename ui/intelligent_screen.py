@@ -556,6 +556,26 @@ class IntelligentScreenWidget(QWidget):
                 ec_display = "EC: " + snap.ec_warning_text
             alerts.append((sev, ec_display, bg))
 
+        # DriveBC RWIS road conditions — actual road surface state from highway sensors
+        if snap.drivebc_available and snap.drivebc_road_condition:
+            cond = snap.drivebc_road_condition.upper()
+            if cond in ("ICY", "SNOWY", "FROSTY"):
+                dbc_text = f"DriveBC: {cond} road — {snap.drivebc_station_name}"
+                if snap.drivebc_road_temp_c is not None:
+                    dbc_text += f" ({snap.drivebc_road_temp_c:.0f}°C)"
+                alerts.append((42, dbc_text, QColor(180, 20, 20)))
+            elif cond in ("WET", "SLUSHY", "MOIST"):
+                dbc_text = f"DriveBC: {cond} road — {snap.drivebc_station_name}"
+                alerts.append((15, dbc_text, QColor(30, 80, 160)))
+
+        # DriveBC road events — closures and major incidents
+        if snap.drivebc_available and snap.drivebc_event_count > 0:
+            sev = snap.drivebc_event_severity
+            evt_bg = QColor(180, 20, 20) if sev == "CLOSURE" else QColor(200, 120, 0)
+            evt_sev = 48 if sev == "CLOSURE" else 22
+            evt_text = snap.drivebc_event_text[:70]
+            alerts.append((evt_sev, f"DriveBC: {evt_text}", evt_bg))
+
         if not alerts:
             return
 

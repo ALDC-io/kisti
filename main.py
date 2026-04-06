@@ -203,6 +203,16 @@ def main():
     except Exception as exc:
         log.info("EC weather poller unavailable: %s", exc)
 
+    # DriveBC road weather (RWIS stations + road events)
+    drivebc_poller = None
+    try:
+        from sensors.drivebc_weather import DriveBCPoller
+        drivebc_poller = DriveBCPoller()
+        drivebc_poller.start()
+        log.info("DriveBC poller online: RWIS stations + road events")
+    except Exception as exc:
+        log.info("DriveBC poller unavailable: %s", exc)
+
     if ambient_source:
         def _on_ambient_for_bridge_and_weather(r):
             bridge.update_ambient(
@@ -233,6 +243,26 @@ def main():
                 wx.pressure_trend_hpa_hr, wx.humidity_trend_pct_hr,
                 wx.dew_point_spread_c, wx.threat_label,
             )
+            # DriveBC road weather — RWIS station conditions + road events
+            if drivebc_poller:
+                dbc = drivebc_poller.data
+                if dbc.available:
+                    dbc_age = (_wtime.monotonic() - dbc.fetch_ts) if dbc.fetch_ts else 9999.0
+                    # Pick most severe event for display
+                    evt_text = dbc.nearby_events[0].description if dbc.nearby_events else ""
+                    evt_sev = dbc.nearby_events[0].severity if dbc.nearby_events else ""
+                    bridge.update_drivebc(
+                        road_condition=dbc.road_condition,
+                        road_temp_c=dbc.road_temperature_c,
+                        station_name=dbc.nearest_station_name,
+                        station_distance_km=dbc.station_distance_km,
+                        precipitation_mm=dbc.precipitation_mm,
+                        wind_kph=dbc.wind_speed_kph,
+                        event_count=len(dbc.nearby_events),
+                        event_text=evt_text,
+                        event_severity=evt_sev,
+                        data_age_s=dbc_age,
+                    )
 
         ambient_source.reading_updated.connect(_on_ambient_for_bridge_and_weather)
 
