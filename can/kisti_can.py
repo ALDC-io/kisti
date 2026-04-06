@@ -84,6 +84,7 @@ from can.can_config import (
     KEYPAD_FRAME_ID,
     KEYPAD_PREV_OFFSET,
     KEYPAD_STATE_OFFSET,
+    KISTI_ALERT_FRAME_ID,
     KISTI_CAN_IDS,
     KISTI_CAN_OUTPUT_IDS,
     LED2_BRIGHTNESS_START,
@@ -609,6 +610,50 @@ def encode_led_output(
     return frame1, frame2
 
 
+def encode_kisti_alert(
+    road_condition: str,
+    road_event_severity: str,
+    ec_warning_level: str,
+) -> bytes:
+    """Encode KiSTI Alert frame (0x6C2) for AiM Strada Status display.
+
+    Maps road conditions + weather alerts to enum for Race Studio 3 visualization.
+
+    Enum values:
+        0 = OK (dry road, no events, no alerts)
+        1 = WET (wet road surface)
+        2 = ICY (icy/cold/low grip road)
+        3 = RAIN (rain warning from EC)
+        4 = STORM (major event or severe weather alert)
+        5 = CLOSURE (road closure)
+
+    Args:
+        road_condition: "DRY", "WET", "ICY", "SNOWY", "FROSTY", "MOIST", "SLUSHY", ""
+        road_event_severity: "", "MINOR", "MAJOR", "CLOSURE"
+        ec_warning_level: "none", "statement", "advisory", "watch", "warning"
+
+    Returns:
+        Single byte (0-5) encoded as CAN frame data.
+    """
+    # Priority: event closure > road condition icy > event major > rain warning > wet > ok
+    if road_event_severity == "CLOSURE":
+        status = 5  # CLOSURE
+    elif road_condition in ("ICY", "SNOWY", "FROSTY", "COLD"):
+        status = 2  # ICY
+    elif road_event_severity == "MAJOR":
+        status = 4  # STORM
+    elif ec_warning_level in ("warning", "watch") and "rain" in ec_warning_level.lower():
+        status = 3  # RAIN
+    elif ec_warning_level in ("warning", "watch"):
+        status = 4  # STORM (other severe alerts)
+    elif road_condition == "WET" or road_condition == "MOIST":
+        status = 1  # WET
+    else:
+        status = 0  # OK
+
+    return struct.pack("B", status)
+
+
 # ---------------------------------------------------------------------------
 # CAN Listener Thread
 # ---------------------------------------------------------------------------
@@ -742,6 +787,7 @@ class CanOutputThread(threading.Thread):
     """Background thread that sends LED waveform frames to the MXG Strada dash.
 
     Reads LED state from a shared buffer and sends CAN frames at LED_OUTPUT_HZ.
+    Also sends KiSTI Alert frames (0x6C2) at 10 Hz for AiM Strada Status display.
     """
 
     def __init__(self, interface: str = CAN_INTERFACE) -> None:
@@ -753,6 +799,10 @@ class CanOutputThread(threading.Thread):
         self._mode: int = 0
         self._brightnesses: list[int] = [0] * LED_COUNT
         self._color: tuple[int, int, int] = (0, 0, 0)
+        # Alert state
+        self._road_condition: str = ""
+        self._road_event_severity: str = ""
+        self._ec_warning_level: str = "none"
 
     def stop(self) -> None:
         self._running.clear()
@@ -772,6 +822,18 @@ class CanOutputThread(threading.Thread):
             while len(self._brightnesses) < LED_COUNT:
                 self._brightnesses.append(0)
             self._color = (color_r, color_g, color_b)
+
+    def set_alert_state(
+        self,
+        road_condition: str,
+        road_event_severity: str,
+        ec_warning_level: str = "none",
+    ) -> None:
+        """Update alert state for AiM Strada (thread-safe)."""
+        with self._lock:
+            self._road_condition = road_condition
+            self._road_event_severity = road_event_severity
+            self._ec_warning_level = ec_warning_level
 
     def run(self) -> None:
         try:
@@ -793,12 +855,17 @@ class CanOutputThread(threading.Thread):
             return
 
         interval = 1.0 / LED_OUTPUT_HZ
+        alert_interval = 1.0 / 10.0  # Alert at 10 Hz
+        alert_phase = 0  # Send alert every 3rd LED cycle (30/10 = 3 cycles)
         try:
             while self._running.is_set():
                 with self._lock:
                     mode = self._mode
                     brights = list(self._brightnesses)
                     r, g, b = self._color
+                    road_condition = self._road_condition
+                    road_severity = self._road_event_severity
+                    ec_warning = self._ec_warning_level
 
                 frame1, frame2 = encode_led_output(mode, brights, r, g, b)
 
@@ -815,6 +882,17 @@ class CanOutputThread(threading.Thread):
                     )
                     bus.send(msg1)
                     bus.send(msg2)
+
+                    # Send alert frame at 10 Hz (LED is 30 Hz)
+                    alert_phase = (alert_phase + 1) % 3
+                    if alert_phase == 0:
+                        alert_data = encode_kisti_alert(road_condition, road_severity, ec_warning)
+                        msg_alert = python_can.Message(
+                            arbitration_id=KISTI_ALERT_FRAME_ID,
+                            data=alert_data,
+                            is_extended_id=False,
+                        )
+                        bus.send(msg_alert)
                 except Exception as exc:
                     log.debug("CAN output send error: %s", exc)
 

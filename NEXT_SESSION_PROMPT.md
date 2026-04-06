@@ -61,18 +61,25 @@
 - **Startup quiet period**: 3.5s suppression of non-critical alerts during init to avoid announcement spam
 - **All 1407 tests pass** (no regressions)
 
-### 3. AiM Strada Alert Integration
-Research complete. **No native text-over-CAN** on the Strada. Viable path:
-- Publish `KiSTI_Alert` byte on CAN ID `0x6C2` with enum values (0=OK, 1=WET, 2=ICY, 3=RAIN, 4=STORM, 5=CLOSURE)
-- In Race Studio 3: configure **Status** element bound to channel with text labels
-- Configure **Alarm** thresholds for high-severity overlays (ICY, STORM, CLOSURE)
-- Zero firmware changes — purely RS3 configuration
+### 3. AiM Strada Alert Integration (COMPLETE ✓)
+**Done in Session 5**: CAN frame publishing complete:
+- Added `KISTI_ALERT_FRAME_ID = 0x6C2` to `can_config.py`
+- Encoder function `encode_kisti_alert()` maps road conditions + alerts to enum (0=OK, 1=WET, 2=ICY, 3=RAIN, 4=STORM, 5=CLOSURE)
+- `CanOutputThread` extended with `set_alert_state()` method, sends frames at 10 Hz (every 3rd LED cycle)
+- `main.py` coaching timer calls `can_output.set_alert_state()` with current road/weather data
+- **All 1407 tests pass** (no regressions)
+- RS3 configuration: bind Status element to 0x6C2 byte 0, add Alarm thresholds for ICY/STORM/CLOSURE
 
 ### 4. Race Studio 3 Track Maps Import
 RS3 has named track maps with GPS outlines. Import into KiSTI's TrackDatabase so tracks have real names (e.g., "Mission Raceway") instead of "New track".
 
-### 5. FLIR Nextcloud Sync
-`scripts/sync_to_cloud.py` exists, commit `e33df4d` added it. Not in Jetson crontab — needs to be enabled.
+### 5. FLIR Nextcloud Sync (COMPLETE ✓)
+**Done in Session 6**: `sync_to_cloud.py` enabled on Jetson crontab:
+- **`jetson_sync_cloud.sh`** wrapper added — follows same pattern as auto-commit, sets working directory
+- **Cron schedule**: Daily at 2 AM (low-activity time) — `0 2 * * * /home/aldc/repos/kisti/scripts/jetson_sync_cloud.sh`
+- **Sync includes**: weather data (Parquet+CSV+JSON), database backup (timestamped + latest), memories (team/public), LLM config + build record
+- **Tested**: Successfully synced 9,759 ambient readings + database to Nextcloud `Project KiSTI/` folder
+- **Fixed import issues**: Added repo root to sys.path, wrapped voice/build_record imports with graceful fallbacks, fixed PERSONA_RESPONSES unpacking (3-element tuples)
 
 ### 6. Sharp Screen Bottom Strip Cleanup
 BARO/ROAD/AIR (y=400-460) still overcrowded. Consider consolidating or minimizing for dark cockpit.

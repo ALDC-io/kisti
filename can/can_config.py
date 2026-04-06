@@ -58,6 +58,15 @@ KEYPAD_FRAME_ID: int = 0x6B2      # 8-Button Keypad state, on-change
 
 LED_OUTPUT_FRAME_ID: int = 0x6C0   # LED waveform output frame 1, 30 Hz
 LED_OUTPUT_FRAME_2_ID: int = 0x6C1 # LED waveform output frame 2, 30 Hz
+KISTI_ALERT_FRAME_ID: int = 0x6C2  # AiM Strada alert status, 10 Hz (bound to RS3 Status element)
+
+# ---------------------------------------------------------------------------
+# 0x6C2 — KiSTI Alert frame layout (1 byte)
+# ---------------------------------------------------------------------------
+# Byte0: Alert_Status  uint8   0=OK, 1=WET, 2=ICY, 3=RAIN, 4=STORM, 5=CLOSURE
+# Bytes1-7: reserved
+
+KISTI_ALERT_STATUS_OFFSET: int = 0
 
 # ---------------------------------------------------------------------------
 # CAN ID Sets
@@ -86,7 +95,7 @@ KISTI_CAN_IDS: set[int] = _BASE_CAN_IDS | (
 )
 
 # IDs we send (output) — excluded from listener filter
-KISTI_CAN_OUTPUT_IDS: set[int] = {LED_OUTPUT_FRAME_ID, LED_OUTPUT_FRAME_2_ID}
+KISTI_CAN_OUTPUT_IDS: set[int] = {LED_OUTPUT_FRAME_ID, LED_OUTPUT_FRAME_2_ID, KISTI_ALERT_FRAME_ID}
 
 # ---------------------------------------------------------------------------
 # CAN interface

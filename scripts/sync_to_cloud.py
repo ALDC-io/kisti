@@ -22,6 +22,11 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Ensure repo is in path for module imports (allows running from any directory)
+repo_root = Path(__file__).parent.parent
+if str(repo_root) not in sys.path:
+    sys.path.insert(0, str(repo_root))
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("kisti.sync.cloud")
 
@@ -317,8 +322,7 @@ def sync_flir(db_path: Path) -> int:
 
 def sync_llm() -> bool:
     """Sync LLM configuration (system prompt, persona, token caps) to Nextcloud."""
-    with tempfile.TemporaryDirectory() as tmp:
-        # Export current LLM config as reference
+    try:
         from voice.llm_engine import (
             KISTI_SYSTEM_PROMPT,
             MODE_TOKEN_CAPS,
@@ -326,6 +330,12 @@ def sync_llm() -> bool:
             PERSONA_RESPONSES,
             DEFAULT_MODEL,
         )
+    except ImportError as exc:
+        log.warning("Could not import LLM config: %s — skipping LLM sync", exc)
+        return False
+
+    with tempfile.TemporaryDirectory() as tmp:
+        # Export current LLM config as reference
 
         config = {
             "synced_at": datetime.now(timezone.utc).isoformat(),
@@ -335,8 +345,8 @@ def sync_llm() -> bool:
             "system_prompt": KISTI_SYSTEM_PROMPT,
             "persona_responses_count": len(PERSONA_RESPONSES),
             "persona_keywords": [
-                {"keywords": kws, "response_preview": resp[:80] + "..."}
-                for kws, resp in PERSONA_RESPONSES
+                {"keywords": kws, "response_preview": resp[:80] + "...", "category": cat}
+                for kws, resp, cat in PERSONA_RESPONSES
             ],
         }
 
@@ -345,7 +355,12 @@ def sync_llm() -> bool:
         _rclone_copy(out, f"{CLOUD_BASE}/llm/llm_config.json")
 
         # Export build record
-        from data.build_record import build_summary, build_detail, BASELINES
+        try:
+            from data.build_record import build_summary, build_detail, BASELINES
+        except ImportError:
+            log.warning("Could not import build record — skipping")
+            log.info("LLM config sync complete")
+            return True
 
         build = {
             "synced_at": datetime.now(timezone.utc).isoformat(),

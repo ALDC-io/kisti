@@ -992,6 +992,14 @@ def main():
                             provider.update_highway(hwy)
                             log.info("Road weather auto-detect: switched to Hwy %s", hwy)
 
+            # Update AiM Strada alert frame (0x6C2) for Status element display
+            if can_output:
+                can_output.set_alert_state(
+                    road_condition=snap.drivebc_road_condition,
+                    road_event_severity=snap.drivebc_event_severity,
+                    ec_warning_level=snap.ec_warning_level,
+                )
+
         _coaching_timer.timeout.connect(_coaching_tick)
         _coaching_timer.start()
 
