@@ -28,6 +28,7 @@ Layout (800x480):
 from __future__ import annotations
 
 import math
+import time
 from collections import deque
 from typing import Optional
 
@@ -63,17 +64,18 @@ from ui.theme import (
 
 
 # ---------------------------------------------------------------------------
-# DriveBC event banner formatter
+# Road weather event banner formatter
 # ---------------------------------------------------------------------------
 
-def _drivebc_event_banner(text: str) -> str:
-    """Format DriveBC event for at-a-glance banner."""
+def _road_weather_event_banner(text: str, source: str) -> str:
+    """Format road weather event for at-a-glance banner."""
+    source_label = source or 'ROAD'
     if not text:
-        return "DriveBC: Road event ahead"
+        return f"{source_label}: Road event ahead"
     parts = text.split(". ")
     lead = parts[0].rstrip(".")
     details = [p.rstrip(".") for p in parts[1:] if not p.startswith(("Until ", "From ", "Starting ", "Last updated ", "Next update "))]
-    banner = f"DriveBC: {lead} ahead"
+    banner = f"{source_label}: {lead} ahead"
     if details:
         banner += f" — {details[0]}"
     return banner[:80]
@@ -178,8 +180,9 @@ class SportSharpScreenWidget(QWidget):
         # Paint counter for edge glow pulse
         self._paint_count: int = 0
 
-        # Voice ticker (fed from main.py at 1Hz)
+        # Voice ticker (fed from main.py at 1Hz) — 2s decay for dark cockpit
         self._voice_ticker: list[str] = []
+        self._voice_ticker_ts: float = 0.0
 
         # Balance / grip (fed from coaching analyzers)
         self._balance_ratio: float = 1.0
@@ -199,6 +202,8 @@ class SportSharpScreenWidget(QWidget):
 
     def update_voice_ticker(self, lines: list[str]) -> None:
         """Cache voice ticker lines (called at 1Hz from main.py)."""
+        if lines != self._voice_ticker:
+            self._voice_ticker_ts = time.monotonic()
         self._voice_ticker = lines
 
     def update_timing(self, timing_data: dict) -> None:
@@ -555,14 +560,17 @@ class SportSharpScreenWidget(QWidget):
                 p.setFont(_font(16, bold=True))
                 p.drawText(QRectF(510, _STRIP_Y0 + 16, 60, 22), Qt.AlignLeft, f"{air_temp:.0f}°")
 
-        # --- Voice ticker (x=580..790) ---
-        if self._voice_ticker:
+        # --- Voice ticker (x=580..790) — dark cockpit: 2s decay ---
+        ticker_age = time.monotonic() - self._voice_ticker_ts
+        if self._voice_ticker and ticker_age < 2.0:
             lines = self._voice_ticker[:2]
-            alphas = [160, 90]
+            # Fade out over the last 0.5s
+            fade = max(0.0, min(1.0, (2.0 - ticker_age) / 0.5))
+            alphas = [int(160 * fade), int(90 * fade)]
             for i, line in enumerate(lines):
                 p.setFont(_font(10))
                 text_color = QColor(WHITE)
-                text_color.setAlpha(alphas[i] if i < len(alphas) else 40)
+                text_color.setAlpha(alphas[i] if i < len(alphas) else 0)
                 p.setPen(QPen(text_color))
                 y = _STRIP_Y0 + 6 + i * 24
                 p.drawText(QRectF(580, y, 210, 20),
@@ -615,18 +623,20 @@ class SportSharpScreenWidget(QWidget):
 
         if snap.drivebc_available and snap.drivebc_road_condition:
             cond = snap.drivebc_road_condition.upper()
+            source = snap.road_weather_source or 'ROAD'
             if cond in ("ICY", "SNOWY", "FROSTY"):
-                dbc_text = f"DriveBC: {cond} road — {snap.drivebc_station_name}"
+                dbc_text = f"{source}: {cond} road — {snap.drivebc_station_name}"
                 candidates.append((42, dbc_text, QColor(180, 20, 20), white))
             elif cond in ("WET", "SLUSHY", "MOIST"):
-                dbc_text = f"DriveBC: {cond} road — {snap.drivebc_station_name}"
+                dbc_text = f"{source}: {cond} road — {snap.drivebc_station_name}"
                 candidates.append((15, dbc_text, QColor(30, 80, 160), white))
 
         if snap.drivebc_available and snap.drivebc_event_count > 0:
             sev = snap.drivebc_event_severity
             evt_sev = 48 if sev == "CLOSURE" else 22
             evt_bg = QColor(180, 20, 20) if sev == "CLOSURE" else QColor(200, 120, 0)
-            candidates.append((evt_sev, _drivebc_event_banner(snap.drivebc_event_text), evt_bg, white))
+            source = snap.road_weather_source or 'ROAD'
+            candidates.append((evt_sev, _road_weather_event_banner(snap.drivebc_event_text, source), evt_bg, white))
 
         if not candidates:
             return

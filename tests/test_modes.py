@@ -48,7 +48,7 @@ def manager(bridge):
 
 class TestModeManagerInit:
     def test_default_state(self, manager):
-        assert manager.si_drive_mode == SIDriveMode.INTELLIGENT
+        assert manager.si_drive_mode == SIDriveMode.SPORT
         assert manager.warmup_state == WarmUpState.COLD
         assert manager.display_mode == DisplayMode.KISTI
         assert manager.coaching_level == CoachingLevel.FULL
@@ -56,15 +56,15 @@ class TestModeManagerInit:
 
 
 class TestSIDriveTransitions:
-    def test_intelligent_to_sport(self, manager, bridge):
-        """SI Drive change from Intelligent to Sport."""
+    def test_sport_to_sport_sharp_transition(self, manager, bridge):
+        """SI Drive change from Sport to Sport Sharp."""
         received = []
         manager.si_drive_changed.connect(lambda v: received.append(v))
 
-        bridge.update_si_drive(mode=1)  # Sport
+        bridge.update_si_drive(mode=2)  # Sport Sharp
 
-        assert manager.si_drive_mode == SIDriveMode.SPORT
-        assert received == [1]
+        assert manager.si_drive_mode == SIDriveMode.SPORT_SHARP
+        assert received == [2]
 
     def test_sport_to_sport_sharp(self, manager, bridge):
         bridge.update_si_drive(mode=1)
@@ -76,7 +76,7 @@ class TestSIDriveTransitions:
         received = []
         manager.si_drive_changed.connect(lambda v: received.append(v))
 
-        bridge.update_si_drive(mode=0)  # Already Intelligent
+        bridge.update_si_drive(mode=1)  # Already Sport (default)
         assert received == []  # No change signal
 
 
@@ -122,6 +122,9 @@ class TestKeypadRouting:
 
     def test_k5_coaching_cycle(self, manager, bridge):
         """K5 cycles coaching level in Intelligent mode."""
+        # Switch to Intelligent mode first (default is now Sport)
+        bridge.update_si_drive(mode=0)
+        assert manager.si_drive_mode == SIDriveMode.INTELLIGENT
         assert manager.coaching_level == CoachingLevel.FULL
 
         bridge.update_keypad(state=KEYPAD_K5, prev_state=0)
@@ -178,13 +181,13 @@ class TestSIDriveDisplaySwitch:
         bridge.update_keypad(state=KEYPAD_K6, prev_state=0)
         # No crash, no state change — K6 is a no-op now
 
-    def test_mode_switch_intelligent_to_sport(self, manager, bridge):
-        """SI-Drive switch from Intelligent to Sport."""
+    def test_mode_switch_sport_to_intelligent(self, manager, bridge):
+        """SI-Drive switch from Sport to Intelligent."""
         received = []
         manager.si_drive_changed.connect(lambda v: received.append(v))
-        bridge.update_si_drive(mode=1)
-        assert manager.si_drive_mode == SIDriveMode.SPORT
-        assert received == [1]
+        bridge.update_si_drive(mode=0)
+        assert manager.si_drive_mode == SIDriveMode.INTELLIGENT
+        assert received == [0]
 
     def test_mode_switch_sport_to_sharp(self, manager, bridge):
         """SI-Drive switch from Sport to Sport Sharp."""
@@ -193,13 +196,13 @@ class TestSIDriveDisplaySwitch:
         assert manager.si_drive_mode == SIDriveMode.SPORT_SHARP
 
     def test_full_cycle(self, manager, bridge):
-        """Full SI-Drive cycle: I -> S -> S# -> I."""
+        """Full SI-Drive cycle: S -> S# -> I -> S (default is Sport)."""
         modes = []
         manager.si_drive_changed.connect(lambda v: modes.append(v))
-        bridge.update_si_drive(mode=1)  # Sport
         bridge.update_si_drive(mode=2)  # Sport Sharp
         bridge.update_si_drive(mode=0)  # Intelligent
-        assert modes == [1, 2, 0]
+        bridge.update_si_drive(mode=1)  # Sport
+        assert modes == [2, 0, 1]
 
 
 class TestSIDriveStaleness:

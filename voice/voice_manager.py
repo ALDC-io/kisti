@@ -49,6 +49,13 @@ class DialogueTurn:
     timestamp: float           # monotonic time
 
 
+@dataclass(order=True)
+class SpeakItem:
+    """Priority queue item for TTS."""
+    priority: int  # Higher = more critical, dropped first when queue full
+    text: str = field(compare=False)
+
+
 @dataclass
 class DialogueState:
     """Short-horizon conversational memory for reference resolution.
@@ -298,7 +305,9 @@ class VoiceManager(QObject):
         # No Qt signal crossing threads. UI reads at 20 Hz via _update_levels.
         self._waveform_data = None  # (envelope_list, start_monotonic) or None
 
-        self._speak_queue: queue.Queue[str] = queue.Queue(maxsize=10)
+        self._speak_queue: queue.PriorityQueue[SpeakItem] = queue.PriorityQueue(maxsize=2)
+        self._startup_ts: float = 0.0
+        self._startup_quiet_period_s: float = 3.5
         self._worker_thread: Optional[threading.Thread] = None
         self._running = False
         self._stt_lock = threading.Lock()  # Serialize STT — one Whisper call at a time
@@ -360,6 +369,8 @@ class VoiceManager(QObject):
         self._llm.start()
         self._running = True
 
+        self._startup_ts = time.monotonic()
+
         self._worker_thread = threading.Thread(
             target=self._voice_loop,
             daemon=True,
@@ -381,11 +392,15 @@ class VoiceManager(QObject):
         self._set_state(VoiceState.IDLE)
         self._toggle_state = VoiceToggleState.NORMAL
 
-        log.info("Voice manager started (STT=%s, TTS=%s, LLM=%s, Mic=%s)",
+        # Announce time-of-day greeting
+        self._announce_greeting()
+
+        log.info("Voice manager started (STT=%s, TTS=%s, LLM=%s, Mic=%s, startup_quiet=%.1fs)",
                  "real" if self._stt.is_real else "mock",
                  "real" if self._tts.is_real else "mock",
                  "real" if self._llm.is_real else "persona",
-                 mic_status)
+                 mic_status,
+                 self._startup_quiet_period_s)
 
     def stop(self) -> None:
         """Stop all voice subsystems."""
@@ -476,14 +491,37 @@ class VoiceManager(QObject):
         log.info("Voice toggle: %s", self._toggle_state.name)
         return self._toggle_state
 
+    def _announce_greeting(self) -> None:
+        """Emit time-of-day greeting at startup."""
+        hour = time.localtime().tm_hour
+        if hour < 12:
+            greeting = "Good morning"
+        elif hour < 18:
+            greeting = "Good afternoon"
+        else:
+            greeting = "Good evening"
+
+        # Queue with high priority, non-blocking
+        item = SpeakItem(priority=95, text=greeting)
+        try:
+            self._speak_queue.put_nowait(item)
+        except queue.Full:
+            pass
+
     def speak(self, text: str) -> None:
         """Queue text to be spoken (from alerts, proactive commentary, etc.)."""
         if self._state in (VoiceState.QUIET, VoiceState.OFF):
             return
         if self._si_drive_mode == SIDriveMode.SPORT_SHARP:
             return  # No queued speech in S#
+
+        # During startup quiet period, suppress non-critical speech
+        if time.monotonic() - self._startup_ts < self._startup_quiet_period_s:
+            return
+
+        item = SpeakItem(priority=10, text=text)  # info priority
         try:
-            self._speak_queue.put_nowait(text)
+            self._speak_queue.put_nowait(item)
         except queue.Full:
             log.debug("Speak queue full, dropping: %s", text[:30])
 
@@ -495,24 +533,32 @@ class VoiceManager(QObject):
         if self._state == VoiceState.OFF:
             return
 
-        # Critical alerts always speak in all modes
-        if severity == "critical":
-            try:
-                self._speak_queue.put_nowait(text)
-            except queue.Full:
-                pass
-            return
+        # During startup quiet period, suppress non-critical alerts
+        if time.monotonic() - self._startup_ts < self._startup_quiet_period_s:
+            if severity != "critical":
+                return
 
-        # Non-critical filtering by mode
-        if self._si_drive_mode == SIDriveMode.SPORT_SHARP:
-            return  # Only critical in S#
-        if self._si_drive_mode == SIDriveMode.SPORT and severity == "info":
-            return  # No info in Sport
+        # Map severity to priority (higher = more critical, dropped last)
+        severity_priority = {
+            "critical": 100,
+            "warning": 50,
+            "advisory": 25,
+            "info": 10,
+        }
+        priority = severity_priority.get(severity, 0)
 
+        # Mode filtering for non-critical
+        if severity != "critical":
+            if self._si_drive_mode == SIDriveMode.SPORT_SHARP:
+                return  # Only critical in S#
+            if self._si_drive_mode == SIDriveMode.SPORT and severity == "info":
+                return  # No info in Sport
+
+        item = SpeakItem(priority=priority, text=text)
         try:
-            self._speak_queue.put_nowait(text)
+            self._speak_queue.put_nowait(item)
         except queue.Full:
-            pass
+            log.debug("Alert queue full, dropping: %s", text[:30])
 
     def _compose_and_speak(
         self, response: VoiceResponse, user_text: str = "",
@@ -545,8 +591,9 @@ class VoiceManager(QObject):
 
         # Queue for TTS (sole audio path — _do_speak handles echo suppression + barge-in)
         if response.text:
+            item = SpeakItem(priority=30, text=response.text)  # advisory priority for LLM responses
             try:
-                self._speak_queue.put_nowait(response.text)
+                self._speak_queue.put_nowait(item)
             except queue.Full:
                 log.debug("Speak queue full, dropping: %s", response.text[:30])
 
@@ -781,10 +828,11 @@ class VoiceManager(QObject):
         """Main voice processing loop (runs in worker thread)."""
         while self._running:
             try:
-                # Process speak queue
+                # Process speak queue (priority queue with maxsize=2)
                 try:
-                    text = self._speak_queue.get(timeout=0.1)
-                    self._do_speak(text)
+                    item = self._speak_queue.get(timeout=0.1)
+                    if item:
+                        self._do_speak(item.text)
                 except queue.Empty:
                     # No speech queued — generate idle LED pattern
                     if self._state == VoiceState.IDLE and self._si_drive_mode == SIDriveMode.INTELLIGENT:

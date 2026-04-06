@@ -578,7 +578,7 @@ class TestTrackLearning:
         _feed_gps(bridge, _make_learn_loop())
 
         assert len(detected) == 1
-        assert "Track at" in detected[0]
+        assert detected[0] == "New track"
 
         # Verify saved to DuckDB
         from timing.track_db import TrackDatabase

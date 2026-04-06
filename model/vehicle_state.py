@@ -194,7 +194,7 @@ class DiffState:
     # --- G5 Neo 4 additions ---
 
     # SI Drive mode (analog input to ECU, output via User CAN)
-    si_drive_mode: SIDriveMode = SIDriveMode.INTELLIGENT
+    si_drive_mode: SIDriveMode = SIDriveMode.SPORT  # STI hardware default
 
     # Generic Dash stream (0x360-0x362)
     rpm: float = 0.0                   # RPM

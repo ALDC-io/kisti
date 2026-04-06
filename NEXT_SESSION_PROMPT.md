@@ -52,27 +52,29 @@
 - `model/vehicle_state.py` — Added `road_weather_source` field
 - **All 1407 tests pass** (3 pre-existing failures now fixed)
 
-### 2. Voice UX Overhaul
-- **Time-of-day greeting**: "Good morning/afternoon/evening" based on hour
-- **TTS priority queue**: max 2 pending, drop lowest severity when full
-- **3-5 second quiet period** after startup before voice alerts
-- **Star Trek brevity**: no coordinates, no units, no field names. "Storm approaching" not "pressure falling 3.8 hPa/hr"
-- **Alert dedup in demo**: ambient + event simulators fire simultaneously, causing overlap
+### 2. Voice UX Overhaul (COMPLETE ✓)
+**Done in Session 4**: All 4 phases implemented:
+- **Phase 1**: Star Trek brevity — rewrote 11 alert messages (oil, coolant, fuel, battery, weather, snow risk). No units, coordinates, or field names
+- **Phase 2**: Priority queue — replaced FIFO queue with `queue.PriorityQueue(maxsize=2)` using `SpeakItem` dataclass. Severity-based priorities: critical=100, warning=50, advisory=25, info=10
+- **Phase 3**: Time-of-day greeting — added `_announce_greeting()` method, called at startup. "Good morning/afternoon/evening" based on hour
+- **Phase 4**: Demo alert dedup — added 3-second window in `EventSimulator` to prevent simultaneous road_condition + ec_weather alerts
+- **Startup quiet period**: 3.5s suppression of non-critical alerts during init to avoid announcement spam
+- **All 1407 tests pass** (no regressions)
 
-### 4. AiM Strada Alert Integration
+### 3. AiM Strada Alert Integration
 Research complete. **No native text-over-CAN** on the Strada. Viable path:
 - Publish `KiSTI_Alert` byte on CAN ID `0x6C2` with enum values (0=OK, 1=WET, 2=ICY, 3=RAIN, 4=STORM, 5=CLOSURE)
 - In Race Studio 3: configure **Status** element bound to channel with text labels
 - Configure **Alarm** thresholds for high-severity overlays (ICY, STORM, CLOSURE)
 - Zero firmware changes — purely RS3 configuration
 
-### 5. Race Studio 3 Track Maps Import
+### 4. Race Studio 3 Track Maps Import
 RS3 has named track maps with GPS outlines. Import into KiSTI's TrackDatabase so tracks have real names (e.g., "Mission Raceway") instead of "New track".
 
-### 6. FLIR Nextcloud Sync
+### 5. FLIR Nextcloud Sync
 `scripts/sync_to_cloud.py` exists, commit `e33df4d` added it. Not in Jetson crontab — needs to be enabled.
 
-### 7. Sharp Screen Bottom Strip Cleanup
+### 6. Sharp Screen Bottom Strip Cleanup
 BARO/ROAD/AIR (y=400-460) still overcrowded. Consider consolidating or minimizing for dark cockpit.
 
 ## Key Files

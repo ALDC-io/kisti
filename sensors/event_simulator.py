@@ -154,6 +154,10 @@ class EventSimulator(QObject):
         self._road_temp: float = _PHASES[0].road_temp_c or 14.0
         self._air_temp: float = _PHASES[0].air_temp_c or 16.0
 
+        # Alert dedup window: prevent simultaneous alerts within 3s window
+        self._last_alert_time: dict[str, float] = {}
+        self._alert_dedup_window_s: float = 3.0
+
     def start(self) -> None:
         """Start the event simulation."""
         self._tick_count = 0
@@ -161,15 +165,26 @@ class EventSimulator(QObject):
         self._phase_tick = 0
         self._road_temp = _PHASES[0].road_temp_c or 14.0
         self._air_temp = _PHASES[0].air_temp_c or 16.0
+        self._last_alert_time.clear()
 
         total = sum(p.duration_s for p in _PHASES)
-        log.info("Event simulation starting (%d phases, %ds total)", len(_PHASES), total)
+        log.info("Event simulation starting (%d phases, %ds total, dedup=%fs)", len(_PHASES), total, self._alert_dedup_window_s)
         self._timer.start()
         self._push()
 
     def stop(self) -> None:
         self._timer.stop()
         log.info("Event simulation stopped at tick %d", self._tick_count)
+
+    def _should_push_alert(self, alert_type: str) -> bool:
+        """Check if alert type should fire — prevents simultaneous alerts within dedup window."""
+        import time
+        now = time.monotonic()
+        last = self._last_alert_time.get(alert_type, 0.0)
+        if now - last < self._alert_dedup_window_s:
+            return False
+        self._last_alert_time[alert_type] = now
+        return True
 
     def _tick(self) -> None:
         self._tick_count += 1
@@ -199,28 +214,32 @@ class EventSimulator(QObject):
         self._push()
 
     def _push(self) -> None:
-        """Push current state into DiffStateBridge."""
+        """Push current state into DiffStateBridge with dedup spacing."""
         phase = _PHASES[self._phase_idx]
 
-        self._bridge.update_drivebc(
-            road_condition=phase.road_condition,
-            road_temp_c=round(self._road_temp, 1),
-            station_name=phase.station_name,
-            station_distance_km=phase.station_distance_km,
-            precipitation_mm=phase.precipitation_mm,
-            wind_kph=phase.wind_kph,
-            event_count=phase.event_count,
-            event_text=phase.event_text,
-            event_severity=phase.event_severity,
-            data_age_s=0.0,
-            air_temp_c=round(self._air_temp, 1),
-        )
+        # Push road condition if dedup window allows
+        if self._should_push_alert("road_condition"):
+            self._bridge.update_drivebc(
+                road_condition=phase.road_condition,
+                road_temp_c=round(self._road_temp, 1),
+                station_name=phase.station_name,
+                station_distance_km=phase.station_distance_km,
+                precipitation_mm=phase.precipitation_mm,
+                wind_kph=phase.wind_kph,
+                event_count=phase.event_count,
+                event_text=phase.event_text,
+                event_severity=phase.event_severity,
+                data_age_s=0.0,
+                air_temp_c=round(self._air_temp, 1),
+            )
 
-        self._bridge.update_ec_weather(
-            warning_level=phase.ec_warning_level,
-            warning_text=phase.ec_warning_text,
-            condition=phase.ec_condition,
-            forecast_condition=phase.ec_forecast_condition,
-            data_age_s=0.0,
-            warning_description=phase.ec_warning_description,
-        )
+        # Push EC weather if dedup window allows
+        if self._should_push_alert("ec_weather"):
+            self._bridge.update_ec_weather(
+                warning_level=phase.ec_warning_level,
+                warning_text=phase.ec_warning_text,
+                condition=phase.ec_condition,
+                forecast_condition=phase.ec_forecast_condition,
+                data_age_s=0.0,
+                warning_description=phase.ec_warning_description,
+            )

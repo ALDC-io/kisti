@@ -2,17 +2,21 @@
 
 Compact single-line GPS readout for STREET mode.
 22px tall — shows lat/lon, heading, and speed source confirmation.
+Dark cockpit: invisible when no GPS fix (lat/lon both zero).
 """
 
 from PySide6.QtCore import Qt, QRectF
 from PySide6.QtGui import QPainter, QPen, QColor, QFont
 from PySide6.QtWidgets import QWidget
 
-from ui.theme import BG_PANEL, CHROME_DARK, CYAN, GRAY, HIGHLIGHT
+from ui.theme import BG_PANEL, CHROME_DARK, CYAN, DIM, GRAY, HIGHLIGHT
 
 
 class GPSStatusLine(QWidget):
-    """Compact GPS position readout — 22px tall."""
+    """Compact GPS position readout — 22px tall.
+
+    Dark cockpit: only renders content when GPS fix is active.
+    """
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -38,19 +42,25 @@ class GPSStatusLine(QWidget):
         w, h = self.width(), self.height()
 
         p.fillRect(0, 0, w, h, QColor(BG_PANEL))
+
+        # Dark cockpit: no GPS fix → just the dark background
+        if self._lat == 0.0 and self._lon == 0.0:
+            p.end()
+            return
+
         p.setPen(QPen(QColor(CHROME_DARK), 1))
         p.drawRect(0, 0, w - 1, h - 1)
 
         # GPS label
         p.setFont(QFont("Helvetica", 8))
-        p.setPen(QPen(QColor(HIGHLIGHT)))
+        p.setPen(QPen(QColor(DIM)))
         p.drawText(QRectF(4, 0, 28, h), Qt.AlignVCenter, "GPS")
 
-        # Coordinates + heading
+        # Heading only (no raw coords — dark cockpit)
         p.setFont(QFont("Helvetica", 9))
         p.setPen(QPen(QColor(CYAN)))
         hdg = self._heading_label(self._heading)
-        text = f"{self._lat:.4f}, {self._lon:.4f}  {self._heading:.0f}\u00b0 {hdg}"
+        text = f"{self._heading:.0f}\u00b0 {hdg}"
         p.drawText(QRectF(34, 0, w - 40, h), Qt.AlignVCenter, text)
 
         p.end()

@@ -1,5 +1,47 @@
 # KiSTI - Progress
 
+## Session: 2026-04-06 (kisti-multi-provider-weather — Ontario 511 + Infrastructure Complete)
+
+### Status: COMPLETE
+
+### Completed
+- **Ontario 511 Poller** (`sensors/ontario511_weather.py`, 420 lines) — Castle Rock platform integration for Ontario road events + conditions year-round (546 records). Mirrors Alberta 511 pattern. Condition field is array of strings (e.g., "Bare and dry road", "Ice on road") mapped to state categories (DRY/WET/SNOWY/ICY). No temperature data provided (road_temp_c=None). Default location Toronto (43.65, -79.38), Ontario bbox (-95.2,41.7,-74.3,56.9). Polling: events 2min, conditions 5min.
+- **Ontario 511 Test Suite** (`tests/test_ontario511_weather.py`, 46 tests) — Comprehensive coverage: event parsing, severity mapping (CLOSURE/MAJOR/MINOR), full closure override, bbox filtering, nearest event selection by haversine + severity tiebreak, condition extraction from string arrays, malformed response handling, bbox parsing edge cases, poller integration, poll interval timing.
+- **Test Infrastructure Complete** — All 1407 tests passing (1361 baseline + 46 new Ontario 511). Multi-provider system (DriveBC, Alberta 511, IEM RWIS, EC, Ontario 511) fully wired and tested.
+- **Road Weather Manager Integration** — GPS-based provider activation already in place (RoadWeatherManager in main.py from previous session). Providers auto-activate/deactivate as vehicle moves between regions (BC/AB/ON/US).
+- **DiffState Provider Attribution** — `road_weather_source` field correctly populated by each provider (e.g., "511ON", "IEM-IA", "DriveBC"). UI can display active source without code changes.
+
+### Key Decisions
+- **Condition array handling** — Ontario 511 returns conditions as string array vs. single value (Alberta). Implemented array iteration with exact-match-first, case-insensitive-substring-second fallback. Selects first applicable mapping to avoid ambiguity (e.g., ["Bare and dry", "Good visibility"] → DRY, not "VISIBILITY_GOOD").
+- **No temperature data** — Unlike Alberta 511 or RWIS, Ontario 511 endpoint provides no surface/air temperature. Gracefully leave road_temp_c and air_temp_c as None; bridge handles nulls correctly.
+- **Nearest segment selection** — Ontario conditions are point-based (546 records), not highways. Haversine distance is primary selector; no severity tiebreak (conditions don't have severity). Finds nearest, extracts its condition array.
+
+### Don't Repeat
+- Condition string matching is case-sensitive in exact match — must check exact case first, then lower() for substring
+- Ontario 511 arrays can contain multiple conditions; don't just take [0] — iterate and map each, select first match
+- Bbox coordinates are (lon_min, lat_min, lon_max, lat_max), not (lat_min, lon_min, lat_max, lon_max) — always verify order
+
+### Files Changed
+- `sensors/ontario511_weather.py` — NEW, 420 lines, Ontario511Poller class
+- `tests/test_ontario511_weather.py` — NEW, 465 lines, 46 comprehensive tests
+- `NEXT_SESSION_PROMPT.md` — UPDATED, marked Ontario 511 and RoadWeatherManager wiring as COMPLETE
+
+### Test Count
+- Before: 1361 tests (baseline + multi-provider infrastructure)
+- After: 1407 tests (+46 Ontario 511)
+
+### Next Session Priorities
+1. **Voice UX Overhaul** — Time-of-day greeting, TTS priority queue (max 2), 3-5s startup quiet, Star Trek brevity (no coords/units/field names), alert dedup in demo
+2. **AiM Strada Alert Integration** — Publish KiSTI_Alert enum on CAN ID 0x6C2, Race Studio 3 Status element configuration
+3. **Race Studio 3 Track Maps Import** — Load GPS outlines from RS3, populate TrackDatabase with real names
+4. **FLIR Nextcloud Sync** — Enable `scripts/sync_to_cloud.py` in Jetson crontab
+
+### Learnings Captured to Zeus Memory
+- ✅ cce_success_log: Multi-Provider Road Weather Complete (Ontario 511 + test suite)
+- ✅ cce_decision_log: Condition array iteration with exact-match-first fallback
+
+---
+
 ## Session: 2026-04-05/06 (kisti-canyon-sharp — Sport Sharp Redesign + DriveBC Integration)
 
 ### Status: COMPLETE

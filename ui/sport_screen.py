@@ -56,17 +56,18 @@ from ui.theme import (
 
 
 # ---------------------------------------------------------------------------
-# DriveBC event banner formatter
+# Road weather event banner formatter
 # ---------------------------------------------------------------------------
 
-def _drivebc_event_banner(text: str) -> str:
-    """Format DriveBC event for at-a-glance banner."""
+def _road_weather_event_banner(text: str, source: str) -> str:
+    """Format road weather event for at-a-glance banner."""
+    source_label = source or 'ROAD'
     if not text:
-        return "DriveBC: Road event ahead"
+        return f"{source_label}: Road event ahead"
     parts = text.split(". ")
     lead = parts[0].rstrip(".")
     details = [p.rstrip(".") for p in parts[1:] if not p.startswith(("Until ", "From ", "Starting ", "Last updated ", "Next update "))]
-    banner = f"DriveBC: {lead} ahead"
+    banner = f"{source_label}: {lead} ahead"
     if details:
         banner += f" — {details[0]}"
     return banner[:80]
@@ -207,10 +208,9 @@ class SportScreenWidget(QWidget):
         self._paint_technique_panel(p, snap, diff_stale, dynamics_stale)
         self._paint_g_ellipse(p, snap)
 
-        # Alert bar first (sets _alert_bar_active flag), then coaching skips if alert visible
+        # Alert bar first (sets _alert_bar_active flag), then status line shows coaching/voice
         self._paint_weather_threat(p, snap)
-        self._paint_coaching(p)
-        self._paint_voice_ticker(p)
+        self._draw_status_line(p)
 
         # Edge glow for LOW_GRIP
         if not snap.is_road_surface_stale():
@@ -344,18 +344,20 @@ class SportScreenWidget(QWidget):
 
         if snap.drivebc_available and snap.drivebc_road_condition:
             cond = snap.drivebc_road_condition.upper()
+            source = snap.road_weather_source or 'ROAD'
             if cond in ("ICY", "SNOWY", "FROSTY"):
-                dbc_text = f"DriveBC: {cond} road — {snap.drivebc_station_name}"
+                dbc_text = f"{source}: {cond} road — {snap.drivebc_station_name}"
                 candidates.append((42, dbc_text, QColor(180, 20, 20), white))
             elif cond in ("WET", "SLUSHY", "MOIST"):
-                dbc_text = f"DriveBC: {cond} road — {snap.drivebc_station_name}"
+                dbc_text = f"{source}: {cond} road — {snap.drivebc_station_name}"
                 candidates.append((15, dbc_text, QColor(30, 80, 160), white))
 
         if snap.drivebc_available and snap.drivebc_event_count > 0:
             sev = snap.drivebc_event_severity
             evt_sev = 48 if sev == "CLOSURE" else 22
             evt_bg = QColor(180, 20, 20) if sev == "CLOSURE" else QColor(200, 120, 0)
-            candidates.append((evt_sev, _drivebc_event_banner(snap.drivebc_event_text), evt_bg, white))
+            source = snap.road_weather_source or 'ROAD'
+            candidates.append((evt_sev, _road_weather_event_banner(snap.drivebc_event_text, source), evt_bg, white))
 
         if not candidates:
             self._alert_bar_active = False
@@ -551,42 +553,41 @@ class SportScreenWidget(QWidget):
     # ------------------------------------------------------------------
 
     # ------------------------------------------------------------------
-    # Voice ticker (top-right panel, x=515..785, y=10..86)
+    # Status line: single line above alert bar (y=405..420)
+    # Priority: alert (suppressed here, alert bar handles it) > coaching > voice
     # ------------------------------------------------------------------
 
-    def _paint_voice_ticker(self, p: QPainter) -> None:
-        if not self._voice_ticker:
-            return
-        # Below technique panel, above coaching — right-aligned
-        p.setFont(QFont("Helvetica", 10))
-        alphas = [120, 70, 40]
-        x, y0, w = 380, 370, 400
-        for i, line in enumerate(self._voice_ticker[:3]):
-            color = QColor(WHITE)
-            color.setAlpha(alphas[min(i, 2)])
+    def _draw_status_line(self, p: QPainter) -> None:
+        """Single consolidated status line at y=405-420.
+
+        If alert bar is active, it already occupies y=422-440.
+        This line shows coaching > voice (alert wins below).
+        """
+        w = self.width()
+        line_y = 405
+        line_h = 15
+
+        # Priority 1: coaching (if available and alert not active)
+        if self._coaching_text and not self._alert_bar_active:
+            sentiment_colors = {"green": GREEN, "amber": YELLOW, "dim": DIM}
+            color = QColor(sentiment_colors.get(self._coaching_sentiment, DIM))
             p.setPen(color)
-            elided = p.fontMetrics().elidedText(line, Qt.TextElideMode.ElideRight, w)
-            p.drawText(QRectF(x, y0 + i * 15, w, 15),
-                       Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, elided)
-
-    # ------------------------------------------------------------------
-    # Coaching text (below G magnitude, y=418..438)
-    # ------------------------------------------------------------------
-
-    def _paint_coaching(self, p: QPainter) -> None:
-        if not self._coaching_text:
+            p.setFont(QFont("Helvetica", 11, QFont.Weight.Bold))
+            elided = p.fontMetrics().elidedText(self._coaching_text, Qt.TextElideMode.ElideRight, w - 16)
+            p.drawText(QRectF(8, line_y, w - 16, line_h),
+                       Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, elided)
             return
-        # Skip coaching when alert bar is active — alert wins (safety > coaching)
-        if self._alert_bar_active:
-            return
-        sentiment_colors = {"green": GREEN, "amber": YELLOW, "dim": DIM}
-        color = QColor(sentiment_colors.get(self._coaching_sentiment, DIM))
-        p.setPen(color)
-        p.setFont(QFont("Helvetica", 14, QFont.Weight.Bold))
-        p.drawText(
-            QRectF(0, 418, 800, 20),
-            Qt.AlignmentFlag.AlignCenter, self._coaching_text,
-        )
+
+        # Priority 2: voice ticker (if available)
+        if self._voice_ticker:
+            p.setFont(QFont("Helvetica", 10))
+            color = QColor(WHITE)
+            color.setAlpha(150)
+            p.setPen(color)
+            first_line = self._voice_ticker[0]
+            elided = p.fontMetrics().elidedText(first_line, Qt.TextElideMode.ElideRight, w - 16)
+            p.drawText(QRectF(8, line_y, w - 16, line_h),
+                       Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, elided)
 
     # ------------------------------------------------------------------
     # Color helpers

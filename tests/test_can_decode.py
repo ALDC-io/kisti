@@ -1430,14 +1430,14 @@ class TestMockCanDemoMode:
         mock = MockCanGenerator(bridge)
         return mock, bridge
 
-    def test_default_locked_to_intelligent(self):
-        """Without demo mode, SI-Drive stays at 0 (Intelligent)."""
+    def test_default_locked_to_sport(self):
+        """Without demo mode, SI-Drive stays at 1 (Sport) — STI hardware default."""
         mock, bridge = self._make_mock()
-        # Tick many times — should stay at mode 0
+        # Tick many times — should stay at mode 1
         for _ in range(200):
             mock._si_drive_tick()
         snap = bridge.snapshot()
-        assert snap.si_drive_mode == 0
+        assert snap.si_drive_mode == 1
 
     def test_demo_mode_cycles(self):
         """With demo mode, SI-Drive cycles 0→1→2→0 every 15s."""

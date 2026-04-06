@@ -191,13 +191,13 @@ class MapWidget(QWidget):
         p.setFont(QFont("Helvetica", 8))
         p.drawText(QRectF(m + 62, bar_y + 2, 30, bar_h), Qt.AlignVCenter, "km/h")
 
-        # GPS coords + heading — right side
-        p.setPen(QPen(QColor(CYAN)))
-        p.setFont(QFont("Helvetica", 9))
-        hdg = self._heading_label(self._heading)
-        gps_text = f"{self._lat:.4f}, {self._lon:.4f}  {self._heading:.0f}\u00b0{hdg}"
-        p.drawText(QRectF(m + 100, bar_y, w - m - 110, bar_h),
-                   Qt.AlignVCenter | Qt.AlignRight, gps_text)
+        # Heading only — dark cockpit: no raw GPS coords
+        if self._lat != 0.0 or self._lon != 0.0:
+            p.setPen(QPen(QColor(GRAY)))
+            p.setFont(QFont("Helvetica", 9))
+            hdg = self._heading_label(self._heading)
+            p.drawText(QRectF(m + 100, bar_y, w - m - 110, bar_h),
+                       Qt.AlignVCenter | Qt.AlignRight, f"{self._heading:.0f}\u00b0{hdg}")
 
         # Compass indicator (top right)
         p.setPen(QColor(GRAY))

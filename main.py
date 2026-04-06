@@ -217,9 +217,9 @@ def main():
 
     # Environment Canada regional weather (extends prediction window)
     ec_poller = None
-    # DriveBC road weather (RWIS stations + road events)
-    drivebc_poller = None
-    # Event simulator (demo mode only — replaces real EC + DriveBC pollers)
+    # Road weather manager — GPS-based provider activation (DriveBC/511AB/IEM/511ON)
+    road_mgr = None
+    # Event simulator (demo mode only — replaces real EC + road weather pollers)
     event_sim = None
 
     if args.demo:
@@ -236,12 +236,12 @@ def main():
             log.info("EC weather poller unavailable: %s", exc)
 
         try:
-            from sensors.drivebc_weather import DriveBCPoller
-            drivebc_poller = DriveBCPoller()
-            drivebc_poller.start()
-            log.info("DriveBC poller online: RWIS stations + road events")
+            from sensors.road_weather_manager import RoadWeatherManager
+            road_mgr = RoadWeatherManager(bridge)
+            road_mgr.start()
+            log.info("Road weather manager online (GPS-based provider activation)")
         except Exception as exc:
-            log.info("DriveBC poller unavailable: %s", exc)
+            log.info("Road weather manager unavailable: %s", exc)
 
     if ambient_source:
         def _on_ambient_for_bridge_and_weather(r):
@@ -273,27 +273,7 @@ def main():
                 wx.pressure_trend_hpa_hr, wx.humidity_trend_pct_hr,
                 wx.dew_point_spread_c, wx.threat_label,
             )
-            # DriveBC road weather — RWIS station conditions + road events
-            if drivebc_poller:
-                dbc = drivebc_poller.data
-                if dbc.available:
-                    dbc_age = (_wtime.monotonic() - dbc.fetch_ts) if dbc.fetch_ts else 9999.0
-                    # Pick most severe event for display
-                    evt_text = dbc.nearby_events[0].description if dbc.nearby_events else ""
-                    evt_sev = dbc.nearby_events[0].severity if dbc.nearby_events else ""
-                    bridge.update_drivebc(
-                        road_condition=dbc.road_condition,
-                        road_temp_c=dbc.road_temperature_c,
-                        station_name=dbc.nearest_station_name,
-                        station_distance_km=dbc.station_distance_km,
-                        precipitation_mm=dbc.precipitation_mm,
-                        wind_kph=dbc.wind_speed_kph,
-                        event_count=len(dbc.nearby_events),
-                        event_text=evt_text,
-                        event_severity=evt_sev,
-                        data_age_s=dbc_age,
-                        air_temp_c=dbc.air_temperature_c,
-                    )
+            # Road weather data pushed by RoadWeatherManager providers directly
 
         ambient_source.reading_updated.connect(_on_ambient_for_bridge_and_weather)
 
@@ -998,17 +978,19 @@ def main():
             trail = 1.0 if (snap.imu_accel_x < -0.3 and abs(snap.imu_accel_y) > 0.3) else 0.0
             window._sport_screen.update_brake_analysis(peak_g, trail * 100.0)
 
-            # GPS → DriveBC auto-detect: feed position + heading, auto-detect highway
-            if drivebc_poller and snap.gps_latitude != 0.0:
-                drivebc_poller.update_position(snap.gps_latitude, snap.gps_longitude)
+            # GPS → road weather manager: feed position + heading for region switching
+            if road_mgr and snap.gps_latitude != 0.0:
+                road_mgr.update_position(snap.gps_latitude, snap.gps_longitude)
                 if snap.gps_heading != 0.0:
-                    drivebc_poller.update_heading(snap.gps_heading)
-                # Auto-detect highway every tick when no manual override
-                if not os.environ.get("DRIVEBC_HIGHWAY", ""):
-                    hwy = drivebc_poller.auto_detect_highway()
-                    if hwy and hwy != drivebc_poller.detected_highway:
-                        drivebc_poller.update_highway(hwy)
-                        log.info("DriveBC auto-detect: switched to Hwy %s", hwy)
+                    road_mgr.update_heading(snap.gps_heading)
+                # Auto-detect highway for DriveBC provider (BC region)
+                provider = road_mgr._active_provider
+                if provider and hasattr(provider, 'auto_detect_highway'):
+                    if not os.environ.get("DRIVEBC_HIGHWAY", ""):
+                        hwy = provider.auto_detect_highway()
+                        if hwy and hwy != provider.detected_highway:
+                            provider.update_highway(hwy)
+                            log.info("Road weather auto-detect: switched to Hwy %s", hwy)
 
         _coaching_timer.timeout.connect(_coaching_tick)
         _coaching_timer.start()
@@ -1214,6 +1196,12 @@ def main():
         flir_reader.stop()
     if ambient_source:
         ambient_source.stop()
+    if road_mgr:
+        road_mgr.stop()
+    if event_sim:
+        event_sim.stop()
+    if ec_poller:
+        ec_poller.stop()
     mode_mgr.stop()
     alert_eng.stop()
 

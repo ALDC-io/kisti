@@ -611,3 +611,83 @@ def _http_fetch(url: str) -> dict | list:
     req = urllib.request.Request(url, headers={"Accept": "application/json"})
     with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_S) as resp:
         return json.loads(resp.read())
+
+
+# ---------------------------------------------------------------------------
+# RoadWeatherProvider adapter — used by RoadWeatherManager
+# ---------------------------------------------------------------------------
+
+class DriveBCProvider:
+    """Adapter wrapping DriveBCPoller for use with RoadWeatherManager.
+
+    Matches the RoadWeatherProvider interface (start/stop/update_position/
+    update_heading) and pushes DriveBC data to bridge on each poll cycle.
+    """
+
+    def __init__(
+        self,
+        bridge,
+        lat: float = DEFAULT_LAT,
+        lon: float = DEFAULT_LON,
+        **_kwargs,
+    ) -> None:
+        self._bridge = bridge
+        self._poller = DriveBCPoller(lat=lat, lon=lon)
+        self._stop = threading.Event()
+        self._push_thread: threading.Thread | None = None
+        self.source_name: str = "DriveBC"
+
+    def start(self) -> None:
+        self._poller.start()
+        self._stop.clear()
+        self._push_thread = threading.Thread(
+            target=self._push_loop, daemon=True, name="drivebc-bridge-push",
+        )
+        self._push_thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._poller.stop()
+        if self._push_thread:
+            self._push_thread.join(timeout=5)
+
+    def update_position(self, lat: float, lon: float) -> None:
+        self._poller.update_position(lat, lon)
+
+    def update_heading(self, heading_deg: float) -> None:
+        self._poller.update_heading(heading_deg)
+
+    @property
+    def detected_highway(self) -> str:
+        return getattr(self._poller, '_highway', '')
+
+    def auto_detect_highway(self) -> str | None:
+        return self._poller.auto_detect_highway() if hasattr(self._poller, 'auto_detect_highway') else None
+
+    def update_highway(self, highway: str) -> None:
+        self._poller.update_highway(highway)
+
+    def _push_loop(self) -> None:
+        """Push poller data to bridge every 5s."""
+        while not self._stop.is_set():
+            dbc = self._poller.data
+            if dbc.available:
+                evt_text = dbc.nearby_events[0].description if dbc.nearby_events else ""
+                evt_sev = dbc.nearby_events[0].severity if dbc.nearby_events else ""
+                dbc_age = (time.monotonic() - dbc.fetch_ts) if dbc.fetch_ts else 9999.0
+                self._bridge.update_drivebc(
+                    road_condition=dbc.road_condition,
+                    road_temp_c=dbc.road_temperature_c,
+                    station_name=dbc.nearest_station_name,
+                    station_distance_km=dbc.station_distance_km,
+                    precipitation_mm=dbc.precipitation_mm,
+                    wind_kph=dbc.wind_speed_kph,
+                    event_count=len(dbc.nearby_events),
+                    event_text=evt_text,
+                    event_severity=evt_sev,
+                    data_age_s=dbc_age,
+                    air_temp_c=dbc.air_temperature_c,
+                )
+                with self._bridge._lock:
+                    self._bridge._state.road_weather_source = self.source_name
+            self._stop.wait(5.0)

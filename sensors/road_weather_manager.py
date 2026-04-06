@@ -33,7 +33,7 @@ class RoadWeatherManager:
 
     # (name, source_name, provider_class_path, lat_min, lat_max, lon_min, lon_max)
     REGIONS: list[tuple[str, str, str, float, float, float, float]] = [
-        ("BC", "DriveBC", "sensors.drivebc_weather.DriveBCPoller", 48.3, 60.0, -139.1, -114.0),
+        ("BC", "DriveBC", "sensors.drivebc_weather.DriveBCProvider", 48.3, 60.0, -139.1, -114.0),
         ("AB", "511AB", "sensors.alberta511_weather.Alberta511Poller", 49.0, 60.0, -120.0, -110.0),
         ("ON", "511ON", "sensors.ontario511_weather.Ontario511Poller", 41.7, 56.9, -95.2, -74.3),
         ("US", "IEM", "sensors.iem_rwis.IEMRWISPoller", 24.5, 49.0, -125.0, -66.9),

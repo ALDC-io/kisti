@@ -59,14 +59,15 @@ from ui.theme import (
 # DriveBC event banner formatter
 # ---------------------------------------------------------------------------
 
-def _drivebc_event_banner(text: str) -> str:
-    """Format DriveBC event for at-a-glance banner."""
+def _road_weather_event_banner(text: str, source: str) -> str:
+    """Format road weather event for at-a-glance banner."""
+    source_label = source or 'ROAD'
     if not text:
-        return "DriveBC: Road event ahead"
+        return f"{source_label}: Road event ahead"
     parts = text.split(". ")
     lead = parts[0].rstrip(".")
     details = [p.rstrip(".") for p in parts[1:] if not p.startswith(("Until ", "From ", "Starting ", "Last updated ", "Next update "))]
-    banner = f"DriveBC: {lead} ahead"
+    banner = f"{source_label}: {lead} ahead"
     if details:
         banner += f" — {details[0]}"
     return banner[:80]
@@ -689,18 +690,20 @@ class SportSharpTrackScreenWidget(QWidget):
 
         if snap.drivebc_available and snap.drivebc_road_condition:
             cond = snap.drivebc_road_condition.upper()
+            source = snap.road_weather_source or 'ROAD'
             if cond in ("ICY", "SNOWY", "FROSTY"):
-                dbc_text = f"DriveBC: {cond} road — {snap.drivebc_station_name}"
+                dbc_text = f"{source}: {cond} road — {snap.drivebc_station_name}"
                 candidates.append((42, dbc_text, QColor(180, 20, 20), white))
             elif cond in ("WET", "SLUSHY", "MOIST"):
-                dbc_text = f"DriveBC: {cond} road — {snap.drivebc_station_name}"
+                dbc_text = f"{source}: {cond} road — {snap.drivebc_station_name}"
                 candidates.append((15, dbc_text, QColor(30, 80, 160), white))
 
         if snap.drivebc_available and snap.drivebc_event_count > 0:
             sev = snap.drivebc_event_severity
             evt_sev = 48 if sev == "CLOSURE" else 22
             evt_bg = QColor(180, 20, 20) if sev == "CLOSURE" else QColor(200, 120, 0)
-            candidates.append((evt_sev, _drivebc_event_banner(snap.drivebc_event_text), evt_bg, white))
+            source = snap.road_weather_source or 'ROAD'
+            candidates.append((evt_sev, _road_weather_event_banner(snap.drivebc_event_text, source), evt_bg, white))
 
         if not candidates:
             return

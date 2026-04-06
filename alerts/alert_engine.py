@@ -237,16 +237,16 @@ class AlertEngine(QObject):
             self._fire(Alert(
                 alert_type="oil_pressure_critical",
                 severity=AlertSeverity.CRITICAL,
-                message=f"Oil pressure critical: {psi:.0f} PSI. Shut down immediately.",
-                short_message=f"Oil pressure {psi:.0f} PSI!",
+                message="Oil pressure critical. Shut down immediately.",
+                short_message="Oil pressure critical",
                 value=psi,
             ))
         elif psi < OIL_PRESS_WARNING_PSI:
             self._fire(Alert(
                 alert_type="oil_pressure_low",
                 severity=AlertSeverity.WARNING,
-                message=f"Oil pressure low: {psi:.0f} PSI. Monitor closely.",
-                short_message=f"Oil low {psi:.0f} PSI",
+                message="Oil pressure low. Monitor closely.",
+                short_message="Oil pressure low",
                 value=psi,
             ))
 
@@ -260,8 +260,8 @@ class AlertEngine(QObject):
             self._fire(Alert(
                 alert_type="oil_temp_high",
                 severity=AlertSeverity.WARNING,
-                message=f"Oil temperature high: {temp:.0f} degrees C. Consider backing off.",
-                short_message=f"Oil temp {temp:.0f}°C",
+                message="Oil overheating. Back off.",
+                short_message="Oil overheating",
                 value=temp,
             ))
 
@@ -275,16 +275,16 @@ class AlertEngine(QObject):
             self._fire(Alert(
                 alert_type="coolant_critical",
                 severity=AlertSeverity.CRITICAL,
-                message=f"Coolant overtemp: {temp:.0f} degrees C! Pull over safely.",
-                short_message=f"Overtemp {temp:.0f}°C!",
+                message="Coolant critical. Pull over.",
+                short_message="Coolant critical",
                 value=temp,
             ))
         elif temp > COOLANT_TEMP_WARNING_C:
             self._fire(Alert(
                 alert_type="coolant_high",
                 severity=AlertSeverity.WARNING,
-                message=f"Coolant temperature elevated: {temp:.0f} degrees C.",
-                short_message=f"Coolant {temp:.0f}°C",
+                message="Coolant high.",
+                short_message="Coolant warning",
                 value=temp,
             ))
 
@@ -298,16 +298,16 @@ class AlertEngine(QObject):
             self._fire(Alert(
                 alert_type="fuel_pressure_critical",
                 severity=AlertSeverity.CRITICAL,
-                message=f"Fuel pressure critical: {fp:.0f} kPa. Lean condition risk.",
-                short_message=f"Fuel press {fp:.0f} kPa!",
+                message="Fuel pressure critical.",
+                short_message="Fuel pressure critical",
                 value=fp,
             ))
         elif fp < FUEL_PRESS_WARNING_KPA:
             self._fire(Alert(
                 alert_type="fuel_pressure_low",
                 severity=AlertSeverity.WARNING,
-                message=f"Fuel pressure low: {fp:.0f} kPa. Monitor under boost.",
-                short_message=f"Fuel press {fp:.0f} kPa",
+                message="Fuel pressure low.",
+                short_message="Fuel pressure low",
                 value=fp,
             ))
 
@@ -321,8 +321,8 @@ class AlertEngine(QObject):
             self._fire(Alert(
                 alert_type="battery_low",
                 severity=AlertSeverity.ADVISORY,
-                message=f"Battery voltage low: {v:.1f}V. Check alternator.",
-                short_message=f"Battery {v:.1f}V",
+                message="Battery low.",
+                short_message="Battery low",
                 value=v,
             ))
 
@@ -332,7 +332,7 @@ class AlertEngine(QObject):
             self._fire(Alert(
                 alert_type="cooldown_required",
                 severity=AlertSeverity.WARNING,
-                message="Cooldown required. Let the engine idle before shutdown.",
+                message="Cooldown required.",
                 short_message="Cooldown required",
                 value=state.oil_temp_c,
             ))
@@ -506,8 +506,8 @@ class AlertEngine(QObject):
             self._fire(Alert(
                 alert_type="weather_storm",
                 severity=AlertSeverity.WARNING,
-                message=f"Storm incoming. Pressure falling {abs(p_rate):.1f} hPa per hour. Reduce speed.",
-                short_message="Storm incoming",
+                message="Storm approaching.",
+                short_message="Storm approaching",
                 value=state.ambient_pressure_hpa,
             ))
 
@@ -516,7 +516,7 @@ class AlertEngine(QObject):
             self._fire(Alert(
                 alert_type="weather_rain_likely",
                 severity=AlertSeverity.WARNING,
-                message=f"Rain likely within 2 hours. Pressure falling {abs(p_rate):.1f} hPa per hour.",
+                message="Rain likely.",
                 short_message="Rain likely",
                 value=state.ambient_pressure_hpa,
             ))
@@ -527,7 +527,7 @@ class AlertEngine(QObject):
                 self._fire(Alert(
                     alert_type="weather_changing",
                     severity=AlertSeverity.ADVISORY,
-                    message=f"Weather changing. Pressure falling {abs(p_rate):.1f} hPa per hour.",
+                    message="Weather changing.",
                     short_message="Weather changing",
                     value=state.ambient_pressure_hpa,
                 ))
@@ -535,8 +535,8 @@ class AlertEngine(QObject):
                 self._fire(Alert(
                     alert_type="weather_rising",
                     severity=AlertSeverity.INFO,
-                    message=f"Conditions stabilising. Pressure rising {p_rate:.1f} hPa per hour.",
-                    short_message="Pressure rising",
+                    message="Conditions stabilizing.",
+                    short_message="Conditions stabilizing",
                     value=state.ambient_pressure_hpa,
                 ))
 
@@ -557,7 +557,7 @@ class AlertEngine(QObject):
             self._fire(Alert(
                 alert_type="weather_snow_risk",
                 severity=AlertSeverity.WARNING,
-                message=f"Snow risk. Temperature {state.ambient_temp_c:.0f} degrees, pressure falling.",
+                message="Snow risk.",
                 short_message="Snow risk",
                 value=state.ambient_temp_c,
             ))

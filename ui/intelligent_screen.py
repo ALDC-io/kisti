@@ -56,19 +56,20 @@ from ui.theme import (
 # DriveBC event banner formatter
 # ---------------------------------------------------------------------------
 
-def _drivebc_event_banner(text: str) -> str:
-    """Format DriveBC event for at-a-glance banner.
+def _road_weather_event_banner(text: str, source: str) -> str:
+    """Format road weather event for at-a-glance banner.
 
     'Road construction work. Until Fri Jul 3. Left turn lane closed.'
-    → 'DriveBC: Road Construction ahead — Left turn lane closed'
+    → '511AB: Road Construction ahead — Left turn lane closed'
     """
+    source_label = source or 'ROAD'
     if not text:
-        return "DriveBC: Road event ahead"
+        return f"{source_label}: Road event ahead"
     parts = text.split(". ")
     lead = parts[0].rstrip(".")
     # Drop scheduling details (Until/From/Starting), keep actionable info
     details = [p.rstrip(".") for p in parts[1:] if not p.startswith(("Until ", "From ", "Starting ", "Last updated ", "Next update "))]
-    banner = f"DriveBC: {lead} ahead"
+    banner = f"{source_label}: {lead} ahead"
     if details:
         banner += f" — {details[0]}"
     return banner[:80]
@@ -580,13 +581,14 @@ class IntelligentScreenWidget(QWidget):
         # DriveBC RWIS road conditions — actual road surface state from highway sensors
         if snap.drivebc_available and snap.drivebc_road_condition:
             cond = snap.drivebc_road_condition.upper()
+            source = snap.road_weather_source or 'ROAD'
             if cond in ("ICY", "SNOWY", "FROSTY"):
-                dbc_text = f"DriveBC: {cond} road — {snap.drivebc_station_name}"
+                dbc_text = f"{source}: {cond} road — {snap.drivebc_station_name}"
                 if snap.drivebc_road_temp_c is not None:
                     dbc_text += f" ({snap.drivebc_road_temp_c:.0f}°C)"
                 alerts.append((42, dbc_text, QColor(180, 20, 20)))
             elif cond in ("WET", "SLUSHY", "MOIST"):
-                dbc_text = f"DriveBC: {cond} road — {snap.drivebc_station_name}"
+                dbc_text = f"{source}: {cond} road — {snap.drivebc_station_name}"
                 alerts.append((15, dbc_text, QColor(30, 80, 160)))
 
         # DriveBC road events — closures and major incidents
@@ -594,7 +596,8 @@ class IntelligentScreenWidget(QWidget):
             sev = snap.drivebc_event_severity
             evt_bg = QColor(180, 20, 20) if sev == "CLOSURE" else QColor(200, 120, 0)
             evt_sev = 48 if sev == "CLOSURE" else 22
-            alerts.append((evt_sev, _drivebc_event_banner(snap.drivebc_event_text), evt_bg))
+            source = snap.road_weather_source or 'ROAD'
+            alerts.append((evt_sev, _road_weather_event_banner(snap.drivebc_event_text, source), evt_bg))
 
         if not alerts:
             return
