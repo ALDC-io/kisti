@@ -315,9 +315,20 @@ def main():
                 "grip_wet", "grip_cold", "grip_cleared",
             })
 
+            def _force_repaint():
+                """Force immediate screen repaint so banner syncs with voice."""
+                if window is None:
+                    return
+                for attr in ('_intelligent_screen', '_sport_screen', '_sharp_screen'):
+                    screen = getattr(window, attr, None)
+                    if screen:
+                        screen.repaint()
+
             def _on_alert(a):
                 if a.alert_type in _VISUAL_ONLY_TYPES:
                     return  # visual-only — no voice, no quote
+                # Force repaint before any voice output
+                _force_repaint()
                 # Safety-critical types spoken via voice_alert signal
                 if a.alert_type not in AlertEngine.VOICE_ALERT_TYPES:
                     voice_mgr.speak_alert(a.message, a.severity.label)
@@ -329,9 +340,11 @@ def main():
 
             # Safety-critical alerts → dedicated voice routing
             # voice_alert is gated by VOICE_ALERT_TYPES — always speak, all modes
-            alert_eng.voice_alert.connect(
-                lambda a: voice_mgr.speak_alert(a.message, "critical")
-            )
+            def _on_voice_alert(a):
+                _force_repaint()
+                voice_mgr.speak_alert(a.message, "critical")
+
+            alert_eng.voice_alert.connect(_on_voice_alert)
 
             # Wire analyze run (K3) to voice query
             mode_mgr.analyze_run.connect(
