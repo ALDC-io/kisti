@@ -542,10 +542,14 @@ def _filter_events(
     for e in events:
         if not _event_in_bbox(e, bbox):
             continue
+        # optimized_description is the at-a-glance version (no highway/direction boilerplate)
+        opt_desc = e.get("optimized_description", "") or ""
+        raw_desc = e.get("description", "") or ""
+        desc = str(opt_desc).strip() if opt_desc else str(raw_desc)[:300]
         result.append(DriveBCEvent(
             severity=_normalize_severity(e),
             event_type=str(e.get("event_type", e.get("eventType", ""))),
-            description=str(e.get("description", ""))[:300],
+            description=desc,
             road_name=str(e.get("route_display", e.get("route", e.get("road_name", e.get("highway_name", ""))))),
             display_category=str(e.get("display_category", e.get("displayCategory", ""))),
         ))
