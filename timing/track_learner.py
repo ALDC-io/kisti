@@ -202,7 +202,7 @@ class TrackLearner:
         # ── Build TrackDefinition ─────────────────────────────────
         self._track = TrackDefinition(
             track_id=track_id,
-            name=f"Track at {center_lat:.4f}, {center_lon:.4f}",
+            name="New track",  # GPS coords never shown to driver
             center_lat=center_lat,
             center_lon=center_lon,
             radius_m=radius_m,

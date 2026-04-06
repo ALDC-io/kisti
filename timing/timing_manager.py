@@ -251,7 +251,7 @@ class TimingManager(QObject):
         if self._track_learner is None:
             self._track_learner = TrackLearner()
             self._learning_active = True
-            log.info("No known track at (%.4f, %.4f) — learning started", lat, lon)
+            log.info("No known track — learning started")
 
         if self._learning_active:
             closed = self._track_learner.update(lat, lon)

@@ -939,7 +939,7 @@ class MockCanGenerator(QObject):
         self._amb_dew_point = 9.0
 
         # SI Drive state
-        self._si_drive = 0  # Intelligent
+        self._si_drive = 1  # Sport (STI default SI-Drive position)
         self._si_drive_timer = 0.0
 
         self._diff_timer = QTimer(self)

@@ -158,15 +158,22 @@ def main():
     bridge = DiffStateBridge()
 
     # SIGUSR1: cycle SI Drive mode (for dev/demo without CAN hardware)
-    _usr1_mode = [0]  # mutable counter: 0=I, 1=S, 2=S#
+    _usr1_mode = [1]  # mutable counter: 0=I, 1=S, 2=S# — default Sport (STI default)
+    _mock_ref = [None]  # populated after create_can_source
 
     def _cycle_si_drive(*_args):
         _usr1_mode[0] = (_usr1_mode[0] + 1) % 3
         bridge.update_si_drive(_usr1_mode[0])
+        # Also update mock CAN generator so it doesn't override us on next tick
+        if _mock_ref[0] is not None:
+            _mock_ref[0]._si_drive = _usr1_mode[0]
         log.info("SIGUSR1 → SI Drive mode %d", _usr1_mode[0])
 
     signal.signal(signal.SIGUSR1, _cycle_si_drive)
     listener, mock = create_can_source(bridge)
+    _mock_ref[0] = mock
+    # Set initial SI Drive to Sport (STI default)
+    bridge.update_si_drive(1)
     # Demo mode: start mock CAN with telemetry data
     if args.demo and mock is not None:
         mock.set_demo_mode(not args.lock_mode)
@@ -564,7 +571,7 @@ def main():
                 def _on_track_detected(name):
                     mode = mode_mgr.si_drive_mode
                     if mode != SIDriveMode.SPORT_SHARP:
-                        voice_mgr.speak(f"Track detected: {name}.")
+                        voice_mgr.speak(f"{name} detected.")
 
                 timing_mgr.track_detected.connect(_on_track_detected)
 
@@ -1107,10 +1114,10 @@ def main():
         from sensors.ambient_simulator import AmbientSimulator
         if isinstance(ambient_source, AmbientSimulator):
             ambient_source.simulation_started.connect(
-                lambda: _speak("Starting ambient weather simulation. Monitoring conditions.")
+                lambda: _speak("Weather monitoring active.")
             )
             ambient_source.simulation_ended.connect(
-                lambda: _speak("Ambient weather simulation complete.")
+                lambda: _speak("Weather simulation complete.")
             )
             ambient_source.simulation_started.connect(
                 lambda: log.info("SIM: Ambient weather simulation started")

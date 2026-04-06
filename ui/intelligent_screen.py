@@ -326,8 +326,7 @@ class IntelligentScreenWidget(QWidget):
         self._draw_flir_panel(p)
         self._draw_ec_banner(p)
         self._draw_status_strip(p)
-        self._draw_coaching_bar(p)
-        self._paint_voice_ticker(p)
+        self._draw_status_line(p)
         self._draw_info_line(p)
 
         # Edge glow for LOW_GRIP — drawn last so it's on top
@@ -758,8 +757,8 @@ class IntelligentScreenWidget(QWidget):
         # Percentage text — below bar, compact
         p.setFont(_font(14, bold=True))
         p.setPen(QPen(pct_color))
-        p.drawText(QRectF(dccd_x, dccd_bar_y + dccd_bar_h + 4, dccd_bar_w, 22),
-                   Qt.AlignLeft | Qt.AlignVCenter, pct_text)
+        p.drawText(QRectF(dccd_x, dccd_bar_y + dccd_bar_h + 2, dccd_bar_w, 28),
+                   Qt.AlignLeft | Qt.AlignTop, pct_text)
 
         # --- Row 3: ABS | VDC ---
         row2_y = row2_base + 68
@@ -800,10 +799,10 @@ class IntelligentScreenWidget(QWidget):
             p.setPen(QPen(QColor(DIM)))
             p.drawText(vdc_x + 10, int(vdc_dot_y) + 4, "VDC")
 
-        # --- GPS altitude + satellite count (lower-right) ---
+        # --- GPS altitude + satellite count (right, below DCCD %) ---
         gps_stale = snap is None or snap.is_gps_stale()
         gps_x = 580
-        gps_y = row2_y + 4
+        gps_y = dccd_bar_y + dccd_bar_h + 28  # Below DCCD percentage, clear gap
 
         # Elevation
         p.setFont(_font(11, bold=True))
@@ -837,26 +836,41 @@ class IntelligentScreenWidget(QWidget):
         p.drawText(QRectF(gps_x, sat_y, 120, 18),
                    Qt.AlignRight | Qt.AlignVCenter, sat_text)
 
-        # --- Mini G-dot (no trail) ---
-        g_cx = 720.0
-        g_cy = row2_y + 2
-        paint_g_ellipse(p, g_cx, g_cy, 40, snap, deque(), max_trail_dots=0)
+        # --- Mini G-dot (no trail, compact) ---
+        g_cx = 740.0
+        g_cy = row2_base + 10
+        paint_g_ellipse(p, g_cx, g_cy, 25, snap, deque(), max_trail_dots=0)
 
     # ==================================================================
     # VOICE TICKER (y=448..478, left side)
     # ==================================================================
 
-    def _draw_coaching_bar(self, p: QPainter) -> None:
-        """Coaching/warning text above info line (y=448..466)."""
-        if not self._coaching_text:
-            return
-        sentiment_colors = {"green": GREEN, "amber": YELLOW, "dim": GRAY}
-        coach_color = QColor(sentiment_colors.get(self._coaching_sentiment, GRAY))
+    def _draw_status_line(self, p: QPainter) -> None:
+        """Single status line — coaching, alerts, and voice all consolidated here (y=448..466).
+
+        Priority: coaching text (highest) > latest voice ticker line > empty.
+        Status bar is the SINGLE source of driver status. No separate alert log.
+        """
+        text = ""
+        color = QColor(GRAY)
+
+        # Priority 1: coaching text (active driving feedback)
+        if self._coaching_text:
+            text = self._coaching_text
+            sentiment_colors = {"green": GREEN, "amber": YELLOW, "dim": GRAY}
+            color = QColor(sentiment_colors.get(self._coaching_sentiment, GRAY))
+        # Priority 2: latest voice ticker message
+        elif self._voice_ticker:
+            text = self._voice_ticker[0]
+            color = QColor(WHITE)
+
         p.fillRect(QRectF(0, 448, _W, 18), QColor(BG_PANEL))
-        p.setFont(_font(11, bold=True))
-        p.setPen(QPen(coach_color))
-        p.drawText(QRectF(20, 448, _W - 40, 18),
-                   Qt.AlignLeft | Qt.AlignVCenter, self._coaching_text)
+        if text:
+            p.setFont(_font(11, bold=True))
+            p.setPen(QPen(color))
+            elided = p.fontMetrics().elidedText(text, Qt.ElideRight, _W - 40)
+            p.drawText(QRectF(20, 448, _W - 40, 18),
+                       Qt.AlignLeft | Qt.AlignVCenter, elided)
 
     def _draw_info_line(self, p: QPainter) -> None:
         """INFO LINE at bottom — matches MXG Strada placement (y=466..480).
@@ -883,17 +897,4 @@ class IntelligentScreenWidget(QWidget):
             p.drawText(QRectF(0, 466, _W, 14),
                        Qt.AlignCenter, "INFO LINE")
 
-    def _paint_voice_ticker(self, p: QPainter) -> None:
-        """Voice ticker — sits above coaching bar (y=412..455)."""
-        if not self._voice_ticker:
-            return
-        p.setFont(_font(10))
-        alphas = [120, 70, 40]
-        x, y0, w = 20, 415, 380
-        for i, line in enumerate(self._voice_ticker[:3]):
-            color = QColor(WHITE)
-            color.setAlpha(alphas[min(i, 2)])
-            p.setPen(QPen(color))
-            elided = p.fontMetrics().elidedText(line, Qt.ElideRight, w)
-            p.drawText(QRectF(x, y0 + i * 14, w, 14),
-                       Qt.AlignLeft | Qt.AlignVCenter, elided)
+    # Voice ticker removed — consolidated into _draw_status_line (single status bar)

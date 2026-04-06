@@ -116,7 +116,7 @@ class ModeManager(QObject):
         super().__init__(parent)
         self._bridge = bridge
 
-        self._si_drive = SIDriveMode.INTELLIGENT
+        self._si_drive = SIDriveMode.SPORT  # STI default SI-Drive position
         self._warmup = WarmUpState.COLD
         self._display = DisplayMode.KISTI
         self._coaching = CoachingLevel.FULL
@@ -135,6 +135,8 @@ class ModeManager(QObject):
     def start(self) -> None:
         """Start mode manager."""
         self._warmup_timer.start()
+        # Emit initial mode so main window shows correct screen at startup
+        self.si_drive_changed.emit(self._si_drive.value)
         log.info("Mode manager started (SI Drive: %s, Display: %s)",
                  self._si_drive.label, self._display.label)
 
