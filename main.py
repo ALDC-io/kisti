@@ -262,6 +262,7 @@ def main():
                         event_text=evt_text,
                         event_severity=evt_sev,
                         data_age_s=dbc_age,
+                        air_temp_c=dbc.air_temperature_c,
                     )
 
         ambient_source.reading_updated.connect(_on_ambient_for_bridge_and_weather)
@@ -966,6 +967,18 @@ def main():
             peak_g = abs(snap.imu_accel_x) if snap.imu_accel_x < -0.1 else 0.0
             trail = 1.0 if (snap.imu_accel_x < -0.3 and abs(snap.imu_accel_y) > 0.3) else 0.0
             window._sport_screen.update_brake_analysis(peak_g, trail * 100.0)
+
+            # GPS → DriveBC auto-detect: feed position + heading, auto-detect highway
+            if drivebc_poller and snap.gps_latitude != 0.0:
+                drivebc_poller.update_position(snap.gps_latitude, snap.gps_longitude)
+                if snap.gps_heading != 0.0:
+                    drivebc_poller.update_heading(snap.gps_heading)
+                # Auto-detect highway every tick when no manual override
+                if not os.environ.get("DRIVEBC_HIGHWAY", ""):
+                    hwy = drivebc_poller.auto_detect_highway()
+                    if hwy and hwy != drivebc_poller.detected_highway:
+                        drivebc_poller.update_highway(hwy)
+                        log.info("DriveBC auto-detect: switched to Hwy %s", hwy)
 
         _coaching_timer.timeout.connect(_coaching_tick)
         _coaching_timer.start()

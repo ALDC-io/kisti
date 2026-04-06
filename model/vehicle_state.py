@@ -292,6 +292,7 @@ class DiffState:
     # DriveBC road weather (RWIS stations, polled every 5-10 min)
     drivebc_road_condition: str = ""          # DRY/WET/ICY/SNOWY/FROSTY/MOIST/SLUSHY
     drivebc_road_temp_c: float | None = None  # Road surface temperature from RWIS
+    drivebc_air_temp_c: float | None = None   # Air temperature from nearest RWIS station
     drivebc_station_name: str = ""            # Nearest RWIS station name
     drivebc_station_distance_km: float = 99.0 # Distance to nearest station
     drivebc_precipitation_mm: float = 0.0     # Current precipitation
@@ -808,11 +809,13 @@ class DiffStateBridge(QObject):
         event_text: str,
         event_severity: str,
         data_age_s: float,
+        air_temp_c: float | None = None,
     ) -> None:
         """Called from DriveBC poller with road weather data."""
         with self._lock:
             self._state.drivebc_road_condition = road_condition
             self._state.drivebc_road_temp_c = road_temp_c
+            self._state.drivebc_air_temp_c = air_temp_c
             self._state.drivebc_station_name = station_name
             self._state.drivebc_station_distance_km = station_distance_km
             self._state.drivebc_precipitation_mm = precipitation_mm

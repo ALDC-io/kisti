@@ -327,18 +327,17 @@ class SportSharpScreenWidget(QWidget):
             path.closeSubpath()
             p.drawPath(path)
 
-        # DCCD label
-        p.setFont(_font(8))
+        # DCCD label (left of arc) + percentage (right of arc)
+        p.setFont(_font(9))
         p.setPen(QPen(QColor(DIM) if (stale or dccd_pct <= 5) else QColor(GRAY)))
-        p.drawText(QRectF(cx - 20, cy - arc_r - 10, 40, 10),
-                   Qt.AlignCenter, "DCCD")
+        p.drawText(QRectF(cx - arc_r - 38, cy - 6, 34, 12),
+                   Qt.AlignRight | Qt.AlignVCenter, "DCCD")
 
-        # DCCD percentage (only when >5%)
         if not stale and dccd_pct > 5:
             p.setFont(_font(9, bold=True))
             p.setPen(QPen(fill_color))
-            p.drawText(QRectF(cx - 20, cy + arc_r + 1, 40, 12),
-                       Qt.AlignCenter, f"{dccd_pct:.0f}%")
+            p.drawText(QRectF(cx + arc_r + 4, cy - 6, 36, 12),
+                       Qt.AlignLeft | Qt.AlignVCenter, f"{dccd_pct:.0f}%")
 
         # --- Weather threat pill (right) ---
         if snap is not None:
@@ -496,15 +495,15 @@ class SportSharpScreenWidget(QWidget):
         value = f"{rate:+.1f}"
         unit = "hPa/hr"
 
-        p.setFont(_font(9))
+        p.setFont(_font(10))
         p.setPen(QPen(lc))
         p.drawText(QRectF(10, _STRIP_Y0 + 2, 150, 14), Qt.AlignLeft, label)
         p.setFont(_font(18, bold=True))
         p.setPen(QPen(vc))
         p.drawText(QRectF(10, _STRIP_Y0 + 16, 150, 26), Qt.AlignLeft, value)
-        p.setFont(_font(8))
+        p.setFont(_font(10))
         p.setPen(QPen(lc))
-        p.drawText(QRectF(10, _STRIP_Y0 + 42, 150, 12), Qt.AlignLeft, unit)
+        p.drawText(QRectF(10, _STRIP_Y0 + 42, 150, 14), Qt.AlignLeft, unit)
 
         # --- Road condition zone bar (x=170..380) ---
         if snap is not None and not snap.is_road_surface_stale():
@@ -524,26 +523,49 @@ class SportSharpScreenWidget(QWidget):
                 else:
                     tc = QColor(GRAY)  # Nominal: visible but subdued
 
-                p.setFont(_font(9))
+                p.setFont(_font(10))
                 p.setPen(QPen(tc))
                 p.drawText(QRectF(390, _STRIP_Y0 + 2, 110, 14), Qt.AlignLeft, "ROAD")
                 p.setFont(_font(18, bold=True))
                 p.drawText(QRectF(390, _STRIP_Y0 + 16, 110, 26), Qt.AlignLeft, f"{road_temp:.0f}°")
-                p.setFont(_font(8))
-                p.drawText(QRectF(390, _STRIP_Y0 + 42, 110, 12), Qt.AlignLeft,
-                           snap.drivebc_station_name[:20] if snap.drivebc_station_name else "")
+                p.setFont(_font(10))
+                p.drawText(QRectF(390, _STRIP_Y0 + 42, 110, 14), Qt.AlignLeft,
+                           snap.drivebc_station_name[:18] if snap.drivebc_station_name else "")
 
-        # --- Voice ticker (x=510..790) ---
+        # --- Ambient temp (x=510..570) — air temp from DriveBC or Yoctopuce ---
+        if snap is not None:
+            air_temp = None
+            air_src = ""
+            if snap.ambient_temp_c != 0.0:
+                air_temp = snap.ambient_temp_c
+                air_src = "AMB"
+            elif snap.drivebc_available and snap.drivebc_air_temp_c is not None:
+                air_temp = snap.drivebc_air_temp_c
+                air_src = "AIR"
+            if air_temp is not None:
+                if air_temp < 2:
+                    atc = QColor(CYAN)
+                elif air_temp < 8:
+                    atc = QColor(GRAY)
+                else:
+                    atc = QColor(DIM)
+                p.setFont(_font(10))
+                p.setPen(QPen(atc))
+                p.drawText(QRectF(510, _STRIP_Y0 + 2, 60, 14), Qt.AlignLeft, air_src)
+                p.setFont(_font(16, bold=True))
+                p.drawText(QRectF(510, _STRIP_Y0 + 16, 60, 22), Qt.AlignLeft, f"{air_temp:.0f}°")
+
+        # --- Voice ticker (x=580..790) ---
         if self._voice_ticker:
             lines = self._voice_ticker[:2]
-            alphas = [120, 60]
+            alphas = [160, 90]
             for i, line in enumerate(lines):
                 p.setFont(_font(10))
                 text_color = QColor(WHITE)
                 text_color.setAlpha(alphas[i] if i < len(alphas) else 40)
                 p.setPen(QPen(text_color))
                 y = _STRIP_Y0 + 6 + i * 24
-                p.drawText(QRectF(510, y, 280, 20),
+                p.drawText(QRectF(580, y, 210, 20),
                            Qt.AlignRight | Qt.AlignVCenter, line)
 
     # ------------------------------------------------------------------

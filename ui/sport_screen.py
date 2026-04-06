@@ -126,6 +126,8 @@ class SportScreenWidget(QWidget):
 
         # Paint counter for edge glow pulse
         self._paint_count: int = 0
+        # Set by _paint_weather_threat when alert bar is visible (per-frame)
+        self._alert_bar_active: bool = False
 
         # Balance / grip / brake analysis (fed from coaching layer at 1Hz)
         self._balance_ratio: float = 1.0
@@ -201,12 +203,12 @@ class SportScreenWidget(QWidget):
         p.setPen(QPen(QColor(CHROME_DARK), 1))
         p.drawLine(0, 100, w, 100)
 
-        # Weather threat pill (dim-until-warning, dark cockpit)
-        self._paint_weather_threat(p, snap)
-
         # --- Middle + bottom band (y=100..440) ---
         self._paint_technique_panel(p, snap, diff_stale, dynamics_stale)
         self._paint_g_ellipse(p, snap)
+
+        # Alert bar first (sets _alert_bar_active flag), then coaching skips if alert visible
+        self._paint_weather_threat(p, snap)
         self._paint_coaching(p)
         self._paint_voice_ticker(p)
 
@@ -356,7 +358,10 @@ class SportScreenWidget(QWidget):
             candidates.append((evt_sev, _drivebc_event_banner(snap.drivebc_event_text), evt_bg, white))
 
         if not candidates:
+            self._alert_bar_active = False
             return
+
+        self._alert_bar_active = True
 
         # Pick highest severity
         candidates.sort(key=lambda c: c[0], reverse=True)
@@ -570,6 +575,9 @@ class SportScreenWidget(QWidget):
 
     def _paint_coaching(self, p: QPainter) -> None:
         if not self._coaching_text:
+            return
+        # Skip coaching when alert bar is active — alert wins (safety > coaching)
+        if self._alert_bar_active:
             return
         sentiment_colors = {"green": GREEN, "amber": YELLOW, "dim": DIM}
         color = QColor(sentiment_colors.get(self._coaching_sentiment, DIM))

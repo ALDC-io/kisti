@@ -216,6 +216,8 @@ class DriveBCPoller:
             now = self._clock()
 
             if stations is not None:
+                # Cache raw station list for auto_detect_highway()
+                self._last_stations = stations
                 # Filter to current highway if set
                 filtered = stations
                 if self._highway:
@@ -258,6 +260,50 @@ class DriveBCPoller:
             if stations is not None or events is not None:
                 self._data.fetch_ts = now
                 self._data.available = True
+
+    def auto_detect_highway(self) -> str:
+        """Detect current highway corridor from nearest RWIS stations.
+
+        Examines the 5 nearest stations and votes on the highway that
+        appears most often. Returns the highway number (e.g. "1", "99")
+        or "" if no highway can be determined.
+
+        Thread-safe: reads from the last fetched station list.
+        """
+        with self._lock:
+            stations = getattr(self, "_last_stations", None)
+        if not stations:
+            return ""
+        # Find 5 nearest stations (unfiltered — all highways)
+        scored: list[tuple[float, dict]] = []
+        for s in stations:
+            coords = _station_coords(s)
+            if coords is None:
+                continue
+            dist = haversine_km(self._lat, self._lon, coords[0], coords[1])
+            scored.append((dist, s))
+        scored.sort(key=lambda x: x[0])
+        nearest = scored[:5]
+        if not nearest:
+            return ""
+        # Vote on highway from station names/descriptions
+        votes: dict[str, int] = {}
+        for _, s in nearest:
+            desc = s.get("location_description") or ""
+            name = s.get("weather_station_name") or ""
+            hwy = extract_highway(desc) or extract_highway(name)
+            if hwy:
+                votes[hwy] = votes.get(hwy, 0) + 1
+        if not votes:
+            return ""
+        # Winner is the highway with most votes (tie-break: nearest station)
+        winner = max(votes, key=lambda h: votes[h])
+        return winner
+
+    @property
+    def detected_highway(self) -> str:
+        """The currently auto-detected or manually set highway."""
+        return self._highway
 
     def poll_once(self) -> DriveBCData:
         """Synchronous single poll — for testing or manual refresh."""

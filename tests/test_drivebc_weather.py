@@ -5,6 +5,7 @@ from sensors.drivebc_weather import (
     DriveBCEvent,
     DriveBCPoller,
     haversine_km,
+    extract_highway,
     _find_nearest_station,
     _filter_events,
     _parse_bbox,
@@ -529,3 +530,127 @@ class TestPollerIntegration:
         poller = DriveBCPoller()
         assert poller._lat == 49.28
         assert poller._lon == -122.79
+
+
+# ---------------------------------------------------------------------------
+# Highway auto-detect tests
+# ---------------------------------------------------------------------------
+
+# Stations with location_description containing highway info
+MOCK_HWY_STATIONS = [
+    {
+        "geometry": {"type": "Point", "coordinates": [-122.75, 49.27]},
+        "weather_station_name": "Port Mann Bridge Mid Span",
+        "location_description": "Hwy 1, at Port Mann Bridge",
+        "properties": {
+            "road_condition": "WET",
+            "road_temperature": 6.0,
+        },
+    },
+    {
+        "geometry": {"type": "Point", "coordinates": [-122.70, 49.26]},
+        "weather_station_name": "Langley Bypass",
+        "location_description": "Hwy 1, near 200th St",
+        "properties": {
+            "road_condition": "DRY",
+            "road_temperature": 8.0,
+        },
+    },
+    {
+        "geometry": {"type": "Point", "coordinates": [-122.80, 49.29]},
+        "weather_station_name": "Lougheed Hwy at Westwood",
+        "location_description": "Hwy 7, at Westwood St",
+        "properties": {
+            "road_condition": "DRY",
+            "road_temperature": 9.0,
+        },
+    },
+    {
+        "geometry": {"type": "Point", "coordinates": [-122.85, 49.22]},
+        "weather_station_name": "Alex Fraser Bridge",
+        "location_description": "Hwy 91, at Alex Fraser Bridge",
+        "properties": {
+            "road_condition": "WET",
+            "road_temperature": 5.5,
+        },
+    },
+    {
+        "geometry": {"type": "Point", "coordinates": [-122.60, 49.25]},
+        "weather_station_name": "Langley Freeway",
+        "location_description": "Hwy 1, near 232nd St",
+        "properties": {
+            "road_condition": "DRY",
+            "road_temperature": 7.5,
+        },
+    },
+]
+
+
+class TestHighwayAutoDetect:
+    @staticmethod
+    def _make_fetcher(stations, events):
+        def fetcher(url):
+            if "weather" in url:
+                return stations
+            return events
+        return fetcher
+
+    def test_auto_detect_hwy1_from_nearest(self):
+        """Near Port Mann, 3 of 5 nearest stations are on Hwy 1."""
+        clock = _FakeClock()
+        fetcher = self._make_fetcher(MOCK_HWY_STATIONS, [])
+        poller = DriveBCPoller(
+            lat=49.27, lon=-122.75, clock=clock, fetcher=fetcher,
+        )
+        poller.poll_once()  # loads stations
+        hwy = poller.auto_detect_highway()
+        assert hwy == "1"
+
+    def test_auto_detect_hwy7_when_closer(self):
+        """Near Lougheed Hwy, station on Hwy 7 is closest."""
+        clock = _FakeClock()
+        # Only Hwy 7 and Hwy 91 stations nearby
+        stations = [MOCK_HWY_STATIONS[2], MOCK_HWY_STATIONS[3]]
+        fetcher = self._make_fetcher(stations, [])
+        poller = DriveBCPoller(
+            lat=49.29, lon=-122.80, clock=clock, fetcher=fetcher,
+        )
+        poller.poll_once()
+        hwy = poller.auto_detect_highway()
+        assert hwy == "7"
+
+    def test_auto_detect_empty_without_poll(self):
+        """Without polling, no stations cached — returns empty."""
+        clock = _FakeClock()
+        fetcher = self._make_fetcher([], [])
+        poller = DriveBCPoller(
+            lat=49.28, lon=-122.79, clock=clock, fetcher=fetcher,
+        )
+        hwy = poller.auto_detect_highway()
+        assert hwy == ""
+
+    def test_auto_detect_no_highway_in_description(self):
+        """Stations without highway info return empty."""
+        clock = _FakeClock()
+        fetcher = self._make_fetcher(MOCK_RWIS_STATIONS, [])
+        poller = DriveBCPoller(
+            lat=49.28, lon=-122.79, clock=clock, fetcher=fetcher,
+        )
+        poller.poll_once()
+        hwy = poller.auto_detect_highway()
+        assert hwy == ""
+
+    def test_detected_highway_property(self):
+        """detected_highway returns current highway setting."""
+        poller = DriveBCPoller(highway="99")
+        assert poller.detected_highway == "99"
+        poller.update_highway("1")
+        assert poller.detected_highway == "1"
+
+    def test_extract_highway_patterns(self):
+        """extract_highway handles various highway name formats."""
+        assert extract_highway("Hwy 1, at Port Mann") == "1"
+        assert extract_highway("Highway 99 near tunnel") == "99"
+        assert extract_highway("Hwy #7 at Westwood") == "7"
+        assert extract_highway("No highway here") == ""
+        assert extract_highway("") == ""
