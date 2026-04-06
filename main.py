@@ -1004,6 +1004,7 @@ def main():
                     road_condition=snap.drivebc_road_condition,
                     road_event_severity=snap.drivebc_event_severity,
                     ec_warning_level=snap.ec_warning_level,
+                    weather_threat_level=snap.weather_threat_level,
                 )
 
         _coaching_timer.timeout.connect(_coaching_tick)

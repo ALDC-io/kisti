@@ -614,39 +614,47 @@ def encode_kisti_alert(
     road_condition: str,
     road_event_severity: str,
     ec_warning_level: str,
+    weather_threat_level: str = "CLEAR",
 ) -> bytes:
     """Encode KiSTI Alert frame (0x6C2) for AiM Strada Status display.
 
-    Maps road conditions + weather alerts to enum for Race Studio 3 visualization.
+    Maps road conditions, weather alerts, and barometric threat to enum for
+    Race Studio 3 visualization.
 
     Enum values:
         0 = OK (dry road, no events, no alerts)
         1 = WET (wet road surface)
         2 = ICY (icy/cold/low grip road)
-        3 = RAIN (rain warning from EC)
-        4 = STORM (major event or severe weather alert)
+        3 = RAIN (rain likely from barometric trend)
+        4 = STORM (major event, severe EC alert, or barometric storm)
         5 = CLOSURE (road closure)
+
+    Priority chain:
+        CLOSURE > ICY > MAJOR_EVENT > EC_WARNING > WEATHER_STORM >
+        WEATHER_RAIN_LIKELY > WET/MOIST/SLUSHY > OK
 
     Args:
         road_condition: "DRY", "WET", "ICY", "SNOWY", "FROSTY", "MOIST", "SLUSHY", ""
         road_event_severity: "", "MINOR", "MAJOR", "CLOSURE"
         ec_warning_level: "none", "statement", "advisory", "watch", "warning"
+        weather_threat_level: "CLEAR", "CHANGING", "RAIN_LIKELY", "STORM"
 
     Returns:
         Single byte (0-5) encoded as CAN frame data.
     """
-    # Priority: event closure > road condition icy > event major > rain warning > wet > ok
     if road_event_severity == "CLOSURE":
         status = 5  # CLOSURE
     elif road_condition in ("ICY", "SNOWY", "FROSTY", "COLD"):
         status = 2  # ICY
     elif road_event_severity == "MAJOR":
-        status = 4  # STORM
-    elif ec_warning_level in ("warning", "watch") and "rain" in ec_warning_level.lower():
-        status = 3  # RAIN
+        status = 4  # STORM (major road event)
     elif ec_warning_level in ("warning", "watch"):
-        status = 4  # STORM (other severe alerts)
-    elif road_condition == "WET" or road_condition == "MOIST":
+        status = 4  # STORM (severe EC alert)
+    elif weather_threat_level == "STORM":
+        status = 4  # STORM (barometric)
+    elif weather_threat_level == "RAIN_LIKELY":
+        status = 3  # RAIN (barometric)
+    elif road_condition in ("WET", "MOIST", "SLUSHY"):
         status = 1  # WET
     else:
         status = 0  # OK
@@ -803,6 +811,7 @@ class CanOutputThread(threading.Thread):
         self._road_condition: str = ""
         self._road_event_severity: str = ""
         self._ec_warning_level: str = "none"
+        self._weather_threat_level: str = "CLEAR"
 
     def stop(self) -> None:
         self._running.clear()
@@ -828,12 +837,14 @@ class CanOutputThread(threading.Thread):
         road_condition: str,
         road_event_severity: str,
         ec_warning_level: str = "none",
+        weather_threat_level: str = "CLEAR",
     ) -> None:
         """Update alert state for AiM Strada (thread-safe)."""
         with self._lock:
             self._road_condition = road_condition
             self._road_event_severity = road_event_severity
             self._ec_warning_level = ec_warning_level
+            self._weather_threat_level = weather_threat_level
 
     def run(self) -> None:
         try:
@@ -866,6 +877,7 @@ class CanOutputThread(threading.Thread):
                     road_condition = self._road_condition
                     road_severity = self._road_event_severity
                     ec_warning = self._ec_warning_level
+                    weather_threat = self._weather_threat_level
 
                 frame1, frame2 = encode_led_output(mode, brights, r, g, b)
 
@@ -886,7 +898,7 @@ class CanOutputThread(threading.Thread):
                     # Send alert frame at 10 Hz (LED is 30 Hz)
                     alert_phase = (alert_phase + 1) % 3
                     if alert_phase == 0:
-                        alert_data = encode_kisti_alert(road_condition, road_severity, ec_warning)
+                        alert_data = encode_kisti_alert(road_condition, road_severity, ec_warning, weather_threat)
                         msg_alert = python_can.Message(
                             arbitration_id=KISTI_ALERT_FRAME_ID,
                             data=alert_data,
