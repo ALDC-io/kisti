@@ -1,5 +1,60 @@
 # KiSTI - Progress
 
+## Session: 2026-04-05/06 (kisti-canyon-sharp — Sport Sharp Redesign + DriveBC Integration)
+
+### Status: COMPLETE
+
+### Completed
+- **Sport Sharp Canyon Redesign** — Rewrote `ui/sharp_screen.py` from track-focused (lap timer, sectors, delta bar) to canyon-first dark cockpit. G-force ellipse hero at r=170 (2.1x larger), center (400,215), 30-dot trail. Nearly black when nominal, escalating visibility on anomaly. Header: balance text (L), DCCD arc (C), weather pill (R) — all ghost-dim. Left edge: vertical F/R grip bars (alpha 30→220). Right edge: vertical L/C/R road zone bars from FLIR. Bottom strip: BARO trend, road zone bar, DriveBC temp, voice ticker. Alert bar: severity-driven full-width.
+- **Track Version Preserved** — Copied original sharp_screen.py → sharp_screen_track.py, renamed class to SportSharpTrackScreenWidget. Contains brake heat coloring, sector insight, timing/delta bar. Future: K6 sub-page toggle to switch between canyon/track variants via mode_manager.
+- **Dark Cockpit Implementation Details** — Balance invisible at 0.95-1.05 (blue/red text outside range). DCCD DIM <5% lock, fill color >5%. Weather pill invisible when CLEAR. Grip bars alpha 30 (healthy) → 220 (critical). BARO/road temp changed from DIM to GRAY when nominal so weather strip always legible.
+- **Sport Screen Voice Ticker Fix** — Moved from (x=515, y=12) overlapping FLIR to (x=380, y=370) below G-force. Reduced max lines 5→3, font 10pt. Sits below coaching panel, above coaching text at y=418.
+- **DriveBC Integration** — Added `update_highway()` method (manual override via DRIVEBC_HIGHWAY env var), `update_heading()` for GPS09 heading, `update_position()` for dynamic GPS. Filters events to active highway + look-ahead. Nearest RWIS to Coquitlam = Port Mann Bridge Mid Span (Hwy 1, 7.1km). Hwy 7 (Lougheed) has zero RWIS stations (data gap noted).
+- **Test Updates** — Updated test imports: `test_modes.py` and `test_sector_insight.py` now use `sharp_screen_track.SportSharpTrackScreenWidget` for track-specific tests.
+- **Deployment & Validation** — Deployed to Jetson 192.168.22.131. All 3 screens cycle via SIGUSR1 handler. Sport Sharp validates at r=170. Voice ticker repositioning resolved FLIR overlay. Weather visibility improved by GRAY nominal state.
+
+### Key Decisions
+- **Dark Cockpit Nominal = GRAY, Not DIM** — Initial design made nominal vitals (BARO, temp) invisible. User feedback: "drive bc doesn't go across entire page" (weather invisible). Changed BARO/road temp from DIM (#333333) to GRAY (#808080). Maintains low visual weight while ensuring legibility. GRAY reads as "normal monitoring" vs RED/YELLOW ("action needed"). One shade above DIM keeps dark cockpit discipline while building driver trust.
+- **Preserve Track Version as Separate File** — Future K6 toggle straightforward. Separation is cheap; wiring toggle later is trivial. No public API changes; both variants available for mode switching.
+- **Voice Ticker Repositioning (y=370)** — Resolved FLIR overlap at y=6..86. Below G-force keeps coaching temporal. Right-alignment matches dashboard convention. Still visible during TTS, no collision with coaching text at y=418.
+- **DriveBC Highway-Aware Filtering** — Reduces noise (e.g., "avalanche on Hwy 2" while on Hwy 1 unactionable). Ahead-only filtering with heading+position safety-critical (don't warn about construction 50km behind). GPS09 auto-detect highway corridor future enhancement.
+
+### Don't Repeat
+- Test imports must match screen file variants (canyon vs track) — `_brake_heat_color` and `_sector_insight` are track-only
+- Dark cockpit visibility needs baseline GRAY for nominal state readability — invisible elements create trust gaps
+- Voice ticker positioning affects overlap with other UI elements — y=370 clears FLIR zone bar at y=6..86
+- Alert severity ranking guides visual hierarchy — STORM(50) > CLOSURE(48) > EC warning(45) > ICY(42) > RAIN_LIKELY(25) > MAJOR(22) > EC advisory(20) > DriveBC WET(15) > EC statement(10)
+
+### Files Changed
+- `ui/sharp_screen.py` — REWRITTEN, canyon-first dark cockpit layout (~400 lines)
+- `ui/sharp_screen_track.py` — NEW, exact copy of original track-focused S#, SportSharpTrackScreenWidget class
+- `ui/sport_screen.py` — MODIFIED, voice ticker moved from y=12 to y=370
+- `sensors/drivebc_weather.py` — MODIFIED, added update_highway/update_heading/update_position methods
+- `tests/test_modes.py` — MODIFIED, import from sharp_screen_track for track tests
+- `tests/test_sector_insight.py` — MODIFIED, import from sharp_screen_track
+- `NEXT_SESSION_PROMPT.md` — UPDATED, complete session summary + TODO
+
+### Test Count
+- Before: 1214 tests (from weather intelligence session)
+- After: 1247 tests (+33 DriveBC integration tests)
+
+### Learnings Captured to Zeus Memory
+- ✅ cce_success_log: Sport Sharp Canyon Redesign — Dark Cockpit Principle Implementation
+- ✅ cce_decision_log: Preserve Track Version as Separate File
+- ✅ cce_decision_log: Dark Cockpit Nominal State = GRAY, Not DIM
+- ✅ cce_decision_log: Voice Ticker Repositioning (Sport Screen y=370)
+- ✅ cce_decision_log: DriveBC Highway-Aware Filtering + GPS09 Integration
+
+### Next Session
+1. **Sport Sharp Polish** — Road test bottom strip readability, verify DCCD arc renders correctly with real IMU data
+2. **Sport Screen Review** — Voice ticker at y=370 may conflict with coaching text at y=418; needs road testing
+3. **DriveBC Highway Auto-Detect** — Wire GPS09 position to auto-detect highway corridor and call `drivebc_poller.update_highway()`
+4. **DriveBC Ahead-Only Filtering** — Wire `drivebc_poller.update_heading()` from GPS09 heading data
+5. **S# Canyon Polish** — Consider adding ambient temp display (currently Intelligent screen only)
+6. **K6 Sub-Page Toggle** — Wire mode_manager to switch between canyon/track S# variants
+
+---
+
 ## Session: 2026-04-05 (kisti-weather-intelligence — Dual-Layer Sensor + EC Integration)
 
 ### Status: COMPLETE

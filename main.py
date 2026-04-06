@@ -30,6 +30,7 @@ import argparse
 import logging
 import os
 import sys
+from pathlib import Path
 
 
 def setup_logging() -> None:
@@ -54,6 +55,8 @@ def main():
     parser.add_argument("--no-zeus-sync", action="store_true", help="Disable Zeus memory sync")
     parser.add_argument("--demo", action="store_true",
                         help="Trade show mode: mock CAN telemetry + SI-Drive rotation")
+    parser.add_argument("--lock-mode", action="store_true",
+                        help="Lock SI-Drive mode (no auto-cycling in demo, use SIGUSR1)")
     parser.add_argument("--sim-ambient", action="store_true",
                         help="Run ambient weather simulation (scripted scenario, ~90s)")
     parser.add_argument("--sim-voice", action="store_true",
@@ -65,6 +68,14 @@ def main():
     parser.add_argument("--headless", action="store_true",
                         help="Headless voice mode — no display, pure voice chat")
     args = parser.parse_args()
+
+    # .demo-mode flag file: toggle demo without editing session script
+    # Create ~/repos/kisti/.demo-mode to enable, remove to disable
+    _demo_flag = Path(__file__).parent / ".demo-mode"
+    if _demo_flag.exists():
+        args.demo = True
+        args.sim_ambient = True
+        args.lock_mode = True
 
     setup_logging()
     log = logging.getLogger("kisti")
@@ -156,11 +167,14 @@ def main():
 
     signal.signal(signal.SIGUSR1, _cycle_si_drive)
     listener, mock = create_can_source(bridge)
-    # Demo mode: start mock CAN with SI-Drive cycling for trade shows
+    # Demo mode: start mock CAN with telemetry data
     if args.demo and mock is not None:
-        mock.set_demo_mode(True)
+        mock.set_demo_mode(not args.lock_mode)
         mock.start()
-        log.info("Demo mode: mock CAN active, SI-Drive cycling I→S→S# every 15s")
+        if args.lock_mode:
+            log.info("Demo mode: mock CAN active, SI-Drive locked (use SIGUSR1 to change)")
+        else:
+            log.info("Demo mode: mock CAN active, SI-Drive cycling I→S→S# every 15s")
 
     # Mode manager: SI Drive → subsystem control
     mode_mgr = ModeManager(bridge)
@@ -196,22 +210,31 @@ def main():
 
     # Environment Canada regional weather (extends prediction window)
     ec_poller = None
-    try:
-        from sensors.ec_weather import ECWeatherPoller
-        ec_poller = ECWeatherPoller()
-        ec_poller.start()
-    except Exception as exc:
-        log.info("EC weather poller unavailable: %s", exc)
-
     # DriveBC road weather (RWIS stations + road events)
     drivebc_poller = None
-    try:
-        from sensors.drivebc_weather import DriveBCPoller
-        drivebc_poller = DriveBCPoller()
-        drivebc_poller.start()
-        log.info("DriveBC poller online: RWIS stations + road events")
-    except Exception as exc:
-        log.info("DriveBC poller unavailable: %s", exc)
+    # Event simulator (demo mode only — replaces real EC + DriveBC pollers)
+    event_sim = None
+
+    if args.demo:
+        from sensors.event_simulator import EventSimulator
+        event_sim = EventSimulator(bridge)
+        event_sim.start()
+        log.info("Demo mode: DriveBC + EC event simulator active (looping)")
+    else:
+        try:
+            from sensors.ec_weather import ECWeatherPoller
+            ec_poller = ECWeatherPoller()
+            ec_poller.start()
+        except Exception as exc:
+            log.info("EC weather poller unavailable: %s", exc)
+
+        try:
+            from sensors.drivebc_weather import DriveBCPoller
+            drivebc_poller = DriveBCPoller()
+            drivebc_poller.start()
+            log.info("DriveBC poller online: RWIS stations + road events")
+        except Exception as exc:
+            log.info("DriveBC poller unavailable: %s", exc)
 
     if ambient_source:
         def _on_ambient_for_bridge_and_weather(r):

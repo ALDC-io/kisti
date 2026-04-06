@@ -302,6 +302,7 @@ class DiffState:
     drivebc_event_severity: str = ""          # CLOSURE/MAJOR/MINOR
     drivebc_available: bool = False
     drivebc_data_age_s: float = 0.0
+    road_weather_source: str = ""  # Active provider: "DriveBC", "511AB", "IEM-IA", "511ON"
 
     # Warm-up state (computed, not from CAN)
     warmup_state: WarmUpState = WarmUpState.COLD
