@@ -54,6 +54,24 @@ from ui.theme import (
     FONT_MEGA,
 )
 
+
+# ---------------------------------------------------------------------------
+# DriveBC event banner formatter
+# ---------------------------------------------------------------------------
+
+def _drivebc_event_banner(text: str) -> str:
+    """Format DriveBC event for at-a-glance banner."""
+    if not text:
+        return "DriveBC: Road event ahead"
+    parts = text.split(". ")
+    lead = parts[0].rstrip(".")
+    details = [p.rstrip(".") for p in parts[1:] if not p.startswith(("Until ", "From ", "Starting ", "Last updated ", "Next update "))]
+    banner = f"DriveBC: {lead} ahead"
+    if details:
+        banner += f" — {details[0]}"
+    return banner[:80]
+
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -682,7 +700,7 @@ class SportSharpScreenWidget(QWidget):
             sev = snap.drivebc_event_severity
             evt_sev = 48 if sev == "CLOSURE" else 22
             evt_bg = QColor(180, 20, 20) if sev == "CLOSURE" else QColor(200, 120, 0)
-            candidates.append((evt_sev, f"DriveBC: {snap.drivebc_event_text[:70]}", evt_bg, white))
+            candidates.append((evt_sev, _drivebc_event_banner(snap.drivebc_event_text), evt_bg, white))
 
         if not candidates:
             return

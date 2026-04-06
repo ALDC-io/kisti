@@ -53,6 +53,28 @@ from ui.theme import (
 )
 
 # ---------------------------------------------------------------------------
+# DriveBC event banner formatter
+# ---------------------------------------------------------------------------
+
+def _drivebc_event_banner(text: str) -> str:
+    """Format DriveBC event for at-a-glance banner.
+
+    'Road construction work. Until Fri Jul 3. Left turn lane closed.'
+    → 'DriveBC: Road Construction ahead — Left turn lane closed'
+    """
+    if not text:
+        return "DriveBC: Road event ahead"
+    parts = text.split(". ")
+    lead = parts[0].rstrip(".")
+    # Drop scheduling details (Until/From/Starting), keep actionable info
+    details = [p.rstrip(".") for p in parts[1:] if not p.startswith(("Until ", "From ", "Starting ", "Last updated ", "Next update "))]
+    banner = f"DriveBC: {lead} ahead"
+    if details:
+        banner += f" — {details[0]}"
+    return banner[:80]
+
+
+# ---------------------------------------------------------------------------
 # FLIR brake temp thresholds (deg C)
 # ---------------------------------------------------------------------------
 # Road surface temp thresholds (forward-facing grill FLIR)
@@ -573,8 +595,7 @@ class IntelligentScreenWidget(QWidget):
             sev = snap.drivebc_event_severity
             evt_bg = QColor(180, 20, 20) if sev == "CLOSURE" else QColor(200, 120, 0)
             evt_sev = 48 if sev == "CLOSURE" else 22
-            evt_text = snap.drivebc_event_text[:70]
-            alerts.append((evt_sev, f"DriveBC: {evt_text}", evt_bg))
+            alerts.append((evt_sev, _drivebc_event_banner(snap.drivebc_event_text), evt_bg))
 
         if not alerts:
             return
