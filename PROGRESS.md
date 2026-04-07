@@ -1,5 +1,25 @@
 # KiSTI - Progress
 
+## Session: 2026-04-07 (kisti-road-07 — label rename + CCX flood)
+
+### Status: COMPLETE
+
+### Completed
+- **Sport screen bar labels renamed** — `ui/sport_screen.py`: `BALANCE` → `BLNCE`, `TRAIL %` → `TRAILB`. Confirmed in screenshot.
+- **CCX daily brief flooding suppressed** — Zeus daily brief was injected as a `block` decision on every PostToolUse/Stop hook. Root cause: `message_poller.py` re-adds all messages from Zeus on every poll cycle (mark-as-read not sticking). Temporary fix: `curl -X POST http://localhost:7432/admin/pause?user=jkadmin`. Proper fix needed in CCX poller (see NEXT_SESSION v12).
+
+### Don't Repeat
+- CCX `/admin/pause` survives the session but not a CCX restart — need a persistent fix in poller logic
+- Sport screen label positions: BLNCE is centered-bar (balance), TRAILB is standard bar (trail brake %)
+
+### Files Changed
+- `ui/sport_screen.py` — BALANCE→BLNCE, TRAIL %→TRAILB
+
+### Test Count
+- 1513 passed (unchanged)
+
+---
+
 ## Session: 2026-04-06c (kisti-road-06 — d9a909b9 hash fix)
 
 ### Status: COMPLETE
