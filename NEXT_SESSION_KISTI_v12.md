@@ -1,4 +1,4 @@
-# KiSTI Next Session — v12 (kisti-road-07)
+# KiSTI Next Session — v13 (kisti-road-08)
 
 ## Working Directory
 `/home/aldc/repos/kisti/` (dev machine) | Jetson: `ssh aldc@192.168.22.131` (pw: aldc1234)
@@ -11,29 +11,20 @@ Branch: `kisti-headless` | Test baseline: **1513 passed**
   `ssh aldc@192.168.22.131 "DISPLAY=:0 XAUTHORITY=/tmp/serverauth.ik2VYbBsyP import -window root /tmp/s.png" && scp aldc@192.168.22.131:/tmp/s.png /tmp/s.png`
 - Switch screen: `ssh aldc@192.168.22.131 "DISPLAY=:0 XAUTHORITY=... xdotool key N"` (1=I, 2=Sport, 3=S#, 4=track)
 
-## What Was Done This Session (kisti-road-07)
-1. **Sport screen bar labels renamed** — `ui/sport_screen.py`: `BALANCE` → `BLNCE`, `TRAIL %` → `TRAILB`. Committed, deployed, screenshot confirmed.
-2. **CCX daily brief flood fixed (temporary)** — CCX sidecar was re-injecting the Zeus daily brief as a `block` decision on every tool use (PostToolUse hook). Root cause: `format_stop_block()` in `message_poller.py` returns ALL unread messages; Zeus poller re-adds them on every poll cycle even after `/api/inbox` clears in-memory state (mark_as_read on Zeus not taking effect). Temporary fix: `curl -X POST "http://localhost:7432/admin/pause?user=jkadmin"` — pauses CCX notifications for this session only. Will need a proper fix (see TODO #1 below).
+## What Was Done This Session (kisti-road-07 continuation, 2026-04-07c)
+1. **CCX message poller flood PERMANENTLY FIXED** — `/home/aldc/repos/ccx/src/ccx/workers/message_poller.py` added `_read_ids` set. When `mark_read(mid)` is called, that ID is permanently excluded from `_unread_ids` even when Zeus keeps returning it. Prevents re-polling of already-read messages. 6 new tests added (all passing). Docker container rebuilt and redeployed (`docker compose build --no-cache ccx && docker compose up -d ccx`).
+2. **Display keepawake loop added** — `scripts/kisti-session` runs 60s background loop calling `xset s reset && xset s off -dpms` for lifetime of KiSTI process. Fixes mid-session DPMS re-activation. Loop killed cleanly on KiSTI exit.
+3. **All 4 screens verified** — Intelligent, Sport, Sport#, Track all rendering correctly. Sport screen shows BLNCE/TRAILB labels (confirmed from prior session).
 
 ## IMMEDIATE TODO (start here in order)
 
-### 1. Fix CCX daily brief re-flooding (LOW PRIORITY — dev annoyance)
-**Symptom**: Zeus daily brief appears as a `block` decision on every PostToolUse and Stop hook, flooding the conversation.
-**Root cause**: `message_poller.py` `_poll_loop()` unconditionally re-adds all messages from Zeus on every poll — so even after `/api/inbox` marks them read in memory, next poll re-fetches and re-adds them. The Zeus `mark_messages_read()` fire-and-forget call (`/api/inbox` → `mark_messages_read`) is apparently not removing them from Zeus's `GET /api/presence/messages?unread=true` response.
-**Fix approach**:
-- Check `/home/aldc/repos/ccx/src/ccx/workers/message_poller.py` `_poll_loop()` — add a `_read_ids` set and skip already-seen IDs even if Zeus returns them again
-- OR check Zeus API `/api/presence/messages` — verify `mark_messages_read()` actually filters them from subsequent polls
-- Repo: `/home/aldc/repos/ccx/`
-- CCX sidecar running at `http://localhost:7432`
-- Re-pause if needed: `curl -X POST "http://localhost:7432/admin/pause?user=jkadmin"`
-
-### 2. RS3 AiM Strada Configuration (BLOCKED on hardware)
+### 1. RS3 AiM Strada Configuration (BLOCKED on hardware)
 - Bind Status element to CAN ID 0x6C2 when AiM Strada 7" arrives
 - RS3 Track Maps Import blocked on AiM .mpl sample files
 
-### 3. Brake Quality Feed
-- Wire `update_brake_quality()` to track screen from main.py
-- See `ui/sharp_screen_track.py` — function exists, not connected
+### 2. Track Timing Activation
+- Lap beacon / timing gate configuration (when hardware ready)
+- Brake quality dots will activate automatically on track with timing data
 
 ## Jetson State
 - KiSTI running on `DISPLAY=:0`

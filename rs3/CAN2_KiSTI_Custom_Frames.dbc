@@ -1,0 +1,105 @@
+VERSION ""
+
+NS_ :
+
+BS_:
+
+BU_: JetsonOrin AiM_MXG LinkG5Neo
+
+VAL_TABLE_ SI_Drive_Mode 0 "Intelligent" 1 "Sport" 2 "SportSharp" ;
+VAL_TABLE_ Surface_Type 0 "Dry" 1 "Wet" 2 "Snow" 3 "Gravel" ;
+VAL_TABLE_ Drive_Context 0 "Street" 1 "Spirited" 2 "Track" 3 "Launch" ;
+
+BO_ 1712 DCCD_Torque: 8 LinkG5Neo
+ SG_ DCCD_Front_Torque : 0|16@1+ (0.1,0) [0|100] "%" AiM_MXG
+ SG_ DCCD_Rear_Torque : 16|16@1+ (0.1,0) [0|100] "%" AiM_MXG
+ SG_ DCCD_Mode : 32|8@1+ (1,0) [0|7] "" AiM_MXG
+ SG_ DCCD_Lock_Pct : 40|16@1+ (0.1,0) [0|100] "%" AiM_MXG
+
+BO_ 1713 Context_Frame: 8 JetsonOrin
+ SG_ Drive_Context : 0|8@1+ (1,0) [0|3] "" AiM_MXG
+ SG_ Surface_Type : 8|8@1+ (1,0) [0|3] "" AiM_MXG
+ SG_ Confidence : 16|8@1+ (1,0) [0|100] "%" AiM_MXG
+ SG_ AI_Alert_Level : 24|8@1+ (1,0) [0|3] "" AiM_MXG
+ SG_ Session_Lap : 32|16@1+ (1,0) [0|999] "" AiM_MXG
+ SG_ Ambient_Temp : 48|16@1+ (0.1,-100) [-40|60] "degC" AiM_MXG
+
+BO_ 1714 Wheel_Speed_Detail: 8 LinkG5Neo
+ SG_ WS_FL : 0|16@1+ (0.01,0) [0|400] "km/h" AiM_MXG
+ SG_ WS_FR : 16|16@1+ (0.01,0) [0|400] "km/h" AiM_MXG
+ SG_ WS_RL : 32|16@1+ (0.01,0) [0|400] "km/h" AiM_MXG
+ SG_ WS_RR : 48|16@1+ (0.01,0) [0|400] "km/h" AiM_MXG
+
+BO_ 1715 Dynamics: 8 JetsonOrin
+ SG_ Yaw_Rate : 0|16@1+ (0.01,-327.68) [-327|327] "deg/s" AiM_MXG
+ SG_ Lateral_G : 16|16@1+ (0.001,-32.768) [-5|5] "g" AiM_MXG
+ SG_ Longitudinal_G : 32|16@1+ (0.001,-32.768) [-5|5] "g" AiM_MXG
+ SG_ Slip_Angle : 48|16@1+ (0.01,-327.68) [-90|90] "deg" AiM_MXG
+
+BO_ 1716 GPS_Position: 8 JetsonOrin
+ SG_ Latitude : 0|32@1+ (0.0000001,-180) [-90|90] "deg" AiM_MXG
+ SG_ Longitude : 32|32@1+ (0.0000001,-180) [-180|180] "deg" AiM_MXG
+
+BO_ 1717 GPS_Velocity: 8 JetsonOrin
+ SG_ GPS_Speed : 0|16@1+ (0.01,0) [0|500] "km/h" AiM_MXG
+ SG_ GPS_Heading : 16|16@1+ (0.01,0) [0|360] "deg" AiM_MXG
+ SG_ GPS_Altitude : 32|16@1+ (0.1,-1000) [-500|10000] "m" AiM_MXG
+ SG_ GPS_Satellites : 48|8@1+ (1,0) [0|32] "" AiM_MXG
+ SG_ GPS_Fix_Quality : 56|8@1+ (1,0) [0|5] "" AiM_MXG
+
+BO_ 1718 IMU_Accel_Gyro: 8 JetsonOrin
+ SG_ Accel_X : 0|16@1+ (0.001,-32.768) [-16|16] "g" AiM_MXG
+ SG_ Accel_Y : 16|16@1+ (0.001,-32.768) [-16|16] "g" AiM_MXG
+ SG_ Gyro_Z : 32|16@1+ (0.01,-327.68) [-500|500] "deg/s" AiM_MXG
+
+BO_ 1719 IMU_Orientation: 8 JetsonOrin
+ SG_ Roll : 0|16@1+ (0.01,-327.68) [-180|180] "deg" AiM_MXG
+ SG_ Pitch : 16|16@1+ (0.01,-327.68) [-90|90] "deg" AiM_MXG
+ SG_ Yaw : 32|16@1+ (0.01,-327.68) [-180|180] "deg" AiM_MXG
+
+BO_ 1712 SI_Drive: 8 LinkG5Neo
+ SG_ SI_Drive_Mode : 0|8@1+ (1,0) [0|2] "" AiM_MXG
+ SG_ SI_Drive_Transition : 8|8@1+ (1,0) [0|1] "" AiM_MXG
+ SG_ Warmup_Complete : 16|8@1+ (1,0) [0|1] "" AiM_MXG
+
+BO_ 1745 Extended_Sensors: 8 LinkG5Neo
+ SG_ Ext_Sensor_1 : 0|16@1+ (0.1,0) [0|65535] "" AiM_MXG
+ SG_ Ext_Sensor_2 : 16|16@1+ (0.1,0) [0|65535] "" AiM_MXG
+ SG_ Ext_Sensor_3 : 32|16@1+ (0.1,0) [0|65535] "" AiM_MXG
+ SG_ Ext_Sensor_4 : 48|16@1+ (0.1,0) [0|65535] "" AiM_MXG
+
+BO_ 1746 Keypad: 8 JetsonOrin
+ SG_ Button_ID : 0|8@1+ (1,0) [0|16] "" AiM_MXG
+ SG_ Button_State : 8|8@1+ (1,0) [0|2] "" AiM_MXG
+ SG_ Long_Press : 16|8@1+ (1,0) [0|1] "" AiM_MXG
+
+CM_ BU_ JetsonOrin "NVIDIA Jetson Orin Nano - KiSTI Edge AI Co-Driver";
+CM_ BU_ AiM_MXG "AiM MXG Strada 1.3 7in Street Edition - CAN2";
+CM_ BU_ LinkG5Neo "Link G5 Neo ECU (G4X platform)";
+CM_ BO_ 1712 "KiSTI 0x6B0: SI-Drive state from ECU - LIKELY for CAN2";
+CM_ BO_ 1712 "KiSTI 0x6A0: DCCD torque split - POSSIBLE for CAN2";
+CM_ BO_ 1713 "KiSTI 0x6A1: AI context frame from Jetson - POSSIBLE";
+CM_ BO_ 1714 "KiSTI 0x6A2: Wheel speed detail - UNLIKELY (CAN1 covers)";
+CM_ BO_ 1715 "KiSTI 0x6A3: Vehicle dynamics - POSSIBLE for Sport#";
+CM_ BO_ 1716 "KiSTI 0x6A4: GPS position - UNLIKELY (MXG has GPS)";
+CM_ BO_ 1717 "KiSTI 0x6A5: GPS velocity - UNLIKELY (MXG has GPS)";
+CM_ BO_ 1718 "KiSTI 0x6A6: IMU accelerometer/gyro - POSSIBLE";
+CM_ BO_ 1719 "KiSTI 0x6A7: IMU orientation - UNLIKELY";
+CM_ BO_ 1745 "KiSTI 0x6B1: Extended sensors - DEFERRED";
+CM_ BO_ 1746 "KiSTI 0x6B2: Keypad events - UNLIKELY";
+
+BA_DEF_ BO_ "GenMsgCycleTime" INT 0 10000;
+BA_ "GenMsgCycleTime" BO_ 1712 100;
+BA_ "GenMsgCycleTime" BO_ 1713 100;
+BA_ "GenMsgCycleTime" BO_ 1714 20;
+BA_ "GenMsgCycleTime" BO_ 1715 20;
+BA_ "GenMsgCycleTime" BO_ 1716 100;
+BA_ "GenMsgCycleTime" BO_ 1717 100;
+BA_ "GenMsgCycleTime" BO_ 1718 20;
+BA_ "GenMsgCycleTime" BO_ 1719 100;
+BA_ "GenMsgCycleTime" BO_ 1745 100;
+BA_ "GenMsgCycleTime" BO_ 1746 0;
+
+VAL_ 1712 SI_Drive_Mode 0 "Intelligent" 1 "Sport" 2 "SportSharp" ;
+VAL_ 1713 Drive_Context 0 "Street" 1 "Spirited" 2 "Track" 3 "Launch" ;
+VAL_ 1713 Surface_Type 0 "Dry" 1 "Wet" 2 "Snow" 3 "Gravel" ;

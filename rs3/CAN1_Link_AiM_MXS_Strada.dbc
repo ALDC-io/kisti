@@ -1,0 +1,100 @@
+VERSION ""
+
+NS_ :
+
+BS_:
+
+BU_: LinkG5Neo AiM_MXG
+
+VAL_TABLE_ SI_Drive_Mode 0 "Intelligent" 1 "Sport" 2 "SportSharp" ;
+VAL_TABLE_ Gear_Position 0 "Neutral" 1 "1st" 2 "2nd" 3 "3rd" 4 "4th" 5 "5th" 6 "6th" 7 "Reverse" ;
+
+BO_ 1000 Link_AiM_Strada_F1: 8 LinkG5Neo
+ SG_ RPM : 0|16@1+ (1,0) [0|15000] "rpm" AiM_MXG
+ SG_ MAP : 16|16@1+ (0.1,0) [0|600] "kPa" AiM_MXG
+ SG_ TPS : 32|16@1+ (0.1,0) [0|100] "%" AiM_MXG
+ SG_ ECT : 48|16@1+ (0.1,-100) [-40|200] "degC" AiM_MXG
+
+BO_ 1001 Link_AiM_Strada_F2: 8 LinkG5Neo
+ SG_ IAT : 0|16@1+ (0.1,-100) [-40|200] "degC" AiM_MXG
+ SG_ VOLTS : 16|16@1+ (0.01,0) [0|25] "V" AiM_MXG
+ SG_ INJ_DC : 32|16@1+ (0.1,0) [0|100] "%" AiM_MXG
+ SG_ MGP : 48|16@1+ (0.1,-100) [-100|500] "kPa" AiM_MXG
+
+BO_ 1002 Link_AiM_Strada_F3: 8 LinkG5Neo
+ SG_ BARO : 0|16@1+ (0.1,0) [0|120] "kPa" AiM_MXG
+ SG_ MAF : 16|16@1+ (0.1,0) [0|1000] "g/s" AiM_MXG
+ SG_ GEAR : 32|8@1+ (1,0) [0|7] "" AiM_MXG
+ SG_ Gear4WD : 40|8@1+ (1,0) [0|7] "" AiM_MXG
+ SG_ INJ_DC_SEC : 48|16@1+ (0.1,0) [0|100] "%" AiM_MXG
+
+BO_ 1003 Link_AiM_Strada_F4: 8 LinkG5Neo
+ SG_ INJ_PULSE : 0|16@1+ (0.01,0) [0|50] "ms" AiM_MXG
+ SG_ INJECT_TIM : 16|16@1+ (0.1,-100) [-60|60] "deg" AiM_MXG
+ SG_ IGN_TIM : 32|16@1+ (0.1,-100) [-20|60] "degBTDC" AiM_MXG
+ SG_ FAULT_CODE : 48|16@1+ (1,0) [0|65535] "" AiM_MXG
+
+BO_ 1004 Link_AiM_Strada_F5: 8 LinkG5Neo
+ SG_ WBO2_LAM1 : 0|16@1+ (0.001,0) [0.5|1.5] "lambda" AiM_MXG
+ SG_ WBO2_LAM2 : 16|16@1+ (0.001,0) [0.5|1.5] "lambda" AiM_MXG
+ SG_ TRIG1_ERR : 32|16@1+ (1,0) [0|65535] "" AiM_MXG
+ SG_ LMT_FLAGS1 : 48|8@1+ (1,0) [0|255] "" AiM_MXG
+ SG_ LMT_FLAGS2 : 56|8@1+ (1,0) [0|255] "" AiM_MXG
+
+BO_ 1005 Link_AiM_Strada_F6: 8 LinkG5Neo
+ SG_ CAM_IN_LF : 0|16@1+ (0.1,-100) [-50|50] "deg" AiM_MXG
+ SG_ CAM_IN_RH : 16|16@1+ (0.1,-100) [-50|50] "deg" AiM_MXG
+ SG_ CAM_EX_LF : 32|16@1+ (0.1,-100) [-50|50] "deg" AiM_MXG
+ SG_ CAM_EX_RF : 48|16@1+ (0.1,-100) [-50|50] "deg" AiM_MXG
+
+BO_ 1006 Link_AiM_Strada_F7: 8 LinkG5Neo
+ SG_ FUEL_PRESS : 0|16@1+ (0.1,0) [0|1000] "kPa" AiM_MXG
+ SG_ OILT : 16|16@1+ (0.1,-100) [-40|200] "degC" AiM_MXG
+ SG_ OIL_PRESS : 32|16@1+ (0.1,0) [0|1000] "kPa" AiM_MXG
+
+BO_ 1007 Link_AiM_Strada_F8: 8 LinkG5Neo
+ SG_ SPEED1 : 0|16@1+ (0.1,0) [0|400] "km/h" AiM_MXG
+ SG_ SPEED2 : 16|16@1+ (0.1,0) [0|400] "km/h" AiM_MXG
+ SG_ SPEED3 : 32|16@1+ (0.1,0) [0|400] "km/h" AiM_MXG
+ SG_ SPEED4 : 48|16@1+ (0.1,0) [0|400] "km/h" AiM_MXG
+
+BO_ 1008 Link_AiM_Strada_F9: 8 LinkG5Neo
+ SG_ KNOCK_LEV1 : 0|16@1+ (1,0) [0|65535] "" AiM_MXG
+ SG_ KNOCK_LEV2 : 16|16@1+ (1,0) [0|65535] "" AiM_MXG
+ SG_ KNOCK_LEV3 : 32|16@1+ (1,0) [0|65535] "" AiM_MXG
+ SG_ KNOCK_LEV4 : 48|16@1+ (1,0) [0|65535] "" AiM_MXG
+
+BO_ 1009 Link_AiM_Strada_F10: 8 LinkG5Neo
+ SG_ KNOCK_LEV5 : 0|16@1+ (1,0) [0|65535] "" AiM_MXG
+ SG_ KNOCK_LEV6 : 16|16@1+ (1,0) [0|65535] "" AiM_MXG
+ SG_ KNOCK_LEV7 : 32|16@1+ (1,0) [0|65535] "" AiM_MXG
+ SG_ KNOCK_LEV8 : 48|16@1+ (1,0) [0|65535] "" AiM_MXG
+
+CM_ BU_ LinkG5Neo "Link G5 Neo ECU (G4X platform) - 2014 Subaru WRX STI";
+CM_ BU_ AiM_MXG "AiM MXG Strada 1.3 7in Street Edition";
+CM_ BO_ 1000 "Link AiM Strada dedicated stream - Frame 1: Core engine";
+CM_ BO_ 1001 "Link AiM Strada dedicated stream - Frame 2: Temps/volts/duty";
+CM_ BO_ 1002 "Link AiM Strada dedicated stream - Frame 3: Baro/MAF/gear";
+CM_ BO_ 1003 "Link AiM Strada dedicated stream - Frame 4: Timing/faults";
+CM_ BO_ 1004 "Link AiM Strada dedicated stream - Frame 5: Lambda/flags";
+CM_ BO_ 1005 "Link AiM Strada dedicated stream - Frame 6: Camshaft positions";
+CM_ BO_ 1006 "Link AiM Strada dedicated stream - Frame 7: Fluid press/temp";
+CM_ BO_ 1007 "Link AiM Strada dedicated stream - Frame 8: Wheel speeds";
+CM_ BO_ 1008 "Link AiM Strada dedicated stream - Frame 9: Knock cyl 1-4";
+CM_ BO_ 1009 "Link AiM Strada dedicated stream - Frame 10: Knock cyl 5-8";
+
+BA_DEF_ BO_ "GenMsgCycleTime" INT 0 10000;
+BA_ "GenMsgCycleTime" BO_ 1000 20;
+BA_ "GenMsgCycleTime" BO_ 1001 20;
+BA_ "GenMsgCycleTime" BO_ 1002 20;
+BA_ "GenMsgCycleTime" BO_ 1003 20;
+BA_ "GenMsgCycleTime" BO_ 1004 20;
+BA_ "GenMsgCycleTime" BO_ 1005 20;
+BA_ "GenMsgCycleTime" BO_ 1006 20;
+BA_ "GenMsgCycleTime" BO_ 1007 20;
+BA_ "GenMsgCycleTime" BO_ 1008 20;
+BA_ "GenMsgCycleTime" BO_ 1009 20;
+
+VAL_ 1004 LMT_FLAGS1 1 "RPM_LIMIT" 2 "MAP_LIMIT" 3 "SPEED_LIMIT" 4 "MAX_IGN_FLAG" 6 "HIGH_VOLT_SUPPLY" 7 "OVERRUN" ;
+VAL_ 1004 LMT_FLAGS2 1 "LOW_VOLT_SUPPLY" 2 "LAUNCH_RPM" 3 "WAKEUP" ;
+VAL_ 1002 GEAR 0 "Neutral" 1 "1st" 2 "2nd" 3 "3rd" 4 "4th" 5 "5th" 6 "6th" 7 "Reverse" ;

@@ -21,6 +21,10 @@
 ### Test Count
 - 1513 passed (unchanged; keepawake is shell script, no code coverage)
 
+### Learnings Captured to Zeus Memory
+- ✅ cce_success_log: CCX Message Poller Flood Fix Complete
+- ✅ cce_success_log: Display Keepawake Loop Added to KiSTI Session
+
 ---
 
 ## Session: 2026-04-07b (kisti-road-07 — brake quality feed + CCX flood verification)
