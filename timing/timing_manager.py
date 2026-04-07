@@ -285,8 +285,8 @@ class TimingManager(QObject):
             try:
                 for track in self._track_db.list_tracks():
                     track_name_map[track.name.lower()] = track.track_id
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("Could not load track names for ztracks matching: %s", exc)
 
         for ztracks_path in ztracks_files:
             # Try to determine track_id from filename or name in file
