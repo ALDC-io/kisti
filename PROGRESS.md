@@ -1,29 +1,33 @@
 # KiSTI - Progress
 
-## Session: 2026-04-06b (kisti-road-06 — EC Removal + Jetson Session Fix)
+## Session: 2026-04-06b (kisti-road-06 — EC Removal + Track Name Fix)
 
-### Status: IN PROGRESS
+### Status: COMPLETE
 
 ### Completed
-- **Deployed kisti-session fix** — phi4-mini warmup model + startx XAUTHORITY + XDG_RUNTIME_DIR detection
-- **Confirmed Sport screen default** — `mode_manager.py:119` already `SIDriveMode.SPORT`, logs confirm "Mode: Sport"
-- **Confirmed FLIR → Nextcloud** — `flir_readings` in export list, syncs identically to all other telemetry
+- **EC weather disabled** — `main.py:234` `ec_poller.start()` → `pass # EC disabled for now`. EC banner gone from all 4 screens. Deployed + confirmed on Jetson.
+- **Sport screen verified as default** — Screenshot confirmed DCCD bar, technique panel, friction ellipse, L/C/R zones visible at startup.
+- **Canonical track outline pre-committed** — `data/track_outlines/a1b2c3d4-1006-4000-8006-000000000006.json` (63 pts) committed to git. Always deployed, loaded at startup: `Pre-loaded outline from a1b2c3d4-1006-4000-8006-000000000006.json (63 pts)`.
+- **ztracks_parser `_extract_string` fixed** — `tools/ztracks_parser.py`. Scans byte-by-byte for first alphabetic-starting char run (3+ chars, null-terminated). Fixed `name=''` → `name='Mission Raceway Park'` and `city=''` → `city='Mission BC'`. Previously fixed skip offsets (0,1,2,4) never reached offset 10 where name lives in `<hPtkk` section.
+- **Silent exception fix in `_auto_import_ztracks`** — `timing/timing_manager.py` logs a warning instead of swallowing exception when track name lookup fails.
 
-### In Progress
-- **Remove EC weather display** — `ec_poller.start()` in `main.py:234` needs to be commented out. EC data showing "Strong and gusty westerly winds" on all screens even while parked (fetching live regional advisories). Single-point disable: comment out `ec_poller.start()`.
-- **Canonical track_id bug** — `data/track_outlines/d9a909b9-0000-0000-0000-000000000000.json` (hash) instead of `a1b2c3d4-1006-4000-8006-000000000006.json` (canonical Mission Raceway Park). Debug: trace name matching in `_auto_import_ztracks()`.
-- **Track name not showing** — `name='' city=''` in parser log. `_extract_string` skips 0,1,2,4 but Mission Raceway may use different offset.
-
-### Next Session Priorities
-1. Remove EC display — comment out `ec_poller.start()` in `main.py:234`
-2. Verify Sport screen after restart (should be working, just confirm)
-3. Fix canonical track_id — delete hash file, restart, trace name matching
-4. Fix track name — inspect raw bytes near `<hPtkk`/`<hVnfo` section markers
+### Remaining Known Issue
+- `d9a909b9-0000-0000-0000-000000000000.json` (hash outline) still written by auto-import alongside canonical — name match in `_auto_import_ztracks` still fails (track not in DuckDB at import time, or list_tracks() throws). Benign: canonical `a1b2c3d4` file is committed to git so it's always present and loaded.
 
 ### Don't Repeat
 - EC = Environment Canada weather, NOT enterprise or demo
-- `DISPLAY=:0` after 2026-04-06 reboot (was `:1` earlier in same day — always check `ls /tmp/.X*-lock`)
-- mode_manager defaults to SPORT, main_window syncs at init — if showing Intelligent after start, likely manual key press not a bug
+- `_extract_string` now uses `.isalpha()` scan — NOT fixed skip offsets
+- mode_manager defaults to SPORT — if showing Intelligent after restart it's a manual key press
+- Jetson `DISPLAY=:0` or `:1` — always check `ls /tmp/.X*-lock` before sending xdotool commands
+
+### Files Changed
+- `main.py:234` — EC poller disabled
+- `tools/ztracks_parser.py` — `_extract_string` rewritten to alphabetic scan
+- `timing/timing_manager.py` — silent exception → warning log in `_auto_import_ztracks`
+- `data/track_outlines/a1b2c3d4-1006-4000-8006-000000000006.json` — NEW: pre-committed canonical outline
+
+### Test Count
+- 1513 passed (unchanged — no new tests this session)
 
 ---
 
