@@ -90,19 +90,25 @@ def _section_data(data: bytes, tag: bytes) -> bytes:
 
 
 def _extract_string(data: bytes, tag: bytes) -> str:
-    """Extract a null-terminated or section-bounded UTF-8 string after tag."""
+    """Extract a null-terminated UTF-8 string from section payload.
+
+    Scans past any binary header bytes to find the first run of printable
+    ASCII (>= 3 chars followed by a null or end of meaningful content).
+    This handles variable-length section headers across AiM ztracks versions.
+    """
     raw = _section_data(data, tag)
     if not raw:
         return ''
-    # Strip any leading length/type byte if the first byte is non-printable
-    # and the rest looks like a string
-    for skip in (0, 1, 2, 4):
-        candidate = raw[skip:]
-        nul = candidate.find(b'\x00')
-        chunk = candidate[:nul] if nul != -1 else candidate[:64]
+    # Scan for the first printable ASCII run of 3+ chars starting with a letter
+    for start in range(min(32, len(raw))):
+        if not chr(raw[start]).isalpha():
+            continue
+        nul = raw.find(b'\x00', start)
+        end = nul if nul != -1 else min(start + 128, len(raw))
+        chunk = raw[start:end]
         try:
-            text = chunk.decode('utf-8', errors='replace').strip()
-            if text and text.isprintable():
+            text = chunk.decode('utf-8', errors='strict').strip()
+            if len(text) >= 3 and text.isprintable():
                 return text
         except Exception:
             continue
