@@ -220,7 +220,7 @@ class SportSharpTrackScreenWidget(QWidget):
         self._track_outline: list = []
         self._lap_progress: float = 0.0
         self._track_name: str = ""
-        self._map_style: str = "gt"  # "schematic" or "gt" — tap map panel to toggle
+        self._map_style: str = "schematic"  # "schematic" or "gt" — tap map panel to toggle
 
     # ------------------------------------------------------------------
     # Public API
