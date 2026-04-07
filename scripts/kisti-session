@@ -149,6 +149,17 @@ else
     echo "$(date) No USB mic found, using default PA source" >> "$LOG"
 fi
 
+# Keep display awake — xset s off -dpms runs once at startup but Qt or other
+# processes can re-enable blanking mid-session. This loop fires every 60s to
+# reset the screensaver timer so the display stays on while KiSTI is running.
+( while true; do
+    xset s reset 2>/dev/null || true
+    xset s off -dpms 2>/dev/null || true
+    sleep 60
+done ) &
+_KEEPAWAKE_PID=$!
+
 python3 main.py --fullscreen --mic-device "$MIC_DEVICE" >> "$LOG" 2>&1
 
+kill "$_KEEPAWAKE_PID" 2>/dev/null || true
 echo "$(date) KiSTI session ended" >> "$LOG"
