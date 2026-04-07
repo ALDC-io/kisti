@@ -1,5 +1,25 @@
 # KiSTI - Progress
 
+## Session: 2026-04-06c (kisti-road-06 — d9a909b9 hash fix)
+
+### Status: COMPLETE
+
+### Completed
+- **Always-seed fix** — `timing/timing_manager.py` `__init__` now always calls `seed_tracks()` instead of only when `track_count() == 0`. `seed_tracks()` uses INSERT OR REPLACE so it's idempotent. Fixes root cause: Jetson DuckDB had 1 GPS-learned track, so seed was skipped, Mission Raceway Park never added, name match failed → `d9a909b9` hash fallback.
+- **d9a909b9 hash file eliminated** — Jetson `data/track_outlines/` now contains only `a1b2c3d4-1006-4000-8006-000000000006.json`. Confirmed: `Seeded 18 tracks from tracks_seed.json`, `ztracks matching: 19 tracks in DB`, `Pre-loaded outline from a1b2c3d4-1006-4000-8006-000000000006.json (63 pts)`.
+
+### Don't Repeat
+- Never guard `seed_tracks()` with `track_count() == 0` — DB may already have data from GPS-learned tracks
+- seed_tracks() is idempotent (INSERT OR REPLACE) — safe to call on every init
+
+### Files Changed
+- `timing/timing_manager.py` — removed `track_count() == 0` guard, always seed on init
+
+### Test Count
+- 1513 passed (unchanged)
+
+---
+
 ## Session: 2026-04-06b (kisti-road-06 — EC Removal + Track Name Fix)
 
 ### Status: COMPLETE
@@ -10,9 +30,6 @@
 - **Canonical track outline pre-committed** — `data/track_outlines/a1b2c3d4-1006-4000-8006-000000000006.json` (63 pts) committed to git. Always deployed, loaded at startup: `Pre-loaded outline from a1b2c3d4-1006-4000-8006-000000000006.json (63 pts)`.
 - **ztracks_parser `_extract_string` fixed** — `tools/ztracks_parser.py`. Scans byte-by-byte for first alphabetic-starting char run (3+ chars, null-terminated). Fixed `name=''` → `name='Mission Raceway Park'` and `city=''` → `city='Mission BC'`. Previously fixed skip offsets (0,1,2,4) never reached offset 10 where name lives in `<hPtkk` section.
 - **Silent exception fix in `_auto_import_ztracks`** — `timing/timing_manager.py` logs a warning instead of swallowing exception when track name lookup fails.
-
-### Remaining Known Issue
-- `d9a909b9-0000-0000-0000-000000000000.json` (hash outline) still written by auto-import alongside canonical — name match in `_auto_import_ztracks` still fails (track not in DuckDB at import time, or list_tracks() throws). Benign: canonical `a1b2c3d4` file is committed to git so it's always present and loaded.
 
 ### Don't Repeat
 - EC = Environment Canada weather, NOT enterprise or demo

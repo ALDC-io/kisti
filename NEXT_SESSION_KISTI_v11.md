@@ -16,19 +16,11 @@ Branch: `kisti-headless` | Test baseline: **1513 passed**
 3. **Canonical track outline pre-committed** — `data/track_outlines/a1b2c3d4-1006-4000-8006-000000000006.json` (63 pts). Logs confirm: `Pre-loaded outline from a1b2c3d4-1006-4000-8006-000000000006.json (63 pts)`.
 4. **`_extract_string` fixed** — `tools/ztracks_parser.py`. Scans byte-by-byte for first alphabetic char run. Now parses `name='Mission Raceway Park'  city='Mission BC'` correctly. Deployed and confirmed in Jetson logs.
 5. **Silent exception fix** — `timing/timing_manager.py` `_auto_import_ztracks` now logs a warning instead of swallowing exception when track name lookup fails.
+6. **d9a909b9 hash file fix** — `timing/timing_manager.py` `__init__`: removed `track_count() == 0` guard. Seed always runs (idempotent via INSERT OR REPLACE). Root cause was Jetson DuckDB had 1 GPS-learned track → seed skipped → Mission Raceway Park absent → name match failed → hash fallback. Now confirmed: `Seeded 18 tracks, ztracks matching: 19 tracks in DB`, only `a1b2c3d4` in `data/track_outlines/`.
 
 ## IMMEDIATE TODO (start here in order)
 
-### 1. Fix `_auto_import_ztracks` canonical track_id match (LOW PRIORITY — cosmetic)
-The hash file `d9a909b9-0000-0000-0000-000000000000.json` is still written alongside the canonical `a1b2c3d4` file on each restart. Root cause: track `list_tracks()` fails or returns empty when `_auto_import_ztracks()` runs at startup (DuckDB not yet seeded, or timing race). Functionally benign since canonical is committed to git and always loaded.
-
-**If you want to fix it:**
-- Check `timing/timing_manager.py` `_auto_import_ztracks()` — the `tdb.list_tracks()` call
-- Check if `TrackDatabase.list_tracks()` throws when `tracks` table doesn't exist
-- Check `data/tracks_seed.json` — is Mission Raceway Park there? Does the seed run before `_auto_import_ztracks`?
-- Warning in log: `Could not load track names for ztracks matching: <exception text>`
-
-### 2. RS3 AiM Strada Configuration (BLOCKED on hardware)
+### 1. RS3 AiM Strada Configuration (BLOCKED on hardware)
 - Bind Status element to CAN ID 0x6C2 when AiM Strada 7" arrives
 - RS3 Track Maps Import blocked on AiM .mpl sample files
 
@@ -38,8 +30,10 @@ The hash file `d9a909b9-0000-0000-0000-000000000000.json` is still written along
 
 ## Jetson State
 - Runs: `Parsed mission_raceway_park.ztracks: name='Mission Raceway Park' city='Mission BC' points=156`
+- Runs: `Seeded 18 tracks from tracks_seed.json`
+- Runs: `ztracks matching: 19 tracks in DB`
 - Runs: `Pre-loaded outline from a1b2c3d4-1006-4000-8006-000000000006.json (63 pts)`
-- Two outline files in `data/track_outlines/`: `a1b2c3d4-*.json` (canonical, correct) + `d9a909b9-*.json` (hash, written by broken name match — benign)
+- Only `a1b2c3d4-*.json` in `data/track_outlines/` — `d9a909b9` hash file is gone
 - EC weather: disabled (no EC banner anywhere)
 - Sport screen: confirmed default on startup
 
