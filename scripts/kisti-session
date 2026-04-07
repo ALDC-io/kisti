@@ -44,7 +44,18 @@ if [ -z "$DISPLAY" ]; then
     if [ -f "$_GDM_XAUTH" ]; then
         export XAUTHORITY="$_GDM_XAUTH"
         echo "$(date) Using GDM Xauthority: $XAUTHORITY" >> /tmp/kisti-session.log
+    else
+        # startx mode: auth file is /tmp/serverauth.* — find it from Xorg's cmdline
+        _XORG_PID=$(cat "/tmp/.X${_DETECTED#:}-lock" 2>/dev/null | tr -d ' ')
+        if [ -n "$_XORG_PID" ]; then
+            _STARTX_AUTH=$(cat /proc/$_XORG_PID/cmdline 2>/dev/null | tr '\0' '\n' | grep -A1 '\-auth' | tail -1)
+            if [ -f "$_STARTX_AUTH" ]; then
+                export XAUTHORITY="$_STARTX_AUTH"
+                echo "$(date) Using startx Xauthority: $XAUTHORITY" >> /tmp/kisti-session.log
+            fi
+        fi
     fi
+    export XDG_RUNTIME_DIR="/run/user/$(id -u)"
 fi
 export QT_QPA_PLATFORM=xcb
 export OLLAMA_MODELS=/data/ollama

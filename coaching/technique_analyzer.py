@@ -127,6 +127,33 @@ class TechniqueAnalyzer:
         _, text, sentiment = issues[0]
         return (text, sentiment)
 
+    def brake_quality(self) -> str:
+        """Return overall brake quality as 'green'/'yellow'/'red' for sector dots.
+
+        Based on rolling window peak G and consistency — same quality applied
+        to all sectors (per-sector tracking requires AiM sector boundary events).
+        """
+        braking = [s for s in self._samples if s.brake_pressure > _BRAKE_ACTIVE]
+        if len(braking) < 3:
+            return "yellow"  # insufficient data — neutral
+
+        brake_gs = [abs(s.longitudinal_g) for s in braking]
+        peak_g = max(brake_gs)
+        if peak_g <= 0.1:
+            return "yellow"  # IMU not reporting — neutral
+
+        g_std = _std_dev(brake_gs)
+        pressures = [s.brake_pressure for s in braking]
+        p_std = _std_dev(pressures)
+
+        if peak_g > 0.8 and g_std < 0.15 and p_std < 8:
+            return "green"
+        if peak_g < 0.5 and any(s.speed_kph > 60 for s in braking):
+            return "red"
+        if p_std > 12:
+            return "red"
+        return "yellow"
+
 
 def _std_dev(values: list[float]) -> float:
     """Population standard deviation."""

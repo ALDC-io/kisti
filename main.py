@@ -984,6 +984,16 @@ def main():
             trail = 1.0 if (snap.imu_accel_x < -0.3 and abs(snap.imu_accel_y) > 0.3) else 0.0
             window._sport_screen.update_brake_analysis(peak_g, trail * 100.0)
 
+            # Brake quality dots — fed to both S# screen variants (uniform per rolling window)
+            if timing_mgr:
+                td = timing_mgr.get_timing_data()
+                sc = td.get("sector_count", 0)
+                if sc > 0:
+                    quality = _technique_analyzer.brake_quality()
+                    qualities = [quality] * sc
+                    window._sharp_screen.update_brake_quality(qualities)
+                    window._sharp_screen_track.update_brake_quality(qualities)
+
             # GPS → road weather manager: feed position + heading for region switching
             if road_mgr and snap.gps_latitude != 0.0:
                 road_mgr.update_position(snap.gps_latitude, snap.gps_longitude)

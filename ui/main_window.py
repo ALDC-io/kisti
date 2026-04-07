@@ -111,7 +111,8 @@ class MainWindow(QMainWindow):
         if self._mode_manager is not None:
             self._mode_manager.si_drive_changed.connect(self._on_si_drive_changed)
             self._mode_manager.subpage_changed.connect(self._on_subpage_changed)
-            # warmup_changed — no status bar to update
+            # Sync to mode manager's current state (start() may have fired before we connected)
+            self._on_si_drive_changed(int(self._mode_manager.si_drive_mode))
 
         # F11 fullscreen toggle
         shortcut = QShortcut(QKeySequence(Qt.Key_F11), self)
