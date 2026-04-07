@@ -24,10 +24,15 @@ _CAR_MID = QColor(255, 80, 0, 140)
 _CAR_INNER = QColor(255, 160, 0)
 _CAR_CENTER = QColor(255, 255, 255)
 
-# Track colours
+# Schematic style (current default) — thin white-ish line on dark BG
 _TRACK_FILL = QColor("#252525")
 _TRACK_EDGE = QColor(CHROME_MID)
 _SF_LINE = QColor(HIGHLIGHT)
+
+# GT style — road surface as thick band (white curb lines + dark asphalt)
+_GT_CURB = QColor(220, 220, 220)    # white edge/kerb line (wide stroke)
+_GT_ASPHALT = QColor(75, 75, 75)    # dark gray road surface (narrow stroke)
+_GT_SF = QColor(255, 200, 0)        # yellow start/finish line
 
 
 def paint_track_map(
@@ -39,6 +44,7 @@ def paint_track_map(
     outline: list[tuple[float, float]],
     progress: float = 0.0,
     track_name: str = "",
+    style: str = "schematic",
 ) -> None:
     """Draw a circuit outline in the given screen rectangle.
 
@@ -48,6 +54,7 @@ def paint_track_map(
         outline: Normalized (0-1) track outline points from track_outline.py.
         progress: 0-1 lap progress (positions the car dot along outline).
         track_name: Shown in dim gray at bottom of the panel.
+        style: "schematic" (thin outline) or "gt" (Gran Turismo thick road band).
     """
     if len(outline) < 3:
         _draw_no_track(p, x, y, w, h, track_name)
@@ -72,17 +79,25 @@ def paint_track_map(
     # Build circuit path
     path = _build_path(outline, sx, sy)
 
-    # Track surface
-    p.setPen(QPen(_TRACK_FILL, 10, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-    p.drawPath(path)
-
-    # Track edge outline
-    p.setPen(QPen(_TRACK_EDGE, 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-    p.drawPath(path)
+    if style == "gt":
+        # Gran Turismo style: thick road band — white kerb border + dark asphalt surface
+        # Draw wider white stroke first → creates the kerb/edge lines
+        p.setPen(QPen(_GT_CURB, 22, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        p.drawPath(path)
+        # Narrower dark asphalt on top → leaves 3px white on each side
+        p.setPen(QPen(_GT_ASPHALT, 14, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        p.drawPath(path)
+    else:
+        # Schematic style: dark fill band + thin bright edge line
+        p.setPen(QPen(_TRACK_FILL, 10, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        p.drawPath(path)
+        p.setPen(QPen(_TRACK_EDGE, 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        p.drawPath(path)
 
     # Start/finish line at outline[0]
     sf = outline[0]
     sf_x, sf_y = sx(sf[0]), sy(sf[1])
+    sf_color = _GT_SF if style == "gt" else _SF_LINE
     # Draw a short perpendicular tick across the track
     if len(outline) >= 2:
         nxt = outline[1]
@@ -90,8 +105,8 @@ def paint_track_map(
         dy = sy(nxt[1]) - sf_y
         length = math.hypot(dx, dy) or 1.0
         perp_x, perp_y = -dy / length, dx / length
-        tick = 8
-        p.setPen(QPen(_SF_LINE, 2))
+        tick = 10 if style == "gt" else 8
+        p.setPen(QPen(sf_color, 2 if style == "schematic" else 3))
         p.drawLine(
             QPointF(sf_x - perp_x * tick, sf_y - perp_y * tick),
             QPointF(sf_x + perp_x * tick, sf_y + perp_y * tick),

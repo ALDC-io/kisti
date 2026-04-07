@@ -220,6 +220,7 @@ class SportSharpTrackScreenWidget(QWidget):
         self._track_outline: list = []
         self._lap_progress: float = 0.0
         self._track_name: str = ""
+        self._map_style: str = "gt"  # "schematic" or "gt" — tap map panel to toggle
 
     # ------------------------------------------------------------------
     # Public API
@@ -306,6 +307,7 @@ class SportSharpTrackScreenWidget(QWidget):
                 outline=self._track_outline,
                 progress=self._lap_progress,
                 track_name=self._track_name,
+                style=self._map_style,
             )
         else:
             self._draw_g_force_circle(p)
@@ -319,6 +321,16 @@ class SportSharpTrackScreenWidget(QWidget):
             paint_edge_glow(p, _W, _H, any_zone_low_grip(zones), self._paint_count)
 
         p.end()
+
+    def mousePressEvent(self, event) -> None:
+        """Tap the track map panel to toggle between schematic and GT style."""
+        if self._track_outline:
+            mx = event.position().x() if hasattr(event, 'position') else event.x()
+            my = event.position().y() if hasattr(event, 'position') else event.y()
+            if _G_PANEL_X <= mx <= _W and _MID_Y0 <= my <= _MID_Y1:
+                self._map_style = "gt" if self._map_style == "schematic" else "schematic"
+                self.update()
+        super().mousePressEvent(event)
 
     # ------------------------------------------------------------------
     # Delta bar (y=0..90) — full width, big delta text
