@@ -426,7 +426,7 @@ class SportScreenWidget(QWidget):
             balance_color = RED
         bal_val = self._balance_text if self._balance_text else f"{ratio:.2f}"
         self._paint_centered_bar(p, bar_x, y, label_w, bar_w, bar_h, val_w,
-                                 "BALANCE", norm, balance_color, bal_val)
+                                 "BLNCE", norm, balance_color, bal_val)
 
         # --- 3. TRAIL % — standard bar, max 100%, CYAN ---
         y = y_start + 2 * spacing
@@ -434,7 +434,7 @@ class SportScreenWidget(QWidget):
         frac = min(1.0, trail_pct / 100.0)
         val_str = f"{trail_pct:.0f}%" if trail_pct > 0.1 else "---"
         self._paint_standard_bar(p, bar_x, y, label_w, bar_w, bar_h, val_w,
-                                 "TRAIL %", frac, CYAN, val_str)
+                                 "TRAILB", frac, CYAN, val_str)
 
         # --- 4. DCCD — standard bar, max 100%, green/yellow/red ---
         y = y_start + 3 * spacing
