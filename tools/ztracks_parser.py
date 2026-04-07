@@ -115,21 +115,54 @@ def _extract_gps_points(data: bytes) -> list[tuple[float, float, float]]:
     Points are encoded as 12-byte little-endian int32 triples:
         (lat_int, lon_int, alt_int) — divide by 1e7 for degrees / metres.
 
-    Handles optional 4-byte count prefix before the point data.
+    The section may have a variable-length header (0, 4, 7, 8, or 12 bytes)
+    before the actual GPS data. We try each skip offset and select the candidate
+    with the tightest geographic spread (smallest lat+lon bounding box), which
+    identifies the real GPS cluster vs. garbage bytes that happen to pass
+    coordinate bounds filtering.
     """
     raw = _section_data(data, b'<hpts')
     if not raw:
         return []
 
-    # Try two starting offsets: 0 (no count prefix) and 4 (count prefix).
-    # Pick whichever yields the most valid GPS-coordinate points.
-    best: list[tuple[float, float, float]] = []
-    for skip in (0, 4):
-        candidate = _parse_points(raw[skip:])
-        if len(candidate) > len(best):
-            best = candidate
+    # Try common header sizes (0 = no prefix, 4 = count prefix, 7 = observed Mission Raceway).
+    # Selection strategy:
+    #   1. Compute lat/lon bounding-box spread for each candidate.
+    #   2. Discard candidates with spread > 5° — no real race track spans 550 km.
+    #      Misaligned garbage bytes can accidentally produce valid-range coords but
+    #      will be scattered globally; real track GPS clusters tightly.
+    #   3. Among the remaining, prefer the most points (correct alignment extracts all).
+    #   4. Break ties by tightest spread.
+    _MAX_TRACK_SPREAD = 5.0  # degrees; ~550 km — far larger than any real circuit
 
-    return best
+    plausible: list[tuple[int, float, list[tuple[float, float, float]]]] = []
+    fallback: list[tuple[float, int, list[tuple[float, float, float]]]] = []
+
+    for skip in (0, 4, 7, 8, 12):
+        pts = _parse_points(raw[skip:])
+        if not pts:
+            continue
+        if len(pts) >= 2:
+            lats = [p[0] for p in pts]
+            lons = [p[1] for p in pts]
+            spread = (max(lats) - min(lats)) + (max(lons) - min(lons))
+        else:
+            spread = 0.0  # single point: treat as zero spread
+        if spread <= _MAX_TRACK_SPREAD:
+            plausible.append((-len(pts), spread, pts))  # sort: most pts, then tightest
+        else:
+            fallback.append((spread, -len(pts), pts))
+
+    if plausible:
+        plausible.sort(key=lambda x: (x[0], x[1]))
+        return plausible[0][2]
+
+    # All candidates have large spread — pick tightest as last resort
+    if fallback:
+        fallback.sort(key=lambda x: (x[0], x[1]))
+        return fallback[0][2]
+
+    return []
 
 
 def _parse_points(raw: bytes) -> list[tuple[float, float, float]]:
