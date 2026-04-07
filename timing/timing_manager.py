@@ -62,9 +62,11 @@ class TimingManager(QObject):
         if db_store is not None:
             try:
                 self._track_db = TrackDatabase(db_store._conn)
-                # Seed tracks on first run so GPS detection has real names
+                # Always seed from seed file — seed_tracks uses INSERT OR REPLACE so it's
+                # idempotent. This ensures newly added tracks (e.g. Mission Raceway Park)
+                # appear even if the DB already had data from a previous session.
                 seed_path = Path(__file__).parent.parent / "data" / "tracks_seed.json"
-                if self._track_db.track_count() == 0 and seed_path.exists():
+                if seed_path.exists():
                     n = self._track_db.seed_tracks(seed_path)
                     log.info("Seeded %d tracks from %s", n, seed_path.name)
             except Exception as exc:
