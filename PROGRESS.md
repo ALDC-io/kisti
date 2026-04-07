@@ -1,5 +1,32 @@
 # KiSTI - Progress
 
+## Session: 2026-04-06b (kisti-road-06 — EC Removal + Jetson Session Fix)
+
+### Status: IN PROGRESS
+
+### Completed
+- **Deployed kisti-session fix** — phi4-mini warmup model + startx XAUTHORITY + XDG_RUNTIME_DIR detection
+- **Confirmed Sport screen default** — `mode_manager.py:119` already `SIDriveMode.SPORT`, logs confirm "Mode: Sport"
+- **Confirmed FLIR → Nextcloud** — `flir_readings` in export list, syncs identically to all other telemetry
+
+### In Progress
+- **Remove EC weather display** — `ec_poller.start()` in `main.py:234` needs to be commented out. EC data showing "Strong and gusty westerly winds" on all screens even while parked (fetching live regional advisories). Single-point disable: comment out `ec_poller.start()`.
+- **Canonical track_id bug** — `data/track_outlines/d9a909b9-0000-0000-0000-000000000000.json` (hash) instead of `a1b2c3d4-1006-4000-8006-000000000006.json` (canonical Mission Raceway Park). Debug: trace name matching in `_auto_import_ztracks()`.
+- **Track name not showing** — `name='' city=''` in parser log. `_extract_string` skips 0,1,2,4 but Mission Raceway may use different offset.
+
+### Next Session Priorities
+1. Remove EC display — comment out `ec_poller.start()` in `main.py:234`
+2. Verify Sport screen after restart (should be working, just confirm)
+3. Fix canonical track_id — delete hash file, restart, trace name matching
+4. Fix track name — inspect raw bytes near `<hPtkk`/`<hVnfo` section markers
+
+### Don't Repeat
+- EC = Environment Canada weather, NOT enterprise or demo
+- `DISPLAY=:0` after 2026-04-06 reboot (was `:1` earlier in same day — always check `ls /tmp/.X*-lock`)
+- mode_manager defaults to SPORT, main_window syncs at init — if showing Intelligent after start, likely manual key press not a bug
+
+---
+
 ## Session: 2026-04-06 (kisti-ztracks-map — .ztracks GPS Parser + Mission Raceway Track Map)
 
 ### Status: COMPLETE
