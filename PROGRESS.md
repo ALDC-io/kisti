@@ -1,5 +1,28 @@
 # KiSTI - Progress
 
+## Session: 2026-04-07c (display keepawake + CCX docker redeploy)
+
+### Status: COMPLETE
+
+### Completed
+- **Display keepawake loop** — `scripts/kisti-session` now runs a 60s background loop that calls `xset s reset && xset s off -dpms` for the lifetime of the KiSTI process. Fixes mid-session blanking where Qt or background processes re-enable DPMS after initial `xset s off -dpms`. Loop killed cleanly on KiSTI exit (no zombie processes).
+- **CCX message poller redeployed** — Docker container rebuilt and restarted (`docker compose build --no-cache ccx && docker compose up -d ccx`). The `_read_ids` fix (from session 2026-04-07b commit a6e49e8) now active. Verified: container healthy, no paused users, ready for next tool use.
+- **All 4 screens verified** — Intelligent (weather top, L/C/R zones), Sport (BLNCE/TRAILB/DCCD/grips), Sport# (large ellipse), Track (NO TIMING, layout ready for lap beacon).
+
+### Don't Repeat
+- Display blanking: xset s off -dpms is one-shot; use background loop for persistent no-blank behavior
+- Docker: always build with `--no-cache` after git push to ensure code picks up latest
+- KiSTI keepawake process: background loop inherits parent PID, auto-cleanup on parent exit
+
+### Files Changed
+- `scripts/kisti-session` — added 60s keepawake loop
+- (CCX changes from prior session; docker only, no code commit needed)
+
+### Test Count
+- 1513 passed (unchanged; keepawake is shell script, no code coverage)
+
+---
+
 ## Session: 2026-04-07b (kisti-road-07 — brake quality feed + CCX flood verification)
 
 ### Status: COMPLETE
