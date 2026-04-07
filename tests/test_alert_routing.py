@@ -30,6 +30,7 @@ class TestAlertRouting:
             "oil_pressure_critical",
             "coolant_critical",
             "fuel_pressure_critical",
+            "fuel_pump_fault",
             "ice_risk_imminent",
             "grip_low_grip",
             "weather_storm",

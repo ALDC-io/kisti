@@ -116,6 +116,7 @@ class AlertEngine(QObject):
         "oil_pressure_critical",
         "coolant_critical",       # safety: overtemp requires immediate action
         "fuel_pressure_critical", # safety: fuel starvation
+        "fuel_pump_fault",        # safety: PDM fuel pump off/fault
         "ice_risk_imminent",      # safety: road temp approaching dew point
         "grip_low_grip",          # safety: LOW_GRIP entry only (RWR/TCAS principle:
                                   # most critical transition needs audio, not just visual)
@@ -220,6 +221,7 @@ class AlertEngine(QObject):
         self._check_oil_temp(state)
         self._check_coolant_temp(state)
         self._check_fuel_pressure(state)
+        self._check_fuel_pump(state)
         self._check_battery(state)
         self._check_cooldown_needed(state)
         self._check_warmup_state(state)
@@ -309,6 +311,17 @@ class AlertEngine(QObject):
                 message="Fuel pressure low.",
                 short_message="Fuel pressure low",
                 value=fp,
+            ))
+
+    def _check_fuel_pump(self, state: DiffState) -> None:
+        """Fuel pump fault from Razor PDM — safety critical."""
+        if not state.fuel_pump_active:
+            self._fire(Alert(
+                alert_type="fuel_pump_fault",
+                severity=AlertSeverity.CRITICAL,
+                message="Fuel pump OFF — PDM fault.",
+                short_message="Fuel pump fault",
+                value=0,
             ))
 
     def _check_battery(self, state: DiffState) -> None:

@@ -115,10 +115,13 @@ class EngineSpec:
     # Sensors (KiSTI critical)
     oil_pressure_sensor: str = "Prosport 0-150 PSI + Galley Plug 1/8 NPT"
     fuel_pressure_sensor: str = "0-100 PSI (wired to passenger side TGV plug)"
+    brake_pressure_front: str = "Brake pressure sensor (front)"
+    brake_pressure_rear: str = "Brake pressure sensor (rear)"
 
     # Electronics
     ecu: str = "Link G5 Neo 4"
-    pdm: str = "Link Razor PDM"
+    pdm: str = "Link Razor PDM"  # controls fuel pump
+    pdm_fuel_pump_control: bool = True
     keypad: str = "Link CAN Keypad (8 button)"
     dash: str = "AiM Strada 7\" Street Edition"
 
@@ -200,8 +203,8 @@ Exhaust: Grimmspeed gasket set (uppipe, exhaust manifold, downpipe to catback).
 Cooling: {ENGINE.radiator}, Cylinder 4 cooling mod, {ENGINE.oil_separator}. Full timing service + gasket refresh.
 Suspension: {ENGINE.front_swaybar}, {ENGINE.rear_swaybar}, {ENGINE.front_struts}, {ENGINE.lower_mounts}.
 Fluids: {ENGINE.engine_oil}, {ENGINE.trans_fluid}, {ENGINE.diff_fluid}, {ENGINE.brake_fluid}, {ENGINE.coolant}.
-Sensors: {ENGINE.oil_pressure_sensor} oil, {ENGINE.fuel_pressure_sensor} fuel, {ENGINE.map_sensor} MAP, {ENGINE.iat_sensor}.
-Electronics: {ENGINE.ecu}, {ENGINE.pdm}, {ENGINE.keypad}, {ENGINE.dash}.
+Sensors: {ENGINE.oil_pressure_sensor} oil, {ENGINE.fuel_pressure_sensor} fuel, {ENGINE.brake_pressure_front} + {ENGINE.brake_pressure_rear}, {ENGINE.map_sensor} MAP, {ENGINE.iat_sensor}.
+Electronics: {ENGINE.ecu}, {ENGINE.pdm} (fuel pump control), {ENGINE.keypad}, {ENGINE.dash}.
 
 Baselines: Oil {BASELINES.oil_idle_warm_low}-{BASELINES.oil_idle_warm_high} PSI idle, ~10 PSI/1000 RPM. \
 Coolant {BASELINES.coolant_normal_low}-{BASELINES.coolant_normal_high}C normal, alert >{BASELINES.coolant_alert}C. \

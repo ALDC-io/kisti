@@ -55,10 +55,29 @@ GD_FRAME_WHEEL_LR_RR: int = 5      # WheelSpeed_LR (km/h×10), WheelSpeed_RR (km
 SI_DRIVE_FRAME_ID: int = 0x6B0    # User CAN: SI Drive state, 10 Hz
 SENSOR_FRAME_ID: int = 0x6B1      # User CAN: extended sensors, 20 Hz
 KEYPAD_FRAME_ID: int = 0x6B2      # 8-Button Keypad state, on-change
+BRAKE_PRESSURE_FRAME_ID: int = 0x6B3  # User CAN: dual brake pressure, 50 Hz
 
 LED_OUTPUT_FRAME_ID: int = 0x6C0   # LED waveform output frame 1, 30 Hz
 LED_OUTPUT_FRAME_2_ID: int = 0x6C1 # LED waveform output frame 2, 30 Hz
 KISTI_ALERT_FRAME_ID: int = 0x6C2  # AiM Strada alert status, 10 Hz (bound to RS3 Status element)
+
+# ---------------------------------------------------------------------------
+# 0x6B3 — BRAKE_PRESSURE frame layout (8 bytes)
+# ---------------------------------------------------------------------------
+# Dual brake pressure sensors via Link Razor PDM / User CAN.
+# Frame ID placeholder — update when Link config is finalized by Boost Barn.
+#
+# Byte0-1: Brake_Front_x10   uint16 BE   bar × 10
+# Byte2-3: Brake_Rear_x10    uint16 BE   bar × 10
+# Byte4:   PDM_FuelPump      uint8       0=off, 1=on, 0xFF=fault
+# Byte5-7: reserved
+
+BRK_FRONT_OFFSET: int = 0
+BRK_REAR_OFFSET: int = 2
+BRK_SCALE: float = 0.1  # raw / 10 → bar
+BRK_PDM_PUMP_OFFSET: int = 4
+BRK_PDM_PUMP_ON: int = 1
+BRK_PDM_PUMP_FAULT: int = 0xFF
 
 # ---------------------------------------------------------------------------
 # 0x6C2 — KiSTI Alert frame layout (1 byte)
@@ -87,6 +106,7 @@ _G5_INPUT_IDS: set[int] = {
     SI_DRIVE_FRAME_ID,
     SENSOR_FRAME_ID,
     KEYPAD_FRAME_ID,
+    BRAKE_PRESSURE_FRAME_ID,
 } | _GPS_IMU_IDS
 
 # IDs we listen for (input)

@@ -12,7 +12,8 @@ from coaching.technique_analyzer import TechniqueAnalyzer
 
 
 def _snap(brake=0.0, steering=0.0, speed=80.0, throttle=50.0,
-          imu_y=0.0) -> DiffState:
+          imu_y=0.0, brake_front=0.0, brake_rear=0.0,
+          brake_bias=0.0, imu_x=0.0) -> DiffState:
     """Build a minimal DiffState for technique analysis."""
     return DiffState(
         brake_pressure=brake,
@@ -20,6 +21,10 @@ def _snap(brake=0.0, steering=0.0, speed=80.0, throttle=50.0,
         speed_kph=speed,
         throttle_pct=throttle,
         imu_accel_y=imu_y,
+        imu_accel_x=imu_x,
+        brake_pressure_front=brake_front,
+        brake_pressure_rear=brake_rear,
+        brake_bias_pct=brake_bias,
     )
 
 
@@ -102,3 +107,75 @@ class TestTechniqueAnalyzer:
         text, sentiment = ta.analyze()
         # Window should only see the last 30 good samples
         assert sentiment == "green"
+
+    # --- Brake bias tests ---
+
+    def test_steady_bias_green(self):
+        """Consistent ~65% front bias = green coaching (or smooth braking)."""
+        ta = TechniqueAnalyzer()
+        for _ in range(10):
+            ta.feed(_snap(brake=40.0, brake_front=26.0, brake_rear=14.0,
+                          brake_bias=65.0))
+        text, sentiment = ta.analyze()
+        # Both smooth braking and steady bias are green — either is correct
+        assert sentiment == "green"
+        assert "smooth" in text.lower() or "bias" in text.lower()
+
+    def test_erratic_bias_amber(self):
+        """Wildly varying bias = amber warning."""
+        ta = TechniqueAnalyzer()
+        # Alternate between extreme front-heavy and rear-heavy
+        for i in range(10):
+            bias = 50.0 if i % 2 == 0 else 80.0  # std dev ~15
+            front = 40.0 * bias / 100
+            rear = 40.0 * (100 - bias) / 100
+            ta.feed(_snap(brake=40.0, brake_front=front, brake_rear=rear,
+                          brake_bias=bias))
+        text, sentiment = ta.analyze()
+        assert "bias" in text.lower() or "erratic" in text.lower()
+        assert sentiment == "amber"
+
+    def test_rear_heavy_bias_amber(self):
+        """Rear-heavy (<55% front) = amber warning."""
+        ta = TechniqueAnalyzer()
+        for _ in range(10):
+            ta.feed(_snap(brake=40.0, brake_front=18.0, brake_rear=22.0,
+                          brake_bias=45.0))
+        text, sentiment = ta.analyze()
+        assert "rear" in text.lower() or "bias" in text.lower()
+        assert sentiment == "amber"
+
+    def test_brake_quality_with_bias_penalty(self):
+        """Erratic bias should downgrade brake_quality to red."""
+        ta = TechniqueAnalyzer()
+        # Alternate extreme bias to ensure std > 8
+        for i in range(10):
+            bias = 50.0 if i % 2 == 0 else 80.0
+            ta.feed(_snap(brake=40.0, brake_front=40*bias/100,
+                          brake_rear=40*(100-bias)/100,
+                          brake_bias=bias, imu_x=-0.9))
+        quality = ta.brake_quality()
+        assert quality == "red"
+
+    def test_no_bias_without_dual_sensors(self):
+        """When front/rear are both 0 (no dual sensors), skip bias coaching."""
+        ta = TechniqueAnalyzer()
+        for _ in range(10):
+            ta.feed(_snap(brake=40.0))  # no brake_front/rear
+        text, _ = ta.analyze()
+        assert "bias" not in text.lower()
+
+    def test_fade_detection(self):
+        """Pressure rising + decel dropping = possible fade."""
+        ta = TechniqueAnalyzer()
+        # Build up: pressure increasing, decel G decreasing
+        for i in range(10):
+            pressure = 30 + i * 3  # 30 → 57
+            decel_g = -0.8 + i * 0.06  # -0.8 → -0.26 (getting weaker)
+            front = pressure * 0.65
+            rear = pressure * 0.35
+            ta.feed(_snap(brake=pressure, brake_front=front, brake_rear=rear,
+                          brake_bias=65.0, imu_x=decel_g))
+        text, sentiment = ta.analyze()
+        assert "fade" in text.lower()
+        assert sentiment == "amber"

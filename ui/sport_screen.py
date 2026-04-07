@@ -138,6 +138,7 @@ class SportScreenWidget(QWidget):
         self._rear_grip_pct: float = 100.0
         self._brake_peak_g: float = 0.0
         self._trail_brake_pct: float = 0.0
+        self._brake_bias_pct: float = 0.0   # front % (0-100; 0 = no braking)
 
         self.setMinimumSize(800, 440)
 
@@ -149,6 +150,7 @@ class SportScreenWidget(QWidget):
         """Called at 20 Hz from main timer with a DiffState snapshot."""
         self._snap = snap
         self._g_trail.append((snap.imu_accel_y, snap.imu_accel_x))
+        self._brake_bias_pct = snap.brake_bias_pct
         self.update()
 
     def update_voice_ticker(self, lines: list[str]) -> None:
@@ -175,6 +177,10 @@ class SportScreenWidget(QWidget):
         """Cache brake quality from TechniqueAnalyzer (1Hz)."""
         self._brake_peak_g = peak_g
         self._trail_brake_pct = trail_pct
+
+    def update_brake_bias(self, bias_pct: float) -> None:
+        """Cache brake bias from DiffState (20Hz via update_state)."""
+        self._brake_bias_pct = bias_pct
 
     # ------------------------------------------------------------------
     # Paint
@@ -390,11 +396,11 @@ class SportScreenWidget(QWidget):
     ) -> None:
         bar_x = 8
         bar_w = 220
-        bar_h = 28
+        bar_h = 26
         label_w = 60
         val_w = 80
         y_start = 120
-        spacing = 48
+        spacing = 42  # 7 bars: 120 + 6*42 = 372 (fits in 480px)
 
         # --- 1. BRAKE G — standard bar, max 1.5g, RED, peak hold ---
         y = y_start
@@ -436,8 +442,33 @@ class SportScreenWidget(QWidget):
         self._paint_standard_bar(p, bar_x, y, label_w, bar_w, bar_h, val_w,
                                  "TRAILB", frac, CYAN, val_str)
 
-        # --- 4. DCCD — standard bar, max 100%, green/yellow/red ---
+        # --- 4. BIAS — centered bar, front/rear split (dark cockpit) ---
         y = y_start + 3 * spacing
+        bias = self._brake_bias_pct
+        braking_active = (snap.brake_pressure_front + snap.brake_pressure_rear) > 2.0
+        if braking_active and bias > 0:
+            # Normalize: 65% front = center, deviation shows imbalance
+            # Map 50-80% front → -1..+1 centered on 65
+            norm = max(-1.0, min(1.0, (bias - 65.0) / 15.0))
+            abs_dev = abs(bias - 65.0)
+            if abs_dev < 5:
+                bias_color = GREEN
+            elif abs_dev < 10:
+                bias_color = YELLOW
+            else:
+                bias_color = RED
+            val_str = f"F{bias:.0f}/R{100-bias:.0f}"
+            self._paint_centered_bar(p, bar_x, y, label_w, bar_w, bar_h, val_w,
+                                     "BIAS", norm, bias_color, val_str)
+        else:
+            # Dark cockpit — invisible when not braking
+            p.setFont(QFont("Helvetica", 13, QFont.Weight.Bold))
+            p.setPen(QPen(QColor(GRAY).darker(200)))
+            p.drawText(QRectF(bar_x, y, label_w, bar_h),
+                       Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "BIAS")
+
+        # --- 5. DCCD — standard bar, max 100%, green/yellow/red ---
+        y = y_start + 4 * spacing
         dccd = snap.dccd_command_pct if not diff_stale else 0.0
         frac = min(1.0, dccd / 100.0)
         if dccd > 70:
@@ -450,8 +481,8 @@ class SportScreenWidget(QWidget):
         self._paint_standard_bar(p, bar_x, y, label_w, bar_w, bar_h, val_w,
                                  "DCCD", frac, dccd_color, val_str)
 
-        # --- 5. F GRIP — standard bar, max 100%, green/yellow/red ---
-        y = y_start + 4 * spacing
+        # --- 6. F GRIP — standard bar, max 100%, green/yellow/red ---
+        y = y_start + 5 * spacing
         fg = self._front_grip_pct
         frac = min(1.0, fg / 100.0)
         if fg > 90:
@@ -464,8 +495,8 @@ class SportScreenWidget(QWidget):
         self._paint_standard_bar(p, bar_x, y, label_w, bar_w, bar_h, val_w,
                                  "F GRIP", frac, fg_color, val_str)
 
-        # --- 6. R GRIP — standard bar, max 100%, green/yellow/red ---
-        y = y_start + 5 * spacing
+        # --- 7. R GRIP — standard bar, max 100%, green/yellow/red ---
+        y = y_start + 6 * spacing
         rg = self._rear_grip_pct
         frac = min(1.0, rg / 100.0)
         if rg > 90:

@@ -28,6 +28,9 @@ class _Sample:
     lateral_g: float
     throttle_pct: float
     longitudinal_g: float = 0.0  # imu_accel_x (negative = braking)
+    brake_front: float = 0.0     # front axle pressure (bar)
+    brake_rear: float = 0.0      # rear axle pressure (bar)
+    brake_bias_pct: float = 0.0  # front % (0-100)
 
 
 # Thresholds
@@ -56,6 +59,9 @@ class TechniqueAnalyzer:
             lateral_g=snap.imu_accel_y,
             throttle_pct=snap.throttle_pct,
             longitudinal_g=snap.imu_accel_x,
+            brake_front=snap.brake_pressure_front,
+            brake_rear=snap.brake_pressure_rear,
+            brake_bias_pct=snap.brake_bias_pct,
         ))
         self._prev_steering = snap.steering_angle
 
@@ -119,6 +125,31 @@ class TechniqueAnalyzer:
                 elif peak_g < 0.5 and any(s.speed_kph > 60 for s in braking):
                     issues.append((2, "Brake harder — more grip available", "amber"))
 
+        # --- Brake bias consistency (front/rear sensors) ---
+        bias_samples = [s for s in braking if s.brake_bias_pct > 0]
+        if len(bias_samples) >= 3:
+            biases = [s.brake_bias_pct for s in bias_samples]
+            bias_std = _std_dev(biases)
+            avg_bias = sum(biases) / len(biases)
+            if bias_std > 8:
+                issues.append((1, "Erratic brake bias — check pedal feel", "amber"))
+            elif avg_bias < 55:
+                issues.append((1, "Rear-heavy bias — lock-up risk", "amber"))
+            elif bias_std <= 3 and 60 <= avg_bias <= 70:
+                issues.append((10, f"Brake bias steady F{avg_bias:.0f}/R{100-avg_bias:.0f}", "green"))
+
+        # --- Brake fade detection (pressure up, decel G down) ---
+        if len(braking) >= 5:
+            has_front_rear = any(s.brake_front > 0 for s in braking)
+            if has_front_rear:
+                recent = list(braking)[-5:]
+                pressures_trend = [s.brake_front + s.brake_rear for s in recent]
+                gs_trend = [abs(s.longitudinal_g) for s in recent]
+                if (pressures_trend[-1] > pressures_trend[0] * 1.2
+                        and gs_trend[-1] < gs_trend[0] * 0.7
+                        and gs_trend[0] > 0.3):
+                    issues.append((0, "Possible brake fade — pressure up, decel down", "amber"))
+
         if not issues:
             return ("", "dim")
 
@@ -146,11 +177,20 @@ class TechniqueAnalyzer:
         pressures = [s.brake_pressure for s in braking]
         p_std = _std_dev(pressures)
 
-        if peak_g > 0.8 and g_std < 0.15 and p_std < 8:
+        # Bias consistency (if dual sensors available)
+        bias_samples = [s for s in braking if s.brake_bias_pct > 0]
+        bias_penalty = False
+        if len(bias_samples) >= 3:
+            bias_std = _std_dev([s.brake_bias_pct for s in bias_samples])
+            avg_bias = sum(s.brake_bias_pct for s in bias_samples) / len(bias_samples)
+            if bias_std > 8 or avg_bias < 55:
+                bias_penalty = True
+
+        if peak_g > 0.8 and g_std < 0.15 and p_std < 8 and not bias_penalty:
             return "green"
         if peak_g < 0.5 and any(s.speed_kph > 60 for s in braking):
             return "red"
-        if p_std > 12:
+        if p_std > 12 or bias_penalty:
             return "red"
         return "yellow"
 

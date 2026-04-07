@@ -98,6 +98,10 @@ CREATE TABLE IF NOT EXISTS telemetry (
     yaw_rate DOUBLE,
     lateral_g DOUBLE,
     brake_pressure DOUBLE,
+    brake_pressure_front DOUBLE,
+    brake_pressure_rear DOUBLE,
+    brake_bias_pct DOUBLE,
+    fuel_pump_active BOOLEAN,
     wheel_fl DOUBLE,
     wheel_fr DOUBLE,
     wheel_rl DOUBLE,
@@ -377,7 +381,7 @@ class DuckDBStore:
 
         self._conn.execute(
             "INSERT INTO telemetry VALUES ("
-            + ", ".join(["?"] * 42) + ")",
+            + ", ".join(["?"] * 46) + ")",
             [
                 _now(), session_id,
                 state.rpm, state.speed_kph, state.gear, state.throttle_pct,
@@ -386,6 +390,8 @@ class DuckDBStore:
                 state.fuel_pressure_kpa, state.battery_v, state.injector_duty,
                 state.dccd_command_pct, state.steering_angle, state.yaw_rate,
                 state.lateral_g, state.brake_pressure,
+                state.brake_pressure_front, state.brake_pressure_rear,
+                state.brake_bias_pct, state.fuel_pump_active,
                 state.wheel_speed_fl, state.wheel_speed_fr,
                 state.wheel_speed_rl, state.wheel_speed_rr,
                 state.si_drive_mode.label, state.surface_state.label,

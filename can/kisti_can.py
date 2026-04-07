@@ -47,6 +47,13 @@ from can.can_config import (
     DIFF_SLIP_OFFSET,
     DIFF_SLIP_SCALE,
     DIFF_SURFACE_OFFSET,
+    BRAKE_PRESSURE_FRAME_ID,
+    BRK_FRONT_OFFSET,
+    BRK_PDM_PUMP_FAULT,
+    BRK_PDM_PUMP_OFFSET,
+    BRK_PDM_PUMP_ON,
+    BRK_REAR_OFFSET,
+    BRK_SCALE,
     DYN_BRAKE_OFFSET,
     DYN_BRAKE_SCALE,
     DYN_LATG_OFFSET,
@@ -303,6 +310,30 @@ def decode_dynamics_frame(data: bytes) -> dict:
         "yaw_rate": yaw_rate,
         "lateral_g": lateral_g,
         "brake_pressure": brake_pressure,
+    }
+
+
+def decode_brake_pressure_frame(data: bytes) -> dict:
+    """Decode a BRAKE_PRESSURE frame (0x6B3, 8 bytes).
+
+    Dual brake pressure sensors (front/rear) + PDM fuel pump state.
+
+    Returns:
+        dict with keys: brake_front (bar), brake_rear (bar),
+        fuel_pump_active (bool), fuel_pump_fault (bool).
+    """
+    if len(data) < 5:
+        raise ValueError(f"BRAKE_PRESSURE frame too short: {len(data)} bytes (need 5)")
+
+    front = struct.unpack_from(">H", data, BRK_FRONT_OFFSET)[0] * BRK_SCALE
+    rear = struct.unpack_from(">H", data, BRK_REAR_OFFSET)[0] * BRK_SCALE
+    pdm_byte = data[BRK_PDM_PUMP_OFFSET]
+
+    return {
+        "brake_front": front,
+        "brake_rear": rear,
+        "fuel_pump_active": pdm_byte == BRK_PDM_PUMP_ON,
+        "fuel_pump_fault": pdm_byte == BRK_PDM_PUMP_FAULT,
     }
 
 
@@ -772,6 +803,15 @@ class CanListenerThread(threading.Thread):
         elif arb_id == KEYPAD_FRAME_ID:
             d = decode_keypad_frame(data)
             self._bridge.update_keypad(**d)
+        elif arb_id == BRAKE_PRESSURE_FRAME_ID:
+            d = decode_brake_pressure_frame(data)
+            self._bridge.update_brake_pressures(
+                front=d["brake_front"],
+                rear=d["brake_rear"],
+            )
+            if d["fuel_pump_fault"]:
+                logger.warning("PDM fuel pump FAULT detected")
+            self._bridge._state.fuel_pump_active = d["fuel_pump_active"]
         # GPS09 Pro frames
         elif arb_id == GPS_FRAME_ID:
             d = decode_gps_frame(data)
@@ -1231,12 +1271,22 @@ class MockCanGenerator(QObject):
         self._brake_press += (target_brake - self._brake_press) * 0.3
         self._brake_press = max(0.0, min(80.0, self._brake_press))
 
+        # Split into front/rear with ~65/35 bias + noise
+        if self._brake_press > 1.0:
+            bias = 0.65 + random.uniform(-0.03, 0.03)  # 62-68% front
+            front = self._brake_press * bias
+            rear = self._brake_press * (1.0 - bias)
+        else:
+            front = 0.0
+            rear = 0.0
+
         self._bridge.update_dynamics(
             steering_angle=self._steering,
             yaw_rate=self._yaw,
             lateral_g=self._lat_g,
             brake_pressure=self._brake_press,
         )
+        self._bridge.update_brake_pressures(front=front, rear=rear)
 
     def _generic_dash_tick(self) -> None:
         """Mock Generic Dash engine telemetry (3 frames)."""

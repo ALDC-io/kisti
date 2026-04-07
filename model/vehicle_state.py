@@ -189,7 +189,13 @@ class DiffState:
     steering_angle: float = 0.0      # degrees (negative = right)
     yaw_rate: float = 0.0            # deg/s
     lateral_g: float = 0.0           # g
-    brake_pressure: float = 0.0      # bar
+    brake_pressure: float = 0.0      # bar (backward compat: max of front/rear)
+    brake_pressure_front: float = 0.0  # bar — front axle sensor
+    brake_pressure_rear: float = 0.0   # bar — rear axle sensor
+    brake_bias_pct: float = 0.0        # front % (0-100); 0 = no braking
+
+    # PDM state — from Link Razor PDM via CAN
+    fuel_pump_active: bool = True       # True = pump running (default safe)
 
     # --- G5 Neo 4 additions ---
 
@@ -521,6 +527,28 @@ class DiffStateBridge(QObject):
             self._state.yaw_rate = yaw_rate
             self._state.lateral_g = lateral_g
             self._state.brake_pressure = brake_pressure
+            self._state.dynamics_frame_ts = time.monotonic()
+            self._state.can_connected = True
+        self.state_changed.emit()
+
+    def update_brake_pressures(
+        self,
+        front: float,
+        rear: float,
+    ) -> None:
+        """Called from CAN listener with dual brake pressure sensors.
+
+        Updates front/rear individually, computes bias %, and sets
+        brake_pressure = max(front, rear) for backward compat.
+        """
+        with self._lock:
+            self._state.brake_pressure_front = front
+            self._state.brake_pressure_rear = rear
+            self._state.brake_pressure = max(front, rear)
+            total = front + rear
+            self._state.brake_bias_pct = (
+                (front / total * 100.0) if total > 1.0 else 0.0
+            )
             self._state.dynamics_frame_ts = time.monotonic()
             self._state.can_connected = True
         self.state_changed.emit()
