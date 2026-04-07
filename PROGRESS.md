@@ -1,5 +1,55 @@
 # KiSTI - Progress
 
+## Session: 2026-04-06 (kisti-ztracks-map — .ztracks GPS Parser + Mission Raceway Track Map)
+
+### Status: COMPLETE
+
+### Completed
+- **`.ztracks` Parser** (`tools/ztracks_parser.py`) — decodes AiM ZIP→TKK binary. Section markers `<hPtkk` (name), `<hVnfo` (venue), `<hpts` (GPS int32 triples ÷1e7). Key fix: `<hpts` has 7-byte header before GPS data (not 0 or 4). Parser tries skips (0,4,7,8,12) and selects the candidate with the most points among those with plausible spread (≤5°). 43 tests in `tests/test_ztracks_parser.py`.
+- **Track Outline Pipeline** (`timing/track_outline.py`) — normalize GPS lat/lon → 0-1 screen coords (y-flipped, 5% margin), RDP downsample to ≤100 pts, save/load JSON cache. 29 tests in `tests/test_track_outline.py`.
+- **Track Map Widget** (`ui/track_map.py`) — `paint_track_map()` QPainter function. Draws white track outline via QPainterPath, orange start/finish dot at outline[0], dim grey track name at bottom.
+- **Timing Manager Integration** — auto-imports any `~/tracks/*.ztracks` on startup, serves `"track_outline"` key in `get_timing_data()`, `_load_first_available_outline()` pre-loads for immediate display.
+- **S# Track Screen** (`ui/sharp_screen_track.py`) — replaces fake G-force circle with `paint_track_map()`. Falls back to circle if no outline. `update_timing()` receives outline from timing data.
+- **Mission Raceway confirmed working** — 156 GPS pts parsed → 63 after RDP → clean recognizable circuit shape visible on S# Track screen on Jetson.
+
+### Priorities Addressed
+1. ✅ .ztracks GPS parse pipeline — COMPLETE (this session)
+2. ✅ Mission Raceway map on S# Track screen — COMPLETE (this session, deployed to Jetson)
+
+### Current Architecture
+- TimingManager `_load_first_available_outline()` loads first cached `.json` in `data/track_outlines/` on startup (shows map even without GPS lock). Live track detection loads the exact matched outline by `track_id`.
+- Hash-based fallback `track_id` (`d9a909b9-0000-0000-0000-000000000000`) used when `track_db` isn't yet seeded at import time — TODO: fix ordering so canonical ID is used.
+
+### Next Session Priorities
+1. **Fix canonical track_id in auto-import** — `_track_db` is None when `_auto_import_ztracks()` runs; re-order init or defer import to after seed
+2. **RS3 Track Maps Import** — Blocked on AiM Strada hardware + sample .mpl files
+3. **RS3 AiM Strada Configuration** — Bind Status element to CAN ID 0x6C2 when hardware arrives
+4. **Brake Quality Feed** — Wire `update_brake_quality()` to track screen from main.py
+
+### Don't Repeat
+- `.ztracks` `<hpts` section has 7-byte header before GPS int32 data (confirmed Mission Raceway at file offset 1100, section tag at 1088, data at 1095... wait no, section data starts at 1093 (1088+5 tag), real GPS at 1100, skip=7 confirmed)
+- Geographic coherence selection: "most plausible-spread points" not "most points" — garbage bytes accidentally form valid lat/lon but span globe (>5° spread)
+- Jetson auto-commits diverge from origin — always `git reset --hard origin/kisti-headless` before pull
+- `_load_first_available_outline()` uses sorted glob — first file alphabetically, not canonical track id
+- Test suite: 1513 passed (baseline was 1214 at session start, built up to 1513 across this session series)
+
+### Files Changed
+- `tools/ztracks_parser.py` — NEW (ZtracksResult, parse_ztracks, _section_data, _extract_string, _extract_gps_points, _parse_points)
+- `timing/track_outline.py` — NEW (normalize_outline, downsample_rdp, save_outline, load_outline, import_ztracks_outline)
+- `ui/track_map.py` — NEW (paint_track_map QPainter function)
+- `timing/timing_manager.py` — MODIFIED (auto-import ztracks, load_outline, get_timing_data track_outline key)
+- `ui/sharp_screen_track.py` — MODIFIED (paint_track_map replaces fake G-force circle)
+- `tests/test_ztracks_parser.py` — NEW (43 tests)
+- `tests/test_track_outline.py` — NEW (29 tests)
+- `tests/test_timing_manager.py` — MODIFIED (added track_outline, lap_distance_m, track_length_m to expected_keys)
+- `data/track_outlines/.gitkeep` — NEW
+
+### Test Count
+- Before: 1214 tests
+- After: 1513 tests (+299 across sessions since baseline)
+
+---
+
 ## Session: 2026-04-06 (kisti-track-seed-k6-toggle — Track DB Seed + K6 Sub-Page Toggle)
 
 ### Status: COMPLETE
