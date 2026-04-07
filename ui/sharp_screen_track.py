@@ -30,6 +30,7 @@ from PySide6.QtWidgets import QWidget
 
 from model.vehicle_state import DiffState
 from ui.g_force_ellipse import paint_g_ellipse
+from ui.track_map import paint_track_map
 from ui.road_condition import (
     paint_zone_tint,
     paint_edge_glow,
@@ -215,6 +216,11 @@ class SportSharpTrackScreenWidget(QWidget):
         self._rear_grip_pct: float = 100.0
         self._sector_brake_quality: list[str] = []  # "green"/"yellow"/"red" per sector
 
+        # Track map outline (real GPS, replaces G-force circle on track days)
+        self._track_outline: list = []
+        self._lap_progress: float = 0.0
+        self._track_name: str = ""
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -234,9 +240,24 @@ class SportSharpTrackScreenWidget(QWidget):
 
         Expected keys: lap_count, current_lap_time_ms, delta_ms,
         predicted_lap_ms, sector_times, current_sector, sector_count,
-        best_lap_ms, best_sector_times, track_name, theoretical_best_ms
+        best_lap_ms, best_sector_times, track_name, theoretical_best_ms,
+        track_outline, lap_distance_m, track_length_m
         """
         self._timing = timing_data
+        self._track_outline = timing_data.get("track_outline", self._track_outline)
+        self._track_name = timing_data.get("track_name", self._track_name)
+
+        # Compute lap progress (0-1) for car dot position on track map
+        dist_m = timing_data.get("lap_distance_m", 0.0)
+        length_m = timing_data.get("track_length_m", 0.0)
+        if length_m > 0 and dist_m >= 0:
+            self._lap_progress = (dist_m % length_m) / length_m
+        else:
+            predicted_ms = timing_data.get("predicted_lap_ms", 0)
+            current_ms = timing_data.get("current_lap_time_ms", 0)
+            if predicted_ms > 0 and current_ms > 0:
+                self._lap_progress = min(1.0, current_ms / predicted_ms)
+
         self.update()
 
     def update_balance(self, ratio: float, text: str, sentiment: str) -> None:
@@ -247,6 +268,14 @@ class SportSharpTrackScreenWidget(QWidget):
         """Accept grip percentages from GripAnalyzer."""
         self._front_grip_pct = front_pct
         self._rear_grip_pct = rear_pct
+
+    def update_coaching(self, text: str, sentiment: str = "dim") -> None:
+        """Accept coaching text (fed at 1Hz from main.py).
+
+        S# Track screen shows no coaching overlay — timing data fills that role.
+        Stored for potential future use.
+        """
+        # Not displayed — S# Track is pure timing/map focus
 
     def update_brake_quality(self, sector_qualities: list[str]) -> None:
         """Accept brake quality ratings per sector from TechniqueAnalyzer."""
@@ -269,7 +298,17 @@ class SportSharpTrackScreenWidget(QWidget):
 
         self._draw_delta_bar(p)
         self._draw_timing_panel(p)
-        self._draw_g_force_circle(p)
+        if self._track_outline:
+            paint_track_map(
+                p,
+                x=_G_PANEL_X, y=_MID_Y0,
+                w=_W - _G_PANEL_X, h=_MID_Y1 - _MID_Y0,
+                outline=self._track_outline,
+                progress=self._lap_progress,
+                track_name=self._track_name,
+            )
+        else:
+            self._draw_g_force_circle(p)
         self._draw_sector_strip(p)
         self._draw_safety_vitals(p)
         self._draw_weather_indicator(p)

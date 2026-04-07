@@ -50,6 +50,8 @@ class TrackDefinition:
     length_m: float = 0.0
     source: str = "manual"  # 'manual' | 'learned' | 'seed'
     sectors: list[SectorDefinition] = field(default_factory=list)
+    outline: list[tuple[float, float]] = field(default_factory=list)
+    """Normalized (0-1) track outline points — runtime only, not persisted to DuckDB."""
 
 
 class TrackDatabase:

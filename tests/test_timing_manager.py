@@ -658,6 +658,7 @@ class TestGetTimingData:
             "predicted_lap_ms", "best_lap_ms", "theoretical_best_ms",
             "track_name", "sector_count", "current_sector",
             "sector_times", "best_sector_times", "lap_in_progress",
+            "track_outline", "lap_distance_m", "track_length_m",
         }
         assert set(data.keys()) == expected_keys
 
