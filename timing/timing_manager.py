@@ -283,17 +283,21 @@ class TimingManager(QObject):
         track_name_map: dict[str, str] = {}
         if self._track_db is not None:
             try:
-                for track in self._track_db.list_tracks():
+                tracks = self._track_db.list_tracks()
+                log.info("ztracks matching: %d tracks in DB", len(tracks))
+                for track in tracks:
                     track_name_map[track.name.lower()] = track.track_id
             except Exception as exc:
                 log.warning("Could not load track names for ztracks matching: %s", exc)
+        else:
+            log.warning("ztracks matching: _track_db is None — name match unavailable")
 
         for ztracks_path in ztracks_files:
-            # Try to determine track_id from filename or name in file
+            # Try to determine track_id from filename or name in file.
             # Filename heuristic: mission_raceway_park.ztracks → "mission raceway park"
             stem_words = ztracks_path.stem.replace('_', ' ').lower()
 
-            # Find matching track_id by name similarity
+            # Find matching track_id by name similarity (filename stem)
             track_id = None
             for db_name, tid in track_name_map.items():
                 if stem_words in db_name or db_name in stem_words:
@@ -301,10 +305,16 @@ class TimingManager(QObject):
                     break
 
             if track_id is None:
-                # Use a deterministic ID derived from the filename
+                if not track_name_map:
+                    # No DB available — skip rather than writing a hash-named file.
+                    # Pre-committed canonical outline files will be loaded at startup.
+                    log.debug("Skipping %s — no DB for name match", ztracks_path.name)
+                    continue
                 import hashlib
-                track_id = str(hashlib.md5(ztracks_path.name.encode()).hexdigest()[:8]) + \
+                track_id = hashlib.md5(ztracks_path.name.encode()).hexdigest()[:8] + \
                            "-0000-0000-0000-000000000000"
+                log.warning("No DB match for %s (stem=%r) — using hash ID %s",
+                            ztracks_path.name, stem_words, track_id[:8])
 
             cached = self._outlines_dir / f"{track_id}.json"
             if cached.exists():
