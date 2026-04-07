@@ -231,7 +231,7 @@ def main():
         try:
             from sensors.ec_weather import ECWeatherPoller
             ec_poller = ECWeatherPoller()
-            ec_poller.start()
+            pass  # EC disabled for now
         except Exception as exc:
             log.info("EC weather poller unavailable: %s", exc)
 
