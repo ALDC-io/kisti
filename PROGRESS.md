@@ -1,16 +1,32 @@
 # KiSTI - Progress
 
-## Session: 2026-04-07 (kisti-road-07 — label rename + CCX flood)
+## Session: 2026-04-07b (kisti-road-07 — brake quality feed + CCX flood verification)
 
 ### Status: COMPLETE
 
 ### Completed
-- **Sport screen bar labels renamed** — `ui/sport_screen.py`: `BALANCE` → `BLNCE`, `TRAIL %` → `TRAILB`. Confirmed in screenshot.
-- **CCX daily brief flooding suppressed** — Zeus daily brief was injected as a `block` decision on every PostToolUse/Stop hook. Root cause: `message_poller.py` re-adds all messages from Zeus on every poll cycle (mark-as-read not sticking). Temporary fix: `curl -X POST http://localhost:7432/admin/pause?user=jkadmin`. Proper fix needed in CCX poller (see NEXT_SESSION v12).
+- **Brake quality dots wired to S# track screen** — `coaching/technique_analyzer.py` new `brake_quality()` method evaluates rolling window peak braking G (>0.8g = green, <0.5g at speed = red) and pressure consistency. `main.py` calls it in `_coaching_tick()` at 1Hz, feeds uniform quality across all sectors to both `_sharp_screen.update_brake_quality()` and `_sharp_screen_track.update_brake_quality()`. Dots render above completed sectors (where actual times exist). Deployed b2d5c73.
+- **CCX message poller flood root cause confirmed fixed** — `message_poller._poll_loop()` was unconditionally adding all Zeus messages to `_unread_ids` on every poll, even after `mark_read()`. Fix (CCX a6e49e8): added `_read_ids` set that persists across cycles. Now checks `if mid not in self._read_ids` before adding to unread. Verified: 314 CCX tests pass (6 pre-existing MCP auth failures unrelated).
+- **Session startup fixes** — `scripts/kisti-session` now detects startx Xauthority from Xorg cmdline when GDM auth absent; sets `XDG_RUNTIME_DIR`. `ui/main_window.py` syncs SI-Drive mode on startup before signals connect (fixes mode mismatch at app launch).
 
 ### Don't Repeat
-- CCX `/admin/pause` survives the session but not a CCX restart — need a persistent fix in poller logic
-- Sport screen label positions: BLNCE is centered-bar (balance), TRAILB is standard bar (trail brake %)
+- Brake quality is uniform per rolling window (per-sector tracking requires AiM boundary events from Strada)
+- CCX poller fix: mark_read() adds to _read_ids AND removes from _unread_ids; polling never re-adds marked IDs
+- Jetson startx: auth file in /proc/$PID/cmdline -auth flag, not /tmp/.X*-lock
+- Zeus Memory API changed; always check latest docs before /api/memory calls — may have moved endpoints
+
+### Files Changed
+- `coaching/technique_analyzer.py` — +brake_quality() method (27 lines)
+- `main.py` — brake quality feed in _coaching_tick() (10 lines)
+- `scripts/kisti-session` — startx Xauthority detection, XDG_RUNTIME_DIR (11 lines)
+- `ui/main_window.py` — SI-Drive sync on startup (3 lines)
+
+### Test Count
+- 1513 passed (unchanged; brake_quality tested via existing TechniqueAnalyzer suite)
+
+### Learnings Captured to Zeus Memory
+- ✅ cce_success_log: Brake Quality Analyzer Wired to S# Track Screen
+- ✅ cce_success_log: CCX Message Poller Flood Root Cause Verified Fixed
 
 ### Files Changed
 - `ui/sport_screen.py` — BALANCE→BLNCE, TRAIL %→TRAILB
@@ -89,10 +105,10 @@
 - Hash-based fallback `track_id` (`d9a909b9-0000-0000-0000-000000000000`) used when `track_db` isn't yet seeded at import time — TODO: fix ordering so canonical ID is used.
 
 ### Next Session Priorities
-1. **Fix canonical track_id in auto-import** — `_track_db` is None when `_auto_import_ztracks()` runs; re-order init or defer import to after seed
+1. **RS3 AiM Strada Configuration** — Bind Status element to CAN ID 0x6C2 when hardware arrives (Link sponsorship pending)
 2. **RS3 Track Maps Import** — Blocked on AiM Strada hardware + sample .mpl files
-3. **RS3 AiM Strada Configuration** — Bind Status element to CAN ID 0x6C2 when hardware arrives
-4. **Brake Quality Feed** — Wire `update_brake_quality()` to track screen from main.py
+3. **Jetson Production Hardening** — test K6 toggle + cron sync + all 3 screens on road; verify brake dots rendering on Kenwood display
+4. **Expand brake quality to per-sector tracking** — once Strada supplies sector boundary CAN events (GPS alone too coarse)
 
 ### Don't Repeat
 - `.ztracks` `<hpts` section has 7-byte header before GPS int32 data (confirmed Mission Raceway at file offset 1100, section tag at 1088, data at 1095... wait no, section data starts at 1093 (1088+5 tag), real GPS at 1100, skip=7 confirmed)
