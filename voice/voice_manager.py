@@ -285,7 +285,7 @@ class VoiceManager(QObject):
         self._tts = TTSEngine()
         # Frontier AI — Claude API when WiFi available, edge cache when offline
         # Zeus proxy: centralized auth/logging/cost tracking (optional)
-        anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        anthropic_key = os.environ.get("ANTHROPIC_API_KEY_KISTI") or os.environ.get("ANTHROPIC_API_KEY", "")
         proxy_url = os.environ.get("KISTI_PROXY_URL", "")
         proxy_key = os.environ.get("KISTI_PROXY_KEY", "")
         self._frontier = FrontierLLMEngine(

@@ -664,7 +664,7 @@ def main():
 
         # Parked debrief: Haiku session analysis (WiFi-gated)
         from analysis.parked_debrief import ParkedDebrief
-        _anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        _anthropic_key = os.environ.get("ANTHROPIC_API_KEY_KISTI") or os.environ.get("ANTHROPIC_API_KEY", "")
         parked_debrief = ParkedDebrief(db_store, _anthropic_key) if _anthropic_key else None
 
         def _on_state_changed():
