@@ -324,16 +324,21 @@ T3/T4 ALWAYS fire regardless of phase.
 - Native CAN output for KiSTI consumption
 ### Layer 1: Alarm LEDs (8 RGB, dedicated, persistent)
 One LED per persistent monitored condition. Driver learns position-to-condition mapping.
-| LED | Condition | Colors |
-|---|---|---|
-| 1 | Oil temp | Blue/Green/off/Red/Flash red |
-| 2 | Oil pressure | off/Amber/Flash red |
-| 3 | Coolant temp | off/Amber/Red/Flash red |
-| 4 | Knock / IAM | off/Amber/Flash red |
-| 5 | Lambda / AFR | off/Amber/Flash red |
-| 6 | Boost | off/Amber/Red |
-| 7 | Electrical / PDM | off/Amber/Flash red |
-| 8 | KiSTI status | off/Amber/Blue (recording) |
+
+**Actual dash layout** (supersedes earlier generic spec — reflects MXG icon positions on this car):
+| LED | Position      | Condition                | Colors |
+|---|---|---|---|
+| 1 | Top-left      | Left turn signal         | Green continuous (mirrors signal blink) |
+| 2 | Upper-left    | *TBD*                    | — |
+| 3 | Lower-left    | *TBD*                    | — |
+| 4 | Bottom-left   | Engine (oil press loss)  | off / Red / Flash red |
+| 5 | Top-right     | Right turn signal        | Green continuous (mirrors signal blink) |
+| 6 | Upper-right   | Oil temp                 | Blue / Green / off / Red / Flash red |
+| 7 | Lower-right   | Coolant temp             | off / Red / Flash red |
+| 8 | Bottom-right  | *TBD*                    | — |
+
+**Remaining channels from original spec need LED slot assignment:** knock/IAM, lambda/AFR, boost, electrical/PDM, KiSTI status. Candidates: LEDs 2, 3, 8 — plus any freed by removing turn-signal LEDs if body CAN proves unreliable. Decide once Item 18 body-CAN integration lands.
+
 Independent and persistent — multiple can be lit simultaneously.
 ### Layer 2: TFT display
 - Normal: active gauge page
@@ -459,6 +464,36 @@ Front and rear brake pressure sensors are installed on the car. Data acquisition
 - Item 7 (data acquisition — adds 2 channels)
 - Item 12 (dash display)
 - Future Items (AP Racing kit, if/when resumed)
+---
+## Item 18 — Body CAN / indicator channel integration
+Required to drive turn signals, high/low beam indicators, and fuel-level warnings on the MXG dash and in KiSTI alerts. **Currently BLOCKED** — these channels do not exist in the MXG's CAN stream today. Discovered 2026-04-18 during MXG alarm configuration session.
+
+**Channels needed:**
+- Turn signal LEFT (boolean, true = active)
+- Turn signal RIGHT (boolean, true = active)
+- High beam active (boolean)
+- Low beam active (boolean)
+- Fuel level (percent or litres — derive `FUEL_LOW` boolean from this)
+
+**Source options** (decide per channel; can mix):
+1. **Subaru body CAN** — body ECU broadcasts these natively. Requires tapping body CAN into the MXG's second CAN input (CAN2 on Strada) + DBC decoding. Richest source but most complex wiring.
+2. **Physical wire taps → MXG digital inputs** — splice the blinker/headlight feed wires into MXG digital inputs. Simpler, but fuel level isn't a boolean so it needs an analog input.
+3. **Physical wire taps → Link G5 inputs → Link CAN broadcast** — Link reads the wires and broadcasts on its existing CAN stream, MXG picks up from CAN1 alongside engine data. Cleanest architecturally (one DBC to maintain). Fuel level via existing Link analog input from the fuel sender.
+
+**Recommended:** **Option 3** for turn signals and beams (Link wire taps → CAN broadcast). Fuel level via existing Link analog input.
+
+**Blocks:**
+- MXG alarm/indicator LEDs: LED 1 (left turn), LED 5 (right turn), LED slot TBD (high beam / low beam / fuel low)
+- TFT display icons for same
+- KiSTI voice announcements (e.g., "fuel low" on range calculation)
+- DuckDB logging of driver inputs (turn signals useful for driving-style analysis)
+
+**Cross-references:**
+- Item 7 (data acquisition) — channels extend the channel inventory table
+- Item 12 (dash integration) — MXG side consumes these
+- Item 16 (alert framework) — fuel low fires as T1/T2 advisory; turn signals are T0 info only
+- Item 11 (fault handling) — stock Subaru DTCs for body electrical are on this bus
+
 ---
 ## Future Items (on hold, deferred, or awaiting trigger)
 ### AP Racing brake kit (on hold indefinitely)
