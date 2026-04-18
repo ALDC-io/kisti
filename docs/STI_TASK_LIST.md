@@ -1,5 +1,5 @@
 # KB: STI Task List — Full Consolidated Set
-*Captured: 2026-04-17 / Updated: 2026-04-18*
+*JK CONFIDENTIAL | Captured: 2026-04-17 / Updated: 2026-04-18*
 *Source: 2014 Subaru WRX STI (GR chassis) project — ~460 HP, track + road mission car*
 *Dash: AiM MXG 1.3 Strada | ECU: Link G5 Voodoo Neo 4 | PDM: Razor | Jetson: Orin Nano 8GB (KiSTI)*
 *Track use: Mission Raceway, The Ridge (~every 2 months) | Road: Rogers Pass → Banff May 2026 first field mission*
