@@ -31,10 +31,10 @@ Cut/limit triggers on out-of-range values before damage occurs. See Item 16 for 
 Tire profile (Item 14) is orthogonal — 3 maps × 3 tires = 9 effective calibrations.
 ---
 ## Item 4 — PDM (Razor) power + protection strategy
-- Manage inverter (Jetson / laptop power)
-- Delayed startup (post-crank)
-- Controlled shutdown (graceful Jetson power-off)
-- Low-voltage cutoff (battery protection)
+- **Inverter management through the PDM** — the 12V → AC inverter that feeds the Jetson and laptop must be gated by the PDM, not wired to a raw ignition-sense relay. Routing through the PDM enables: post-crank delayed startup (inverter only comes up after the engine is running, not during cranking when voltage sags); graceful shutdown sequencing (PDM signals the Jetson to save state and quiesce, waits for acknowledgment, then kills inverter power); low-voltage cutoff protection (PDM drops the inverter before the battery drains below starting threshold); and coordinated behavior with turbo-cooldown and ignition-on windows.
+- Delayed startup (post-crank) — PDM holds non-essential loads including the inverter until the alternator is producing stable voltage (typically 1–2s after first successful fire)
+- Controlled shutdown (graceful Jetson power-off) — PDM asserts a shutdown-request line to the Jetson, waits for Jetson acknowledgment (max 30s), then cuts power. Prevents DuckDB corruption and allows the FLIR/CAN subsystems to flush cleanly.
+- Low-voltage cutoff (battery protection) — configurable threshold (e.g., 11.8V) below which PDM sheds loads including the inverter
 - Crank protection (drop non-critical loads during start)
 - Turbo cooldown: hold ignition + water pump circulation 60–120s after key-off if oil temp > 100°C (ties to Item 15)
 ---
