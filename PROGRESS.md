@@ -1,5 +1,35 @@
 # KiSTI - Progress
 
+## Session: 2026-04-18 (kisti-road-08 — NAS Backup Expansion: sessions + image)
+
+### Status: COMPLETE
+
+### Completed
+- **Sessions Parquet backup** — `scripts/sync_to_cloud.py` new `sync_nas_sessions()` tars `/data/sync_queue/` → `Backup/KiSTI/sessions/` on NAS. Skips if queue is empty. Included in `sync_all` path (daily 2AM cron).
+- **System image backup** — New `sync_nas_image()` tars `repos/kisti` + `tracks` + `.env` → `Backup/KiSTI/images/` on NAS. Excludes `__pycache__` and `.git`. Weekly Sunday 3AM via new Jetson cron entry.
+- **WiFi-first NAS routing** — `_nas_pick_iface()` pings NAS on `wlP1p1s0` (WiFi) first, falls back to `enP8p1s0` (LAN). `_nas_put()` is a reusable upload helper with mkdir-p and 120s timeout.
+- **Shell wrapper arg forwarding** — `scripts/jetson_sync_cloud.sh` now passes `"$@"` to Python so `--nas-image` and future flags work.
+- **Jetson crontab** — Added `0 3 * * 0 .../jetson_sync_cloud.sh --nas-image` (Sunday 3AM UTC). Daily 2AM entry unchanged (already includes sessions backup via sync_all).
+
+### Don't Repeat
+- Only ONE new cron entry needed for weekly image — sync_all (daily 2AM) already calls sync_nas_sessions() automatically; don't add a redundant daily --nas-sessions cron
+- Shell wrappers that call Python scripts must pass `"$@"` or CLI flags are silently swallowed
+- NAS at 192.168.22.220 is directly reachable from Jetson — does not route through dev machine
+
+### Files Changed
+- `scripts/sync_to_cloud.py` — added _nas_pick_iface(), _nas_put() helpers; added sync_nas_sessions(), sync_nas_image(); updated main() with --nas-sessions and --nas-image flags; sync_all includes sessions
+- `scripts/jetson_sync_cloud.sh` — added `"$@"` arg forwarding
+- (Jetson crontab — Sunday 3AM image backup cron added directly on Jetson)
+
+### Test Count
+- 1513 passed (unchanged; new backup functions are I/O-only, no unit tests required)
+
+### Learnings Captured to Zeus Memory
+- ✅ cce_success_log: KiSTI NAS Backup Expanded to 3 Types (ZMID: 02345e01-b593-4ae5-82ad-807da0c3b53e)
+- ✅ cce_decision_log: Jetson Cron Scheduling — One New Entry Only (ZMID: e26c61dd-fe22-421d-8323-6c1e97783353)
+
+---
+
 ## Session: 2026-04-07c (display keepawake + CCX docker redeploy)
 
 ### Status: COMPLETE
