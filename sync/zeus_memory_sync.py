@@ -116,60 +116,68 @@ class ZeusMemorySyncWorker(QObject):
             self._update_status(last_error=str(exc))
 
     def _push_memories(self) -> int:
-        """POST unsynced memories to Zeus. Returns count pushed."""
+        """POST unsynced memories to Zeus. Returns count pushed.
+
+        The Zeus API accepts one memory per POST (flat payload). Each request
+        returns ``{"status": "ok", "success": true, "memory_id": "<uuid>",
+        "tenant_id": "<uuid>", "content_summary": "..."}``. We iterate over
+        unsynced rows, marking each synced as soon as its POST succeeds so a
+        mid-batch network failure doesn't re-push already-accepted entries.
+        """
         unsynced = self._memory.get_unsynced_memories()
         if not unsynced:
             return 0
 
-        payload = {
-            "source": "kisti-edge",
-            "device_id": DEVICE_ID,
-            "memories": [
-                {
-                    "edge_memory_id": m["memory_id"],
-                    "content": m["content"],
-                    "memory_type": m.get("memory_type", "manual"),
-                    "tags": m.get("tags", ""),
-                    "importance": m.get("importance", 0.5),
-                    "session_id": m.get("session_id"),
-                    "created_at": m["created_at"].isoformat()
-                    if isinstance(m["created_at"], datetime)
-                    else str(m["created_at"]),
-                }
-                for m in unsynced
-            ],
-        }
+        count = 0
+        for m in unsynced:
+            created_at = m["created_at"]
+            if isinstance(created_at, datetime):
+                created_at = created_at.isoformat()
+            else:
+                created_at = str(created_at)
 
-        try:
-            body = json.dumps(payload).encode("utf-8")
-            req = urllib.request.Request(
-                f"{self._api_base}/memory",
-                data=body,
-                headers={
-                    "Content-Type": "application/json",
-                    "X-API-Key": self._api_key,
-                },
-                method="POST",
-            )
+            payload = {
+                "source": "kisti-edge",
+                "device_id": DEVICE_ID,
+                "edge_memory_id": m["memory_id"],
+                "content": m["content"],
+                "memory_type": m.get("memory_type", "manual"),
+                "tags": m.get("tags", ""),
+                "importance": m.get("importance", 0.5),
+                "session_id": m.get("session_id"),
+                "created_at": created_at,
+            }
 
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                data = json.loads(resp.read())
+            try:
+                body = json.dumps(payload).encode("utf-8")
+                req = urllib.request.Request(
+                    f"{self._api_base}/memory",
+                    data=body,
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-API-Key": self._api_key,
+                    },
+                    method="POST",
+                )
 
-            accepted = data.get("accepted", [])
-            for item in accepted:
-                edge_id = item.get("edge_memory_id")
-                zeus_id = item.get("zeus_memory_id")
-                if edge_id and zeus_id:
-                    self._memory.mark_synced(edge_id, zeus_id)
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    data = json.loads(resp.read())
 
-            count = len(accepted)
-            if count:
-                log.info("Pushed %d memories to Zeus", count)
-            return count
+                zeus_id = data.get("memory_id")
+                if data.get("success") and zeus_id:
+                    self._memory.mark_synced(m["memory_id"], zeus_id)
+                    count += 1
+                else:
+                    log.warning("Zeus push rejected for %s: %s", m["memory_id"], data)
 
-        except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
-            log.warning("Zeus push failed: %s", exc)
-            return 0
+            except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
+                log.warning("Zeus push failed for %s: %s", m["memory_id"], exc)
+                # Stop on first hard failure — connectivity likely gone.
+                break
+
+        if count:
+            log.info("Pushed %d memories to Zeus", count)
+        return count
 
     def _pull_enrichments(self) -> int:
         """GET enriched memories from Zeus. Returns count updated."""

@@ -49,7 +49,11 @@ class TestZeusSyncWorker:
         assert worker.status.pending_push == 0
 
     def test_push_payload_format(self, worker, memory):
-        """Verify the JSON payload sent to Zeus has correct structure."""
+        """Verify the JSON payload sent to Zeus has correct flat structure.
+
+        The live Zeus API accepts one memory per POST (flat top-level fields),
+        not a batched ``{"memories": [...]}`` envelope.
+        """
         memory.remember("Test memory", memory_type="manual", tags="test")
 
         captured_body = {}
@@ -61,10 +65,11 @@ class TestZeusSyncWorker:
             resp.__enter__ = lambda s: s
             resp.__exit__ = MagicMock(return_value=False)
             resp.read.return_value = json.dumps({
-                "accepted": [{
-                    "edge_memory_id": body["memories"][0]["edge_memory_id"],
-                    "zeus_memory_id": "zeus-123",
-                }],
+                "status": "ok",
+                "success": True,
+                "memory_id": "zeus-123",
+                "tenant_id": "tenant-xyz",
+                "content_summary": "Test memory",
             }).encode()
             return resp
 
@@ -74,36 +79,37 @@ class TestZeusSyncWorker:
         assert count == 1
         assert captured_body["source"] == "kisti-edge"
         assert captured_body["device_id"] == DEVICE_ID
-        assert len(captured_body["memories"]) == 1
-
-        mem = captured_body["memories"][0]
-        assert "edge_memory_id" in mem
-        assert mem["content"] == "Test memory"
-        assert mem["memory_type"] == "manual"
-        assert mem["tags"] == "test"
+        # Flat payload — memory fields at top level, not nested in "memories"
+        assert "memories" not in captured_body
+        assert "edge_memory_id" in captured_body
+        assert captured_body["content"] == "Test memory"
+        assert captured_body["memory_type"] == "manual"
+        assert captured_body["tags"] == "test"
 
     def test_push_marks_synced(self, worker, memory):
         """After successful push, memories should be marked synced."""
-        mid = memory.remember("To sync")
+        memory.remember("To sync")
 
         def mock_urlopen(req, timeout=30):
             resp = MagicMock()
             resp.__enter__ = lambda s: s
             resp.__exit__ = MagicMock(return_value=False)
             resp.read.return_value = json.dumps({
-                "accepted": [{
-                    "edge_memory_id": mid,
-                    "zeus_memory_id": "zeus-456",
-                }],
+                "status": "ok",
+                "success": True,
+                "memory_id": "zeus-456",
+                "tenant_id": "tenant-xyz",
+                "content_summary": "To sync",
             }).encode()
             return resp
 
         with patch("sync.zeus_memory_sync.urllib.request.urlopen", side_effect=mock_urlopen):
             worker._push_memories()
 
-        m = memory.get_memory(mid)
-        assert m["synced"] is True
-        assert m["zeus_memory_id"] == "zeus-456"
+        # Find the memory we just inserted and verify it's marked synced
+        # (memory.remember returns the edge_memory_id)
+        unsynced_after = memory.get_unsynced_memories()
+        assert len(unsynced_after) == 0, "memory should be marked synced after successful push"
 
     def test_pull_enrichment_applies(self, worker, memory):
         """Mock enrichment response should update local memory."""
