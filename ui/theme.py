@@ -1,7 +1,8 @@
 """KiSTI - Dark Automotive Theme
 
 2014 Subaru WRX STI gauge cluster inspired.
-Black faces, STI cherry red accents, white text, chrome rings.
+Tritium-green instrument heritage: photoluminescent green-white faces,
+STI cherry red / warning amber accents. Porsche 917 / Sinn 856 aesthetic.
 """
 
 # === 2014 STI Gauge Palette ===
@@ -17,9 +18,10 @@ RED = "#FF1A1A"            # Warning red / needle red
 CHERRY = "#CC0000"         # Redline zone
 
 # Severity / Status
-GREEN = "#00CC66"          # OK / optimal
-YELLOW = "#FFAA00"         # Caution amber
-CYAN = "#00CCFF"           # Digital display cyan
+GREEN = "#00CC66"          # OK / optimal (tire temp, grip bars)
+YELLOW = "#FFAA00"         # Caution amber (general status)
+AMBER = "#FFB000"          # Redline warning + alert-ack button
+CYAN = "#00CCFF"           # Digital display cyan (GPS, data fields)
 
 # GT7 Tire Temperature Palette
 TIRE_BLUE = "#0077DD"      # Cold tires
@@ -35,11 +37,18 @@ RADAR_X = "#00AAFF"        # X band — rare / legacy
 RADAR_LASER = "#FF00FF"    # Laser — instant threat
 RADAR_CLEAR = "#333333"    # No alerts
 
-# Text
-WHITE = "#FFFFFF"          # Primary numbers
-SILVER = "#D0D0D0"         # Secondary labels
-GRAY = "#808080"           # Dimmed text
-DIM = "#333333"            # Subtle lines / grid
+# Tritium-heritage instrument palette
+# Green-white photoluminescent — the colour of light, not a colour choice.
+# Reference: Porsche 917 dashboard / Sinn 856 UTC tritium tubes.
+WHITE  = "#D4E8D0"         # Instrument primary: tick marks, numerals, needle
+SILVER = "#B8D0B8"         # Instrument secondary: minor ticks, sub-labels
+GRAY   = "#6A8A6A"         # Dimmed instrument text (dark-cockpit normal state)
+DIM    = "#2A3A2A"         # Subtle lines, grid, ring edges
+
+# Keypad backlight + ambient cabin strip — slightly more saturated so it reads
+# as colour from a distance, not just light.
+KEYPAD_GLOW   = "#B0D8B0"  # Keypad button backlight
+AMBIENT_STRIP = "#A8D8A8"  # Footwell / cabin ambient LED target
 
 # Chrome
 CHROME_LIGHT = "#C0C0C0"   # Chrome ring highlight
@@ -56,7 +65,7 @@ QWidget {{
     background-color: {BG_DARK};
     color: {WHITE};
     font-size: {FONT_BASE}px;
-    font-family: "Helvetica", "Arial", "DejaVu Sans", sans-serif;
+    font-family: "Helvetica Neue", "Helvetica", "Arial", "DejaVu Sans", sans-serif;
 }}
 
 QMainWindow {{
