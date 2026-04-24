@@ -1,23 +1,33 @@
-"""KiSTI - Dark Automotive Theme
+"""KiSTI - Tritium-Heritage Instrument Theme
 
-2014 Subaru WRX STI gauge cluster inspired.
-Black faces, STI cherry red accents, white text, chrome rings.
+Aesthetic ref: Sinn 856 UTC / Porsche 917 dash / radium-dial instruments.
+Green-tinted white (photoluminescent) — NOT a green colour scheme.
+Dark cockpit philosophy: normal = invisible, deviations illuminate.
+
+Palette roles:
+  WHITE   → instrument primary  (tick marks, numerals, needle)
+  SILVER  → instrument secondary (minor ticks, sub-labels)
+  GRAY    → dimmed / dark-cockpit text (normal-state vitals)
+  DIM     → subtle lines, grid, ring edges, separators
+  RED     → critical warnings only — unchanged
+  YELLOW  → caution / warning — unchanged
+  HIGHLIGHT → alert-ack / redline amber — unchanged
 """
 
-# === 2014 STI Gauge Palette ===
+# === Tritium-Heritage Gauge Palette ===
 
 # Backgrounds
-BG_DARK = "#0A0A0A"       # Gauge face black
+BG_DARK = "#0A0A0A"       # Near-black gauge face
 BG_PANEL = "#121212"       # Recessed panel
-BG_ACCENT = "#1A1A1A"      # Carbon fiber dark
+BG_ACCENT = "#1A1A1A"      # Carbon dark
 
-# STI Accents
-HIGHLIGHT = "#E60000"      # STI cherry red
-RED = "#FF1A1A"            # Warning red / needle red
-CHERRY = "#CC0000"         # Redline zone
+# STI / Alert Accents — DO NOT CHANGE (safety-critical)
+HIGHLIGHT = "#FFB000"      # Amber — redline + alert-ack
+RED = "#FF1A1A"            # Critical warnings only
+CHERRY = "#CC0000"         # Redline zone (gauge arc)
 
-# Severity / Status
-GREEN = "#00CC66"          # OK / optimal
+# Severity / Status — DO NOT CHANGE (safety-critical)
+GREEN = "#00CC66"          # OK / optimal (tire, ECU state)
 YELLOW = "#FFAA00"         # Caution amber
 CYAN = "#00CCFF"           # Digital display cyan
 
@@ -33,15 +43,15 @@ RADAR_KA = "#FF3333"       # Ka band — highest threat
 RADAR_K = "#FFAA00"        # K band — common (door openers)
 RADAR_X = "#00AAFF"        # X band — rare / legacy
 RADAR_LASER = "#FF00FF"    # Laser — instant threat
-RADAR_CLEAR = "#333333"    # No alerts
+RADAR_CLEAR = "#2A3A2A"    # No alerts (tritium dim)
 
-# Text
-WHITE = "#FFFFFF"          # Primary numbers
-SILVER = "#D0D0D0"         # Secondary labels
-GRAY = "#808080"           # Dimmed text
-DIM = "#333333"            # Subtle lines / grid
+# Text — tritium-heritage substitutions
+WHITE = "#D4E8D0"          # Instrument primary: luminescent green-white
+SILVER = "#B8D0B8"         # Instrument secondary: minor ticks, sub-labels
+GRAY = "#6A8A6A"           # Dimmed / dark-cockpit: normal-state vitals
+DIM = "#2A3A2A"            # Subtle lines, grid, ring edges, separators
 
-# Chrome
+# Chrome ring — neutral metallic, unaffected by tritium tint
 CHROME_LIGHT = "#C0C0C0"   # Chrome ring highlight
 CHROME_MID = "#909090"     # Chrome ring mid
 CHROME_DARK = "#606060"    # Chrome ring shadow
