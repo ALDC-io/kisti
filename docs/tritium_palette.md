@@ -40,12 +40,12 @@ Formula: `value = (Alpha << 24) | (Red << 16) | (Green << 8) | Blue`
 
 | Role | Hex | Unsigned ARGB int | Signed ARGB int |
 |------|-----|-------------------|-----------------|
-| Instrument primary | `#FFD4E8D0` | 4291363024 | -3604272 |
-| Instrument secondary | `#FFB8D0B8` | 4289299640 | -5667656 |
-| Dimmed text | `#FF6A8A6A` | 4284643434 | -10323862 |
-| Subtle lines | `#FF2A3A2A` | 4280162858 | -14804438 |
-| Face background | `#FF0A0A0A` | 4278583818 | -16383478 |
-| Amber alert | `#FFFFB000` | 4294930432 | -36864 |
+| Instrument primary | `#FFD4E8D0` | 4292143312 | -2823984 |
+| Instrument secondary | `#FFB8D0B8` | 4290302136 | -4665160 |
+| Dimmed text | `#FF6A8A6A` | 4285172330 | -9794966 |
+| Subtle lines | `#FF2A3A2A` | 4280957482 | -14009814 |
+| Face background | `#FF0A0A0A` | 4278848010 | -16119286 |
+| Amber alert | `#FFFFB000` | 4294946816 | -20480 |
 
 ---
 
@@ -54,13 +54,13 @@ Formula: `value = (Alpha << 24) | (Red << 16) | (Green << 8) | Blue`
 | Old (RS3 default) | New (tritium) | Role |
 |-------------------|---------------|------|
 | `#FFFFFF` / 4294967295 | `#D4E8D0` | Primary white |
-| `#F0F0F0` / 4294309872 | `#D4E8D0` | Near-white |
-| `#E0E0E0` / 4293256160 | `#D4E8D0` | Near-white |
-| `#D0D0D0` / 4292203472 | `#B8D0B8` | Light grey |
-| `#C0C0C0` / 4291150848 | `#B8D0B8` | Chrome light |
-| `#B0B0B0` / 4290098160 | `#B8D0B8` | Chrome mid |
-| `#A0A0A0` / 4289045472 | `#B8D0B8` | Chrome |
-| `#909090` / 4287992720 | `#6A8A6A` | Mid grey |
+| `#F0F0F0` / 4293980400 | `#D4E8D0` | Near-white |
+| `#E0E0E0` / 4292927712 | `#D4E8D0` | Near-white |
+| `#D0D0D0` / 4291875024 | `#B8D0B8` | Light grey |
+| `#C0C0C0` / 4290822336 | `#B8D0B8` | Chrome light |
+| `#B0B0B0` / 4289769648 | `#B8D0B8` | Chrome mid |
+| `#A0A0A0` / 4288716960 | `#B8D0B8` | Chrome |
+| `#909090` / 4287664272 | `#6A8A6A` | Mid grey |
 | `#808080` / 4286611584 | `#6A8A6A` | Grey |
 | `#333333` / 4281545523 | `#2A3A2A` | Dark grey |
 | `#202020` / 4280295456 | `#2A3A2A` | Near black |

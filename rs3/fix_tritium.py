@@ -89,9 +89,8 @@ COLOUR_MAP = {
 # Built dynamically in _build_argb_map()
 
 # Needle colour: amber — must survive RS3 cache rewrite
-NEEDLE_HEX = TRITIUM["AMBER_ALERT"]          # D4E8D0 → actually use amber for needle
-NEEDLE_HEX = "FFB000"                         # Amber needle (not tritium white)
-NEEDLE_ARGB_INT = int("FF" + NEEDLE_HEX, 16)  # 0xFFFFB000 = 4294930432
+NEEDLE_HEX = "FFB000"                         # Amber needle
+NEEDLE_ARGB_INT = int("FF" + NEEDLE_HEX, 16)  # 0xFFFFB000 = 4294946816
 
 # Elements that are safety-critical — never recolour (substring match on type attr)
 SAFETY_TYPES = {"redzone", "warningzone", "alertzone", "alarm", "limit"}
@@ -116,9 +115,10 @@ START_ATTRS = {
 }
 
 # Element types that are decorative rings/bezels (should be 360°)
+# Deliberately excludes "frame" — too greedy (matches keyframe, TimeFrame, etc.)
 RING_TYPES = {
     "ring", "bezel", "circlebackground", "outerring", "chromering",
-    "bezeldecor", "gaugeframe", "frame", "gaugering",
+    "bezeldecor", "gaugeframe", "gaugering",
 }
 
 
@@ -241,18 +241,25 @@ def _process_xml(xml: str, dry_run: bool = False) -> tuple[str, int]:
     )
 
     # --- 2. Needle colour fix ---
-    # Force needle colour attributes to amber (FFB000) regardless of current value.
-    # Targets: NeedleColor / needleColor / needle_color attributes
+    # Force needle colour to amber (FFB000). Skip if current value is already a
+    # safety-critical red — a red needle means a warning-state gauge, leave it alone.
+    _SAFETY_NEEDLE_REDS = {"ff1a1a", "ff0000", "cc0000", "ff3333", "e60000"}
+
     def _fix_needle(m: re.Match) -> str:
         nonlocal changes
         attr = m.group(1)
         quote = m.group(2)
         old_val = m.group(3)
+        # Detect if current value is a safety red — hex or decimal ARGB
+        old_lower = old_val.lower().lstrip("#")
+        if len(old_lower) == 6 and old_lower in _SAFETY_NEEDLE_REDS:
+            return m.group(0)  # leave red warning needles alone
+        if len(old_lower) == 8 and old_lower[2:] in _SAFETY_NEEDLE_REDS:
+            return m.group(0)
         # Convert amber to ARGB decimal if attribute uses decimal format
         if old_val.lstrip("-").isdigit():
             new_val = str(NEEDLE_ARGB_INT)
         else:
-            # Hex format
             new_val = "#FF" + NEEDLE_HEX
         if old_val != new_val:
             changes += 1
@@ -490,7 +497,7 @@ def _process_sqlite(path: Path, dry_run: bool) -> int:
 # ---------------------------------------------------------------------------
 
 def run(root: Path, dry_run: bool) -> None:
-    print(f"\nffix_tritium.py — AiM RS3 tritium theme patcher")
+    print(f"\nfix_tritium.py — AiM RS3 tritium theme patcher")
     print(f"Target directory: {root}")
     print(f"Mode: {'DRY RUN (no files written)' if dry_run else 'LIVE (files will be modified)'}\n")
 
@@ -500,8 +507,9 @@ def run(root: Path, dry_run: bool) -> None:
     # Collect all patchable files
     aimdev2_files = list(root.rglob("*.aimdev2"))
     rs3db_files = list(root.rglob("*.rs3db"))
-    xml_files = [f for f in root.rglob("*.xml")
-                 if not any(f.is_relative_to(p.parent) for p in aimdev2_files)]
+    # Include all loose XML files — .aimdev2 contents live in a tempdir during
+    # extraction so there is no collision with files already in root.
+    xml_files = list(root.rglob("*.xml"))
 
     if not (aimdev2_files or rs3db_files or xml_files):
         print("No .aimdev2, .rs3db, or .xml files found in that directory.")
