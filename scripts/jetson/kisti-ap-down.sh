@@ -4,7 +4,11 @@ set -uo pipefail
 
 IFACE="${KISTI_AP_IFACE:-}"
 if [ -z "$IFACE" ]; then
-    IFACE=$(ls /sys/class/net | grep -E '^(wl|wlan)' | head -n1)
+    for dev in /sys/class/net/wl*; do
+        [ -e "$dev" ] || continue
+        IFACE=$(basename "$dev")
+        break
+    done
 fi
 [ -z "$IFACE" ] && exit 0
 

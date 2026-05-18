@@ -24,7 +24,11 @@ fi
 # --- 1. Resolve interface ---------------------------------------------------
 IFACE="${KISTI_AP_IFACE:-}"
 if [ -z "$IFACE" ]; then
-    IFACE=$(ls /sys/class/net | grep -E '^(wl|wlan)' | head -n1)
+    for dev in /sys/class/net/wl*; do
+        [ -e "$dev" ] || continue
+        IFACE=$(basename "$dev")
+        break
+    done
 fi
 if [ -z "$IFACE" ]; then
     echo "no wireless interface found; set KISTI_AP_IFACE=<name> and retry" >&2

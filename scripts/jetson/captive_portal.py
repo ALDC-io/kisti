@@ -25,7 +25,6 @@ from __future__ import annotations
 import json
 import logging
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Optional
 
 log = logging.getLogger("kisti.captive")
 

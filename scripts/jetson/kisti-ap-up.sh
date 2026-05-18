@@ -9,8 +9,12 @@ set -euo pipefail
 
 IFACE="${KISTI_AP_IFACE:-}"
 if [ -z "$IFACE" ]; then
-    # Pick the first wireless interface
-    IFACE=$(ls /sys/class/net | grep -E '^(wl|wlan)' | head -n1)
+    # Pick the first wireless interface (kernel exposes /sys/class/net/wl*)
+    for dev in /sys/class/net/wl*; do
+        [ -e "$dev" ] || continue
+        IFACE=$(basename "$dev")
+        break
+    done
 fi
 if [ -z "$IFACE" ]; then
     echo "kisti-ap-up: no wireless interface found" >&2
