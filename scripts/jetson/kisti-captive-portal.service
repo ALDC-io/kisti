@@ -1,0 +1,15 @@
+[Unit]
+Description=KiSTI captive portal + gateway API
+After=kisti-ap-network.service
+Requires=kisti-ap-network.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/kisti/captive_portal.py
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

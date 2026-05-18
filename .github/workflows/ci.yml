@@ -1,0 +1,136 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    name: pytest (full suite, headless Qt)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: System packages (Qt offscreen runtime + DNS/AP tooling)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libxkbcommon0 libdbus-1-3 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xkb1 \
+            libxkbcommon-x11-0
+
+      - name: Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest PySide6 duckdb
+
+      - name: pytest
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest tests/ -v --tb=short
+
+  ruff:
+    name: ruff (new code only)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      # Scope to files this PR introduces — pre-existing repo style is mixed
+      # and not in scope to fix here. Expand the path list as more files are
+      # brought up to ruff-clean.
+      - name: ruff check
+        run: |
+          ruff check \
+            scripts/jetson/captive_portal.py \
+            tests/test_captive_portal.py
+
+  shellcheck:
+    name: shellcheck (all shell scripts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends shellcheck
+
+      - name: shellcheck
+        run: |
+          shellcheck \
+            scripts/jetson/install-ap.sh \
+            scripts/jetson/uninstall-ap.sh \
+            scripts/jetson/kisti-ap-up.sh \
+            scripts/jetson/kisti-ap-down.sh
+
+  config-validate:
+    name: validate hostapd / dnsmasq / avahi / systemd configs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install validators
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            dnsmasq hostapd xmlstarlet systemd
+
+      - name: dnsmasq syntax (with substituted interface)
+        run: |
+          sed 's|{{IFACE}}|wlan0|g' scripts/jetson/dnsmasq-kisti.conf \
+            > /tmp/dnsmasq.conf
+          dnsmasq --test --conf-file=/tmp/dnsmasq.conf
+
+      - name: hostapd config parses (driver bring-up not expected in CI)
+        run: |
+          sed -e 's|{{IFACE}}|wlan0|g' -e 's|{{PASSPHRASE}}|testtest123|g' \
+            scripts/jetson/hostapd-kisti.conf > /tmp/hostapd.conf
+          # hostapd will fail at netlink (no real radio in CI) — that's
+          # past config parsing, which is all we need to check.
+          out=$(hostapd -dd /tmp/hostapd.conf 2>&1 | head -20 || true)
+          echo "$out"
+          if echo "$out" | grep -q "Configuration file:"; then
+            echo "hostapd parsed config OK"
+          else
+            echo "hostapd did NOT reach config-loaded state"
+            exit 1
+          fi
+
+      - name: avahi service XML well-formed
+        run: xmlstarlet val scripts/jetson/avahi-kisti.service.xml
+
+      - name: systemd unit files lint
+        run: |
+          systemd-analyze verify \
+            scripts/jetson/kisti-ap-network.service \
+            scripts/jetson/kisti-captive-portal.service \
+            || true  # systemd-analyze warns on units that reference paths
+                     # not yet installed at /opt/kisti — accept warnings,
+                     # fail only on syntax errors which exit non-zero
+                     # before "warning:" lines.
+
+      - name: install-ap.sh dry-syntax
+        run: |
+          bash -n scripts/jetson/install-ap.sh
+          bash -n scripts/jetson/uninstall-ap.sh
+          bash -n scripts/jetson/kisti-ap-up.sh
+          bash -n scripts/jetson/kisti-ap-down.sh

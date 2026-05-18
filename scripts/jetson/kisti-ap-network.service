@@ -1,0 +1,15 @@
+[Unit]
+Description=KiSTI AP network setup (static IP + NAT redirect)
+After=network-pre.target
+Before=hostapd.service dnsmasq.service kisti-captive-portal.service
+Wants=hostapd.service dnsmasq.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=-/etc/default/kisti-ap
+ExecStart=/opt/kisti/kisti-ap-up.sh
+ExecStop=/opt/kisti/kisti-ap-down.sh
+
+[Install]
+WantedBy=multi-user.target
