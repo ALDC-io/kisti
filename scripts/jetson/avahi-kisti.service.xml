@@ -1,0 +1,19 @@
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<!--
+  Advertises the KiSTI gateway over Bonjour/mDNS so the iOS app
+  discovers it as soon as the phone joins the KiSTI WiFi network.
+
+  Deployed to /etc/avahi/services/kisti.service by install-ap.sh.
+-->
+<service-group>
+  <name replace-wildcards="yes">KiSTI on %h</name>
+
+  <service>
+    <type>_kisti._tcp</type>
+    <port>8080</port>
+    <txt-record>version=1</txt-record>
+    <txt-record>device=jetson-orin-nano</txt-record>
+    <txt-record>path=/v1</txt-record>
+  </service>
+</service-group>
