@@ -2,11 +2,13 @@
 
 **Status:** Planning / architecture review. No code changes proposed in this document — it defines the contract, the Jetson-side server work, and the iOS/CarPlay client work to be done in later sessions.
 
-**Scope:** A companion iPhone app (full UI) and a CarPlay surface (driving-safe display) that connect to the Jetson and present KiSTI vehicle telemetry as road-map and track-map views, plus logging and session review.
+**Scope:** A **CarPlay-first, map- and track-centric** display for KiSTI. The **road map** and the **live track map** are the primary views on the car screen; **gauges and stats are secondary pages**. A full iPhone companion UI (and a mounted-iPad path) carries the richer dashboard, voice, and session review. All of it connects to the Jetson over the local link defined below.
 
 **Product framing (non-negotiable):** KiSTI is a **vehicle telemetry display, mapping, logging, and session review system for supported vehicle hardware.** It is JARVIS-in-the-car / Enterprise-computer / motorsport-logger in personality and capability. It is **not** a radar-detector app, a police-alert app, a street-racing app, or a public-road performance-coaching app. The App Store listing, in-app copy, and CarPlay category request must all reflect the telemetry/mapping/logging framing. See [§12 Non-goals & framing guardrails](#12-non-goals--framing-guardrails).
 
 **Product direction (important):** Today KiSTI runs on the Jetson in the car and renders to the Kenwood Excelon head unit via the PySide6 UI. This app is the **display/interface pane**, and the intended trajectory is for it to **supersede the Jetson→Excelon output** over time: the Jetson evolves into a (eventually headless) telemetry brain / server / logger, and the iOS surface (iPhone, a mounted iPad, and CarPlay) becomes the **primary display and control interface**. The phases below stand the surface up as a companion first, but every architecture choice here is made so the app can *grow into the primary display* rather than stay a secondary screen — this is why the wire contract anticipates a control channel and video transport, not just read-only telemetry. See [§18 Long-term: the app as primary display](#18-long-term-the-app-as-primary-display).
+
+**Surface priority:** The first-class surface is **CarPlay, map- and track-centric**. The road map and the live track map are the headline views; **gauges and stats are secondary pages** (CarPlay info tabs and the iPhone/iPad dashboard). The roadmap ([§15](#15-phased-roadmap)) sequences the CarPlay map/track surface **ahead of** the gauge dashboard, and the CarPlay design is detailed in [§11](#11-carplay-surface-the-primary-maptrack-view).
 
 ---
 
@@ -36,7 +38,7 @@ OEM ABS / VDC ────────────┤
 
 - **Jetson** = telemetry server + logger + brain (authoritative). Trends toward **headless** as the display migrates to the app — `main.py --headless` already exists, and `DiffStateBridge`/DuckDB are already decoupled from the UI.
 - **iPhone app** = full UI: live dashboard, road map, track map, voice, session review. **On track to become the primary display/control surface** that supersedes the Excelon ([§18](#18-long-term-the-app-as-primary-display)).
-- **CarPlay** = a driving-safe subset (map + glanceable info), bounded by Apple's CarPlay template rules ([§11](#11-carplay-surface--apple-constraints)). These rules **cap** how much of the Excelon's rich custom UI CarPlay can ever replace — so the full-fidelity "primary display" target is a mounted iOS device, with CarPlay as the in-motion subset ([§18](#18-long-term-the-app-as-primary-display)).
+- **CarPlay** = the **primary, map/track-centric surface** — road map + live track map as the headline views, gauges/stats as secondary pages, all within Apple's CarPlay template rules ([§11](#11-carplay-surface-the-primary-maptrack-view)). Those rules **cap** dense gauge clusters, so the *gauge-rich* fidelity lives on a mounted iPhone/iPad ([§18](#18-long-term-the-app-as-primary-display)); the map and track views are CarPlay's job.
 - **Link ECU** = authoritative vehicle sensor source (via CAN → `DiffState`).
 - **Razor PDM** = power/status source (**currently not represented in `DiffState`** — see [§13](#13-gaps-found-in-the-current-codebase)).
 - **GPS09 Pro** = position/session source (via CAN → `DiffState.gps_*`, `imu_*`).
@@ -294,20 +296,25 @@ The persona ("JARVIS / Enterprise computer / droid") lives entirely in the Jetso
 
 ---
 
-## 11. CarPlay surface — Apple constraints
+## 11. CarPlay surface: the primary map/track view
 
-**This is the highest-risk part of the project and must be planned realistically** — and it directly bounds the supersession goal ([§18](#18-long-term-the-app-as-primary-display)): CarPlay can never reproduce the Excelon's custom gauges, so it is the *driving-safe subset*, not the full replacement surface.
+**CarPlay is the first-class surface, and it is map-centric and track-centric.** The headline CarPlay views are the **road map** and the **live track map**; gauges and stats are **secondary pages**. CarPlay is also the highest-risk part of the project (entitlement + App Review), so it must be planned realistically.
 
-- CarPlay is **template-only**. Apps cannot draw arbitrary UI on the car screen except through Apple's frameworks, and access requires a **CarPlay entitlement granted by Apple per app category** (request via the developer portal; approval is discretionary and slow).
-- **Custom telemetry gauge clusters are not permitted on the CarPlay screen.** Apple rejects performance/racing dashboards and anything that encourages distracted or unlawful driving. The rich gauges stay on (a) the Jetson head unit and (b) the handheld iPhone screen.
-- The realistic categories:
-  - **Navigation** (`CPMapTemplate`): the *only* category that grants a **custom full-screen map drawing surface** (how Google Maps/Waze render). This is the right vehicle for the **road map with live car position + breadcrumb**, with telemetry shown as **map overlays and trip-info panels**, not gauges. Requires genuine navigation framing.
-  - **Driving Task** (`CPInformationTemplate`, `CPListTemplate`, `CPPointOfInterestTemplate`): glanceable text panels — e.g. current lap, last lap, delta, coolant/oil status — but **no custom drawing surface**, so no live track-map shape on the car screen.
-- **Recommended CarPlay scope (conservative):**
-  - Pursue the **Navigation entitlement** to get `CPMapTemplate` for a live **road map** with the car dot and trail.
-  - Present telemetry as a **`CPInformationTemplate` panel** (a few large, glanceable rows: speed, lap, delta, a single critical temp) and map overlays.
-  - Treat a full live **track-map on CarPlay as a stretch goal** contingent on what `CPMapTemplate`'s custom surface allows under review; the iPhone-held screen is the guaranteed home for the track map.
-- **Action item:** file the CarPlay entitlement request early (long lead time) with the telemetry/mapping framing; do **not** describe it as racing/performance. Build the iPhone app fully first so it is shippable even if CarPlay approval lags.
+**How CarPlay actually works (and why map/track fits):**
+
+- CarPlay is **template-only**, plus one optional **map scene**. Access requires a **CarPlay entitlement granted by Apple per app category** (requested via the developer portal; approval is discretionary and slow — start early).
+- The **Navigation** category is special: it grants a **custom full-screen map drawing surface** — your own root view controller in the CarPlay `CPWindow`, exactly how Google Maps/Waze render bespoke maps. **Both the road map and the track map are "map content" drawn into this surface**, so the track-map renderer (outline + sectors + car dot + delta) can run on CarPlay, not only on the iPhone. `CPMapTemplate` overlays buttons/panels on top.
+- A **tab bar** (`CPTabBarTemplate`) hosts secondary pages as `CPInformationTemplate` / `CPListTemplate` — glanceable rows (speed, lap, delta, one critical temp). These are the **secondary gauges/stats** pages.
+- **What CarPlay still won't allow:** dense custom *gauge clusters* and racing/performance dashboards (rejected as distracting). Gauge-rich fidelity therefore lives on the iPhone / mounted iPad ([§18](#18-long-term-the-app-as-primary-display)); CarPlay shows the **map/track surface + a few glanceable stats**.
+
+**Recommended CarPlay scope (map/track-first):**
+
+1. **Primary surface — the map scene:** render the **road map** (live car position + breadcrumb) and the **track map** (circuit outline + sectors + car dot + delta band) into the Navigation map window. Switch road↔track via a `CPMapButton`, or auto-switch when a track is detected (`timing.track` non-empty).
+2. **Secondary pages — stats:** a tab (or map panel) of `CPInformationTemplate` rows for lap / delta / speed / one critical temp. **No gauge clusters.**
+3. **Frame it as navigation / trip mapping**, never racing/performance — in both the entitlement request and the App Store copy.
+
+- **Review risk to manage:** a track map with a car dot is map-like and defensible, but App Review may scrutinize anything that reads as a performance instrument. Lead with the road map + trip framing; keep the track map presented as a *map of the circuit*, not a timing instrument cluster.
+- **Action item:** file the **CarPlay Navigation entitlement request in Phase 0** (longest lead item). Build the map/track renderers as **shared code** used by both the CarPlay map scene and the iPhone, so the iPhone app stays shippable even if CarPlay approval lags.
 
 ---
 
@@ -345,18 +352,18 @@ These should be resolved (or explicitly deferred) as part of, or before, the com
 
 Each phase is independently shippable and keeps the Jetson app fully functional (everything behind `--no-net`, mirroring `--no-sync`). Maintain the **687-test baseline** and add tests per phase.
 
-| Phase | Deliverable | Jetson | iOS | Exit criteria |
-|------:|-------------|--------|-----|---------------|
-| **0** | Contract + fixtures | Finalize [§5](#5-telemetry-data-contract) JSON; `net/serializers.py` + `tests/test_serializers.py`; export golden JSON fixtures | Define `KiSTIKit` `Codable` models decoding the same fixtures | Round-trip: `DiffState` → JSON → Swift model on shared fixtures |
-| **1** | Live server | `net/telemetry_server.py` (WS + REST `/state`, `/health`), `--no-net`, `config.py` keys, lifecycle in `main.py`; `net/discovery.py` mDNS | — | `wscat`/curl on the hotspot shows live frames + health; server start/stop clean; tests green |
-| **2** | iOS skeleton + live dashboard | REST history endpoints (`/sessions`, `/laps`, `/tracks`) with the [§4.3](#43-duckdb-access-from-the-server-thread-decision-needed) DB strategy | App connects (discovery + manual IP), `TelemetryStore`, connection state machine, numeric dashboard (DIFF-equivalent) | Live numbers on the phone over the hotspot; reconnect works |
-| **3** | Maps | — (serve track defs) | Road map (MapKit + trail), track map (Canvas from track defs + live dot + delta band) | Both maps track the live car; track map shows real outline + sectors |
-| **4** | Session review | `/sessions/{id}/telemetry` (downsampled) | History list, lap table, GPS replay/scrub; off-network hydration from synced Parquet | Replay a past session on both maps from Jetson and from cloud |
-| **5** | Voice / JARVIS | `POST /voice/query` → `handle_voice_query` (input-validated) | Push-to-talk (on-device STT) + chat transcript + spoken reply | Ask "what's my oil temp / last lap" → KiSTI answers on the phone |
-| **6** | CarPlay | (rate-limited WS via `subscribe`) | `CPMapTemplate` road map + `CPInformationTemplate` panel; **entitlement requested in Phase 1** | Approved CarPlay build shows live map + glanceable info |
-| **7** | Hardening | Token pairing ([§14](#14-security)), bind/iface review, stale handling, backpressure | Backoff/reconnect polish, units/theme settings, error states | Soak test: 30+ min drive session, no leaks, clean reconnects |
+| Phase | Deliverable | Jetson | iOS / CarPlay | Exit criteria |
+|------:|-------------|--------|---------------|---------------|
+| **0** | Contract + fixtures **+ file CarPlay Navigation entitlement** (longest lead) | Finalize [§5](#5-telemetry-data-contract) JSON; `net/serializers.py` + `tests/test_serializers.py`; export golden JSON fixtures | `KiSTIKit` `Codable` models decoding the same fixtures; **submit CarPlay entitlement request** (map/trip framing) | Round-trip `DiffState` → JSON → Swift on shared fixtures; entitlement requested |
+| **1** | Live server | `net/telemetry_server.py` (WS live frame + REST `/state`, `/health`, `/tracks` via [§4.3](#43-duckdb-access-from-the-server-thread-decision-needed)), `--no-net`, `config.py`, `net/discovery.py` mDNS | — | `wscat`/curl on the hotspot shows live frames + track defs; clean start/stop |
+| **2** | **CarPlay road map** (first car-screen deliverable) | — | iOS shell + connection (discovery + manual IP) + `TelemetryStore`; **CarPlay Navigation map scene**: live road map, car dot, breadcrumb (shared MapKit renderer also shown on iPhone) | Car position + trail live on the **CarPlay** screen |
+| **3** | **CarPlay track map** (centerpiece) | serve `/tracks/{id}` | **Track-map renderer in the CarPlay map window**: circuit outline + sectors + car dot + delta band (shared with iPhone) | Live track map + delta on the **CarPlay** screen at a known track |
+| **4** | Secondary pages — gauges/stats | — | CarPlay secondary tabs (`CPInformationTemplate`/`CPListTemplate`: speed / lap / delta / one critical temp) + iPhone gauge dashboard (DIFF-equivalent) | Glanceable stats as CarPlay tabs; full gauges on iPhone |
+| **5** | Session review | `/sessions`, `/sessions/{id}/laps`, `/sessions/{id}/telemetry` (downsampled) | History list, lap table, GPS replay on road + track map; off-network hydration from synced Parquet | Replay a past session on both maps (Jetson + cloud) |
+| **6** | Voice / JARVIS | `POST /voice/query` → `handle_voice_query` (input-validated) | Push-to-talk (on-device STT) + transcript + spoken reply; single PTT button on CarPlay | "oil temp / last lap" answered on the phone |
+| **7** | Hardening + supersession groundwork | Token pairing ([§14](#14-security)); `POST /command` stub ([§18](#18-long-term-the-app-as-primary-display)) | Backoff/reconnect, units/theme, stale/error states, WS backpressure | 30+ min drive soak; clean reconnects; no leaks |
 
-**Parallelization:** Phase 0 unblocks both ends; after it, Jetson server work (1, then DB reads in 2/4) and iOS UI work (2→3→4) proceed largely in parallel against the shared fixtures and a recorded-frame mock server.
+**Parallelization:** Phase 0 unblocks both ends. The map/track renderers (Phases 2–3) are **shared code** used by both the CarPlay map scene and the iPhone, so building them once serves both surfaces; Jetson server work (Phase 1, plus the `/tracks` and history DB reads) proceeds in parallel against the shared fixtures and a recorded-frame mock server.
 
 **Beyond Phase 7 — the supersession path ([§18](#18-long-term-the-app-as-primary-display)):** an app→Jetson **command channel** (replicating keypad K1–K6 actions), **camera/video transport** for VIDEO mode, **full mode parity**, and finally reducing the Jetson UI to `--headless`. These are larger efforts gated on v1 proving out and are scoped in §18, not above.
 
@@ -366,7 +373,7 @@ Each phase is independently shippable and keeps the Jetson app fully functional 
 
 1. **Server library:** `aiohttp` (HTTP+WS in one dep — recommended) vs `websockets`+stdlib HTTP. Confirm we can add a dep on the Jetson image.
 2. **DuckDB read strategy** for REST ([§4.3](#43-duckdb-access-from-the-server-thread-decision-needed)): marshal-to-owning-thread (recommended) vs read-only copy vs in-memory summaries.
-3. **CarPlay ambition & category:** Navigation (custom map, harder approval) vs Driving Task (info panels only). Decide what to put in the entitlement request. Recommended: request Navigation; ship iPhone-first.
+3. **CarPlay category — decided:** **Navigation** (custom map scene), because the surface is map/track-centric ([§11](#11-carplay-surface-the-primary-maptrack-view)). Open sub-question: how aggressively to present the *track* map under review vs leading purely with the road map. Entitlement request goes out in Phase 0.
 4. **iOS minimum version** (recommend 16) and whether an iPad layout is in scope.
 5. **Pairing/auth:** token handshake now ([§14](#14-security)) vs deferred to Phase 7. Recommended: stub the token field in Phase 1, enforce in 7.
 6. **PDM onboarding timing:** is Razor PDM telemetry in scope for v1, or shipped `null` until the CAN frame exists?
@@ -400,13 +407,13 @@ The app is not just a second screen — the intended end state is that it **supe
 3. **Camera / video transport.** VIDEO mode streams Teledyne IR / LiDAR-cam / RGB / weather feeds (`data/models.py::FrontSensorSuite`, `ui/widgets/camera_feeds.py`). These cannot ride the JSON telemetry channel — superseding the Excelon means a **separate media path** (WebRTC or RTSP/MJPEG over the local hotspot link), with bandwidth/latency validation on the hotspot. Large effort; later phase.
 4. **Editable settings.** SETTINGS becomes a two-way surface (units, theme, sensor status, pairing, mode config) — extends the control channel.
 
-### 18.3 The CarPlay ceiling (hard constraint on supersession)
+### 18.3 The CarPlay ceiling (what it can and can't be)
 
-CarPlay's template-only model ([§11](#11-carplay-surface--apple-constraints)) **cannot** render the Excelon's custom gauges, the DIFF driveline visual, or arbitrary telemetry layouts. Therefore:
+CarPlay's Navigation map scene ([§11](#11-carplay-surface-the-primary-maptrack-view)) **can** host map-like surfaces — which is exactly the priority: the **road map and the live track map run on CarPlay**. What it **cannot** host is the Excelon's dense custom gauges, the DIFF driveline visual, or arbitrary instrument layouts. Therefore:
 
-- **The full-fidelity primary display is a mounted iOS device** (iPhone or, better for in-dash, an **iPad**) running the app full-screen — physically taking the Excelon's place or sitting beside it.
-- **CarPlay is the driving-safe subset** (map + glanceable info panels), not the rich replacement.
-- If a rich in-dash display is a hard requirement, plan around a mounted iPad, not CarPlay.
+- **Map/track = CarPlay primary.** The headline driving views (road map, track map, delta) live on CarPlay.
+- **Gauge-rich fidelity = iPhone / mounted iPad.** The DIFF driveline visual and dense gauge clusters run full-screen on a mounted iOS device — taking the Excelon's place or sitting beside it.
+- If a gauge-dense in-dash display is a hard requirement, plan around a **mounted iPad** for that fidelity; CarPlay stays the map/track + glanceable-stats surface.
 
 ### 18.4 Migration path (low-risk, reversible)
 
