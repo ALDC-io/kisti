@@ -367,6 +367,27 @@ Each phase is independently shippable and keeps the Jetson app fully functional 
 
 **Beyond Phase 7 — the supersession path ([§18](#18-long-term-the-app-as-primary-display)):** an app→Jetson **command channel** (replicating keypad K1–K6 actions), **camera/video transport** for VIDEO mode, **full mode parity**, and finally reducing the Jetson UI to `--headless`. These are larger efforts gated on v1 proving out and are scoped in §18, not above.
 
+### 15.1 Testing & distribution (no App Store required)
+
+**Baseline: enroll in the Apple Developer Program ($99/yr).** It is also a hard prerequisite for CarPlay (below), so it is required regardless of distribution choice. None of the options here involve public App Store review.
+
+| Path | Build lifespan | Devices | Use it for |
+|------|----------------|---------|------------|
+| Free personal team (Xcode + Apple ID) | 7 days | your own, tethered to a Mac | quick "does it run" smoke tests; **cannot** run CarPlay |
+| Development / Ad-hoc signing (paid program) | up to 1 year | up to **100** registered iPhones | the normal in-house testing path; install via Xcode or a signed `.ipa` |
+| TestFlight internal testers (paid program) | 90 days/build | up to 100 internal testers | handing builds to remote testers; automated processing only, **no** public review |
+
+- **Local Network permission** (needed to reach the Jetson over the hotspot, [§3](#3-transport-decision)) works on all of the above, including free signing.
+- Register test-device UDIDs in the developer portal before ad-hoc/dev installs (100/year per device family).
+
+**CarPlay testing has extra gates** ([§11](#11-carplay-surface-the-primary-maptrack-view)):
+
+- The **CarPlay entitlement** (`com.apple.developer.carplay-*`) must be **requested from Apple and approved**, on a **paid** account only. Free personal teams cannot launch a CarPlay scene. **Request it in Phase 0** — it is the longest-lead item.
+- Once granted, CarPlay runs on dev / ad-hoc / TestFlight builds — still no App Store needed.
+- **No car or head unit required for development:** Xcode's **CarPlay Simulator** renders the CarPlay screen; a real head unit is only for final validation.
+
+**What this means for the roadmap:** the **iPhone app (Phases 1–3: connection, road map, track map) is testable on a physical iPhone from day one** via dev signing or TestFlight, with zero App Store involvement. The **CarPlay surface** lights up on the same builds once Apple grants the entitlement — which is why the request is filed in Phase 0, in parallel with server work.
+
 ---
 
 ## 16. Decisions needed (before Phase 1)
