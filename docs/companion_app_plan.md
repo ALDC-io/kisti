@@ -6,6 +6,8 @@
 
 **Product framing (non-negotiable):** KiSTI is a **vehicle telemetry display, mapping, logging, and session review system for supported vehicle hardware.** It is JARVIS-in-the-car / Enterprise-computer / motorsport-logger in personality and capability. It is **not** a radar-detector app, a police-alert app, a street-racing app, or a public-road performance-coaching app. The App Store listing, in-app copy, and CarPlay category request must all reflect the telemetry/mapping/logging framing. See [§12 Non-goals & framing guardrails](#12-non-goals--framing-guardrails).
 
+**Product direction (important):** Today KiSTI runs on the Jetson in the car and renders to the Kenwood Excelon head unit via the PySide6 UI. This app is the **display/interface pane**, and the intended trajectory is for it to **supersede the Jetson→Excelon output** over time: the Jetson evolves into a (eventually headless) telemetry brain / server / logger, and the iOS surface (iPhone, a mounted iPad, and CarPlay) becomes the **primary display and control interface**. The phases below stand the surface up as a companion first, but every architecture choice here is made so the app can *grow into the primary display* rather than stay a secondary screen — this is why the wire contract anticipates a control channel and video transport, not just read-only telemetry. See [§18 Long-term: the app as primary display](#18-long-term-the-app-as-primary-display).
+
 ---
 
 ## 1. System roles (target architecture)
@@ -32,9 +34,9 @@ OEM ABS / VDC ────────────┤
               └───────────────────────────┘
 ```
 
-- **Jetson** = telemetry server + logger + brain (authoritative).
-- **iPhone app** = full companion UI: live dashboard, road map, track map, voice, session review.
-- **CarPlay** = a constrained subset (map + glanceable info), bounded by Apple's CarPlay template rules ([§11](#11-carplay-surface--apple-constraints)).
+- **Jetson** = telemetry server + logger + brain (authoritative). Trends toward **headless** as the display migrates to the app — `main.py --headless` already exists, and `DiffStateBridge`/DuckDB are already decoupled from the UI.
+- **iPhone app** = full UI: live dashboard, road map, track map, voice, session review. **On track to become the primary display/control surface** that supersedes the Excelon ([§18](#18-long-term-the-app-as-primary-display)).
+- **CarPlay** = a driving-safe subset (map + glanceable info), bounded by Apple's CarPlay template rules ([§11](#11-carplay-surface--apple-constraints)). These rules **cap** how much of the Excelon's rich custom UI CarPlay can ever replace — so the full-fidelity "primary display" target is a mounted iOS device, with CarPlay as the in-motion subset ([§18](#18-long-term-the-app-as-primary-display)).
 - **Link ECU** = authoritative vehicle sensor source (via CAN → `DiffState`).
 - **Razor PDM** = power/status source (**currently not represented in `DiffState`** — see [§13](#13-gaps-found-in-the-current-codebase)).
 - **GPS09 Pro** = position/session source (via CAN → `DiffState.gps_*`, `imu_*`).
@@ -294,7 +296,7 @@ The persona ("JARVIS / Enterprise computer / droid") lives entirely in the Jetso
 
 ## 11. CarPlay surface — Apple constraints
 
-**This is the highest-risk part of the project and must be planned realistically.**
+**This is the highest-risk part of the project and must be planned realistically** — and it directly bounds the supersession goal ([§18](#18-long-term-the-app-as-primary-display)): CarPlay can never reproduce the Excelon's custom gauges, so it is the *driving-safe subset*, not the full replacement surface.
 
 - CarPlay is **template-only**. Apps cannot draw arbitrary UI on the car screen except through Apple's frameworks, and access requires a **CarPlay entitlement granted by Apple per app category** (request via the developer portal; approval is discretionary and slow).
 - **Custom telemetry gauge clusters are not permitted on the CarPlay screen.** Apple rejects performance/racing dashboards and anything that encourages distracted or unlawful driving. The rich gauges stay on (a) the Jetson head unit and (b) the handheld iPhone screen.
@@ -356,6 +358,8 @@ Each phase is independently shippable and keeps the Jetson app fully functional 
 
 **Parallelization:** Phase 0 unblocks both ends; after it, Jetson server work (1, then DB reads in 2/4) and iOS UI work (2→3→4) proceed largely in parallel against the shared fixtures and a recorded-frame mock server.
 
+**Beyond Phase 7 — the supersession path ([§18](#18-long-term-the-app-as-primary-display)):** an app→Jetson **command channel** (replicating keypad K1–K6 actions), **camera/video transport** for VIDEO mode, **full mode parity**, and finally reducing the Jetson UI to `--headless`. These are larger efforts gated on v1 proving out and are scoped in §18, not above.
+
 ---
 
 ## 16. Decisions needed (before Phase 1)
@@ -374,3 +378,46 @@ Each phase is independently shippable and keeps the Jetson app fully functional 
 - New Jetson code follows `docs/sensor_onboarding.md` for any new sensor (PDM), and the existing module style (dataclasses, `from __future__ import annotations`, `logging.getLogger("kisti...")`, optional-dependency guards, `start()`/`stop()` lifecycle, thread-safe `snapshot()` reads).
 - Log each session's work in `PROGRESS.md` and hand off via the `NEXT_SESSION_PROMPT.md` / `claude-next-step-kisti-*.md` pattern already in the repo.
 - Keep the wire contract versioned (`v`) and the `KiSTIKit` models in lockstep with `net/serializers.py` via shared JSON fixtures.
+
+---
+
+## 18. Long-term: the app as primary display
+
+The app is not just a second screen — the intended end state is that it **supersedes the Jetson→Excelon output**, with the Jetson reduced to a headless brain/server/logger. This section scopes what "primary display" actually requires beyond the v1 companion in [§15](#15-phased-roadmap).
+
+### 18.1 What already enables it
+
+- **`main.py --headless`** runs the full stack (CAN, voice, DuckDB, timing, sync) with **no display** (`QCoreApplication`, `QT_QPA_PLATFORM=offscreen`). The Jetson can already operate UI-less; the telemetry server ([§4](#4-jetson-side-telemetry-server-the-new-net-package)) is what makes a headless Jetson *useful* to an external display.
+- **`DiffStateBridge` + DuckDB are UI-independent.** Telemetry, logging, alerts, timing, and voice do not depend on the PySide6 widgets — only `ui/` does. The display layer can be lifted out without touching the brain.
+
+### 18.2 What "primary display" additionally requires
+
+1. **A control channel (app → Jetson).** The v1 contract is read-only telemetry + `POST /voice/query`. To replace the head unit, the app must drive what the **Link 8-button keypad** and head-unit controls do today (`can/can_config.py` K1–K8, surfaced via `ModeManager`):
+   - K1 = session start/stop, K2 = mark segment, K3 = analyze run, K4 = voice toggle, K5 = coaching level, K6 = display-mode cycle.
+   - Add `POST /api/v1/command { "op": "session_toggle" | "mark_segment" | "analyze_run" | "voice_toggle" | "set_mode" , ... }` that emits the **same signals** `ModeManager`/`main.py` already wire (e.g. `session_toggle`, `analyze_run`). This keeps one code path whether the trigger is the physical keypad or the app.
+   - This is a **write** path — it needs the pairing/token from [§14](#14-security) enforced.
+2. **Full mode parity.** The app must eventually cover every head-unit mode: KiSTI (overview/voice), STREET (road map), TRACK (track map + timing), DIFF (driveline), VIDEO (camera feeds), SETTINGS (config + sensor status). The maps and dashboard from [§6–§10](#6-ios-app-architecture) cover most; the two non-trivial gaps are **VIDEO** (below) and **SETTINGS** as an editable control surface.
+3. **Camera / video transport.** VIDEO mode streams Teledyne IR / LiDAR-cam / RGB / weather feeds (`data/models.py::FrontSensorSuite`, `ui/widgets/camera_feeds.py`). These cannot ride the JSON telemetry channel — superseding the Excelon means a **separate media path** (WebRTC or RTSP/MJPEG over the local hotspot link), with bandwidth/latency validation on the hotspot. Large effort; later phase.
+4. **Editable settings.** SETTINGS becomes a two-way surface (units, theme, sensor status, pairing, mode config) — extends the control channel.
+
+### 18.3 The CarPlay ceiling (hard constraint on supersession)
+
+CarPlay's template-only model ([§11](#11-carplay-surface--apple-constraints)) **cannot** render the Excelon's custom gauges, the DIFF driveline visual, or arbitrary telemetry layouts. Therefore:
+
+- **The full-fidelity primary display is a mounted iOS device** (iPhone or, better for in-dash, an **iPad**) running the app full-screen — physically taking the Excelon's place or sitting beside it.
+- **CarPlay is the driving-safe subset** (map + glanceable info panels), not the rich replacement.
+- If a rich in-dash display is a hard requirement, plan around a mounted iPad, not CarPlay.
+
+### 18.4 Migration path (low-risk, reversible)
+
+1. **Dual display** (v1): Excelon keeps the PySide6 UI; the app runs alongside as companion. Both read the same brain. Nothing removed.
+2. **Parity build**: app reaches mode parity + control channel + video. Excelon and app are interchangeable.
+3. **Primary swap**: mount the iOS device as the main display; run the Jetson `--headless` (or keep a minimal Excelon fallback). The head unit becomes optional.
+4. **Reversible at every step** — the Jetson UI is never deleted as part of this plan; it is *demoted* to fallback. Retiring `ui/` is a separate, explicit decision only after the app is proven in the car.
+
+### 18.5 Open questions for the supersession path
+
+- Target in-dash device: mounted **iPhone vs iPad** (screen size, mounting, the Excelon's physical slot)?
+- Does the Excelon stay as a **fallback display**, or is it removed once parity is reached?
+- VIDEO transport choice (WebRTC vs RTSP/MJPEG) and whether camera feeds are even in scope for the in-car display v1.
+- Is the physical **Link keypad** retained as the primary control (with the app mirroring it), or does the touchscreen become primary?
