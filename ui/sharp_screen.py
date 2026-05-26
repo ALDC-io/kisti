@@ -1,0 +1,650 @@
+"""KiSTI - Sport Sharp Screen (SI-Drive=2) — CANYON MODE
+
+Dark cockpit canyon driving display.  "Am I safe?  What's changing?"
+G-force ellipse dominates the screen.  Everything else is peripheral,
+invisible when nominal, escalating visibility when abnormal.
+
+MXG Strada handles: gear, speed, RPM, boost, lambda, oil, coolant.
+KiSTI Sport Sharp shows ONLY what the MXG cannot:
+  - G-force circle (cornering commitment, braking quality)
+  - Road surface conditions (FLIR + DriveBC)
+  - Grip estimation (front/rear axle)
+  - Weather intelligence (BARO, EC, DriveBC, fog)
+  - DCCD center-diff lock
+  - Balance (understeer/oversteer)
+
+800x480 QPainter, dark cockpit principle throughout.
+Track variant preserved in sharp_screen_track.py.
+
+Layout (800x480):
+  y=0..30    Header: balance(L) | DCCD arc(C) | weather pill(R)
+  y=30..400  HERO: G-force ellipse (r=170, center 400,215)
+             Left edge: grip bars (F/R)
+             Right edge: road zone bars (L/C/R)
+  y=440..458 Status line: coaching > weather alert > voice > empty
+  y=460..480 Alert bar (severity-driven, full width)
+"""
+
+from __future__ import annotations
+
+import math
+import time
+from collections import deque
+from typing import Optional
+
+from PySide6.QtCore import Qt, QRectF, QPointF
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPainterPath
+from PySide6.QtWidgets import QWidget
+
+from model.vehicle_state import DiffState
+from ui.g_force_ellipse import paint_g_ellipse
+from ui.road_condition import (
+    paint_zone_tint,
+    paint_edge_glow,
+    zone_states_from_snap,
+    any_zone_low_grip,
+)
+from ui.theme import (
+    BG_DARK,
+    BG_PANEL,
+    WHITE,
+    GRAY,
+    DIM,
+    GREEN,
+    YELLOW,
+    RED,
+    CYAN,
+    MODE_SS_ACCENT,
+    FONT_BASE,
+    FONT_BIG,
+    FONT_XLARGE,
+    FONT_MEGA,
+)
+
+
+# ---------------------------------------------------------------------------
+# Road weather event banner formatter
+# ---------------------------------------------------------------------------
+
+def _road_weather_event_banner(text: str, source: str) -> str:
+    """Format road weather event for at-a-glance banner."""
+    source_label = source or 'ROAD'
+    if not text:
+        return f"{source_label}: Road event ahead"
+    parts = text.split(". ")
+    lead = parts[0].rstrip(".")
+    details = [p.rstrip(".") for p in parts[1:] if not p.startswith(("Until ", "From ", "Starting ", "Last updated ", "Next update "))]
+    banner = f"{source_label}: {lead} ahead"
+    if details:
+        banner += f" — {details[0]}"
+    return banner[:80]
+
+
+# ---------------------------------------------------------------------------
+# Layout constants
+# ---------------------------------------------------------------------------
+
+_W = 800
+_H = 480
+
+# Zone boundaries
+_HEADER_Y1 = 30
+_HERO_Y0 = 30
+_HERO_Y1 = 440
+_STRIP_Y0 = 440
+_STRIP_Y1 = 458
+_ALERT_Y0 = 460
+_ALERT_Y1 = 480
+
+# G-force hero ellipse
+_G_CENTER_X = 400
+_G_CENTER_Y = 215
+_G_RADIUS = 170
+
+# Grip bars (left edge, vertical)
+_GRIP_X = 8
+_GRIP_BAR_W = 16
+_GRIP_GAP = 8
+_GRIP_Y0 = 120
+_GRIP_Y1 = 340
+
+# Road zone bar (right edge, vertical)
+_ROAD_X = 760
+_ROAD_BAR_W = 32
+_ROAD_Y0 = 120
+_ROAD_Y1 = 340
+
+# Safety thresholds (dark cockpit escalation)
+_OIL_WARN_LOW = 15.0
+_OIL_CRIT_LOW = 10.0
+_COOL_WARN = 100.0
+_COOL_CRIT = 105.0
+
+
+# ---------------------------------------------------------------------------
+# Font helper
+# ---------------------------------------------------------------------------
+
+def _font(size: int, bold: bool = False) -> QFont:
+    f = QFont("Helvetica", size)
+    if bold:
+        f.setWeight(QFont.Bold)
+    return f
+
+
+# ---------------------------------------------------------------------------
+# Surface state colors (matching road_condition.py)
+# ---------------------------------------------------------------------------
+
+from model.vehicle_state import SurfaceState
+
+_ZONE_COLORS = {
+    SurfaceState.DRY: QColor(0, 204, 102, 100),        # green, low alpha
+    SurfaceState.WET: QColor(0, 100, 255, 170),         # blue
+    SurfaceState.COLD: QColor(0, 200, 255, 200),        # cyan
+    SurfaceState.LOW_GRIP: QColor(255, 26, 26, 240),    # red
+}
+
+_ZONE_ALPHA = {
+    SurfaceState.DRY: 100,
+    SurfaceState.WET: 170,
+    SurfaceState.COLD: 200,
+    SurfaceState.LOW_GRIP: 240,
+}
+
+
+# ---------------------------------------------------------------------------
+# Widget
+# ---------------------------------------------------------------------------
+
+class SportSharpScreenWidget(QWidget):
+    """Sport Sharp (S#) canyon-focused QPainter widget — 800x480.
+
+    "Am I safe?  What's changing?"
+    Dark cockpit: nearly black when nominal, lights up when conditions
+    demand attention.  G-force ellipse dominates the screen.
+    """
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setFixedSize(_W, _H)
+        self.setAttribute(Qt.WA_OpaquePaintEvent, True)
+
+        self._snap: Optional[DiffState] = None
+        self._timing: dict = {}
+
+        # G-force dot trail (canyon intensity feedback)
+        self._g_trail: deque[tuple[float, float]] = deque(maxlen=40)
+
+        # Paint counter for edge glow pulse
+        self._paint_count: int = 0
+
+        # Voice ticker (fed from main.py at 1Hz) — 2s decay for dark cockpit
+        self._voice_ticker: list[str] = []
+        self._voice_ticker_ts: float = 0.0
+
+        # Coaching text (fed from coaching timer at 1Hz)
+        self._coaching_text: str = ""
+        self._coaching_sentiment: str = "dim"
+
+        # Balance / grip (fed from coaching analyzers)
+        self._balance_ratio: float = 1.0
+        self._front_grip_pct: float = 100.0
+        self._rear_grip_pct: float = 100.0
+        self._sector_brake_quality: list[str] = []
+
+    # ------------------------------------------------------------------
+    # Public API (unchanged from track version)
+    # ------------------------------------------------------------------
+
+    def update_state(self, snap: DiffState) -> None:
+        """Accept telemetry snapshot from DiffStateBridge (20 Hz)."""
+        self._snap = snap
+        self._g_trail.append((snap.imu_accel_y, snap.imu_accel_x))
+        self.update()
+
+    def update_coaching(self, text: str, sentiment: str = "dim") -> None:
+        """Accept coaching text from technique analyzer (1Hz)."""
+        self._coaching_text = text
+        self._coaching_sentiment = sentiment
+
+    def update_voice_ticker(self, lines: list[str]) -> None:
+        """Cache voice ticker lines (called at 1Hz from main.py)."""
+        if lines != self._voice_ticker:
+            self._voice_ticker_ts = time.monotonic()
+        self._voice_ticker = lines
+
+    def update_timing(self, timing_data: dict) -> None:
+        """Accept timing data — cached but not displayed in canyon mode."""
+        self._timing = timing_data
+        self.update()
+
+    def update_balance(self, ratio: float, text: str, sentiment: str) -> None:
+        """Accept balance ratio from BalanceAnalyzer."""
+        self._balance_ratio = ratio
+
+    def update_grip(self, front_pct: float, rear_pct: float) -> None:
+        """Accept grip percentages from GripAnalyzer."""
+        self._front_grip_pct = front_pct
+        self._rear_grip_pct = rear_pct
+
+    def update_brake_quality(self, sector_qualities: list[str]) -> None:
+        """Accept brake quality — cached but not displayed in canyon mode."""
+        self._sector_brake_quality = sector_qualities
+
+    # ------------------------------------------------------------------
+    # Paint
+    # ------------------------------------------------------------------
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.fillRect(0, 0, _W, _H, QColor(BG_DARK))
+
+        snap = self._snap
+        zones = zone_states_from_snap(snap)
+
+        # 1. Full-screen road condition tint (dark cockpit: DRY = no tint)
+        if snap is not None and not snap.is_road_surface_stale():
+            paint_zone_tint(p, _W, _H, zones, alpha=10)
+
+        # 2. Hero: G-force ellipse (dominates screen)
+        self._paint_hero_ellipse(p)
+
+        # 3. Header bar (balance, DCCD, weather) — ghost-dim
+        self._paint_header(p)
+
+        # 4. Left edge: grip bars
+        self._paint_grip_bars(p)
+
+        # 5. Right edge: road zone bars (vertical)
+        self._paint_road_zones(p, zones)
+
+        # 6. Status line: coaching > weather alert > voice > empty
+        self._draw_status_line(p)
+
+        # 7. Alert bar (y=460..480)
+        self._paint_alert_bar(p)
+
+        # 8. Edge glow for LOW_GRIP (drawn last — on top of everything)
+        if snap is not None and not snap.is_road_surface_stale():
+            self._paint_count += 1
+            paint_edge_glow(p, _W, _H, any_zone_low_grip(zones), self._paint_count)
+
+        p.end()
+
+    # ------------------------------------------------------------------
+    # Hero: G-force ellipse (y=30..400, full width)
+    # ------------------------------------------------------------------
+
+    def _paint_hero_ellipse(self, p: QPainter) -> None:
+        """G-force friction ellipse — the reason this screen exists."""
+        paint_g_ellipse(
+            p,
+            _G_CENTER_X,
+            _G_CENTER_Y,
+            _G_RADIUS,
+            self._snap,
+            self._g_trail,
+            balance_ratio=self._balance_ratio,
+            max_trail_dots=30,
+            accent_color=MODE_SS_ACCENT,
+        )
+
+    # ------------------------------------------------------------------
+    # Header bar (y=0..30) — ghost-dim peripheral awareness
+    # ------------------------------------------------------------------
+
+    def _paint_header(self, p: QPainter) -> None:
+        snap = self._snap
+
+        # --- Balance indicator (left) ---
+        ratio = self._balance_ratio
+        if ratio < 0.95:
+            p.setFont(_font(11, bold=True))
+            p.setPen(QPen(QColor(0, 150, 255, 180)))  # blue
+            p.drawText(QRectF(10, 4, 90, 22), Qt.AlignLeft | Qt.AlignVCenter, "UNDER")
+        elif ratio > 1.05:
+            p.setFont(_font(11, bold=True))
+            p.setPen(QPen(QColor(255, 50, 50, 180)))  # red
+            p.drawText(QRectF(10, 4, 90, 22), Qt.AlignLeft | Qt.AlignVCenter, "OVER")
+
+        # --- DCCD arc gauge (center) ---
+        dccd_pct = snap.dccd_pct if snap else 0.0
+        stale = snap is None or snap.is_diff_stale()
+        cx, cy, arc_r = 400, 16, 12
+
+        # DIM outline always (driver expects to see it)
+        p.setPen(QPen(QColor(DIM), 2))
+        p.setBrush(Qt.NoBrush)
+        p.drawArc(QRectF(cx - arc_r, cy - arc_r, arc_r * 2, arc_r * 2),
+                  0 * 16, 180 * 16)  # top semicircle
+
+        if not stale and dccd_pct > 5:
+            # Fill proportional to lock percentage
+            if dccd_pct > 70:
+                fill_color = QColor(RED)
+            elif dccd_pct > 40:
+                fill_color = QColor(YELLOW)
+            else:
+                fill_color = QColor(GREEN)
+
+            sweep = int(180 * (dccd_pct / 100.0))
+            p.setPen(Qt.NoPen)
+            p.setBrush(fill_color)
+            # Draw filled arc (pie slice)
+            path = QPainterPath()
+            path.moveTo(cx, cy)
+            path.arcTo(QRectF(cx - arc_r, cy - arc_r, arc_r * 2, arc_r * 2),
+                       0, sweep)
+            path.closeSubpath()
+            p.drawPath(path)
+
+        # DCCD label (left of arc) + percentage (right of arc)
+        p.setFont(_font(9))
+        p.setPen(QPen(QColor(DIM) if (stale or dccd_pct <= 5) else QColor(GRAY)))
+        p.drawText(QRectF(cx - arc_r - 38, cy - 6, 34, 12),
+                   Qt.AlignRight | Qt.AlignVCenter, "DCCD")
+
+        if not stale and dccd_pct > 5:
+            p.setFont(_font(9, bold=True))
+            p.setPen(QPen(fill_color))
+            p.drawText(QRectF(cx + arc_r + 4, cy - 6, 36, 12),
+                       Qt.AlignLeft | Qt.AlignVCenter, f"{dccd_pct:.0f}%")
+
+        # --- Weather threat pill (right) ---
+        if snap is not None:
+            threat = snap.weather_threat_level
+            has_ec = snap.ec_available and snap.ec_warning_level not in ("none", "")
+
+            pill_text = ""
+            pill_color = None
+
+            if threat == "STORM":
+                pill_text, pill_color = "STORM", QColor(RED)
+            elif threat == "RAIN_LIKELY":
+                pill_text, pill_color = "RAIN", QColor(YELLOW)
+            elif has_ec:
+                lvl = snap.ec_warning_level
+                if lvl in ("warning", "watch"):
+                    pill_text = "EC"
+                    pill_color = QColor(YELLOW) if lvl == "warning" else QColor(CYAN)
+
+            if pill_text and pill_color:
+                p.setFont(_font(10, bold=True))
+                fm = p.fontMetrics()
+                pw = fm.horizontalAdvance(pill_text) + 16
+                px = _W - 10 - pw
+                py = 5
+                ph = 20
+
+                p.setPen(Qt.NoPen)
+                p.setBrush(pill_color)
+                p.setOpacity(0.3)
+                p.drawRoundedRect(QRectF(px, py, pw, ph), 4, 4)
+                p.setOpacity(1.0)
+                p.setPen(QPen(pill_color))
+                p.drawText(QRectF(px, py, pw, ph), Qt.AlignCenter, pill_text)
+
+    # ------------------------------------------------------------------
+    # Left edge: grip bars (x=8..48, y=120..340)
+    # ------------------------------------------------------------------
+
+    def _paint_grip_bars(self, p: QPainter) -> None:
+        """Front/rear grip bars — dark cockpit: invisible when healthy."""
+        front = self._front_grip_pct
+        rear = self._rear_grip_pct
+
+        bars = [
+            ("F", front, _GRIP_X),
+            ("R", rear, _GRIP_X + _GRIP_BAR_W + _GRIP_GAP),
+        ]
+
+        bar_h = _GRIP_Y1 - _GRIP_Y0
+
+        for label, pct, x in bars:
+            # Determine color and alpha
+            if pct < 80:
+                color = QColor(RED)
+                alpha = 220
+            elif pct < 90:
+                color = QColor(YELLOW)
+                alpha = 160
+            else:
+                color = QColor(GREEN)
+                alpha = 30  # Dark cockpit: barely visible when healthy
+
+            # Background slot
+            slot_color = QColor(BG_PANEL)
+            p.setPen(Qt.NoPen)
+            p.setBrush(slot_color)
+            p.drawRoundedRect(QRectF(x, _GRIP_Y0, _GRIP_BAR_W, bar_h), 3, 3)
+
+            # Fill from bottom up
+            fill_h = max(0, min(1.0, pct / 100.0)) * bar_h
+            fill_y = _GRIP_Y1 - fill_h
+            fill_color = QColor(color)
+            fill_color.setAlpha(alpha)
+            p.setBrush(fill_color)
+            p.drawRoundedRect(QRectF(x, fill_y, _GRIP_BAR_W, fill_h), 3, 3)
+
+            # Label at top
+            p.setFont(_font(9))
+            label_color = QColor(DIM) if pct >= 90 else color
+            p.setPen(QPen(label_color))
+            p.drawText(QRectF(x, _GRIP_Y0 - 14, _GRIP_BAR_W, 12),
+                       Qt.AlignCenter, label)
+
+            # Percentage text — only when degraded
+            if pct < 90:
+                p.setFont(_font(12, bold=True))
+                p.setPen(QPen(color))
+                mid_y = _GRIP_Y0 + bar_h / 2 - 8
+                p.drawText(QRectF(x - 4, mid_y, _GRIP_BAR_W + 8, 16),
+                           Qt.AlignCenter, f"{pct:.0f}")
+
+    # ------------------------------------------------------------------
+    # Right edge: road zone bars (x=760..792, y=120..340)
+    # ------------------------------------------------------------------
+
+    def _paint_road_zones(self, p: QPainter, zones: list) -> None:
+        """Vertical road condition bars — L/C/R zones, dark cockpit."""
+        zone_h = (_ROAD_Y1 - _ROAD_Y0 - 8) // 3  # 3 zones with gaps
+        labels = ["L", "C", "R"]
+
+        for i, (state, label) in enumerate(zip(zones, labels)):
+            y = _ROAD_Y0 + i * (zone_h + 4)
+            color = _ZONE_COLORS.get(state, QColor(GREEN))
+            alpha = _ZONE_ALPHA.get(state, 100)
+
+            # LOW_GRIP pulse
+            if state == SurfaceState.LOW_GRIP:
+                pulse = int(30 * math.sin(self._paint_count * 0.06))
+                alpha = min(255, alpha + pulse)
+
+            fill = QColor(color)
+            fill.setAlpha(alpha)
+
+            p.setPen(Qt.NoPen)
+            p.setBrush(fill)
+            p.drawRoundedRect(QRectF(_ROAD_X, y, _ROAD_BAR_W, zone_h), 3, 3)
+
+            # Zone label
+            label_color = QColor(DIM) if state == SurfaceState.DRY else QColor(WHITE)
+            p.setFont(_font(9))
+            p.setPen(QPen(label_color))
+            p.drawText(QRectF(_ROAD_X, y, _ROAD_BAR_W, zone_h),
+                       Qt.AlignCenter, label)
+
+    # ------------------------------------------------------------------
+    # Status line (y=440..458): coaching > weather alert > voice > empty
+    # Matches Intelligent + Sport screen pattern — single consolidated line.
+    # ------------------------------------------------------------------
+
+    def _draw_status_line(self, p: QPainter) -> None:
+        """Single status line — coaching, weather, voice all consolidated.
+
+        Priority: coaching text > weather/road alert > voice ticker > empty.
+        Dark cockpit: invisible when nominal. Only abnormal conditions show.
+        """
+        snap = self._snap
+        text = ""
+        color = QColor(GRAY)
+
+        # Priority 1: coaching text (active driving feedback)
+        if self._coaching_text:
+            text = self._coaching_text
+            sentiment_colors = {"green": GREEN, "amber": YELLOW, "dim": GRAY}
+            color = QColor(sentiment_colors.get(self._coaching_sentiment, GRAY))
+
+        # Priority 2: weather/road alert (only when abnormal)
+        elif snap is not None:
+            text, color = self._weather_status_text(snap)
+
+        # Priority 3: voice ticker (2s decay)
+        if not text:
+            ticker_age = time.monotonic() - self._voice_ticker_ts
+            if self._voice_ticker and ticker_age < 2.0:
+                text = self._voice_ticker[0]
+                fade = max(0.0, min(1.0, (2.0 - ticker_age) / 0.5))
+                color = QColor(WHITE)
+                color.setAlpha(int(160 * fade))
+
+        # Dark cockpit: nothing to show = dark strip
+        p.fillRect(QRectF(0, _STRIP_Y0, _W, _STRIP_Y1 - _STRIP_Y0), QColor(BG_PANEL))
+        if text:
+            p.setFont(_font(11, bold=True))
+            p.setPen(QPen(color))
+            elided = p.fontMetrics().elidedText(text, Qt.ElideRight, _W - 40)
+            p.drawText(QRectF(20, _STRIP_Y0, _W - 40, _STRIP_Y1 - _STRIP_Y0),
+                       Qt.AlignLeft | Qt.AlignVCenter, elided)
+
+    def _weather_status_text(self, snap: DiffState) -> tuple[str, QColor]:
+        """Build weather/road status text — only when conditions are abnormal.
+
+        Returns ("", GRAY) when nominal (dark cockpit = invisible).
+        """
+        parts: list[str] = []
+        worst_color = QColor(GRAY)
+
+        # Barometric pressure threat
+        threat = snap.weather_threat_level or "CLEAR"
+        rate = snap.pressure_trend_hpa_hr
+        dew_spread = snap.dew_point_spread_c if snap.dew_point_spread_c else 99.0
+        humidity = snap.ambient_humidity_pct
+
+        if threat == "STORM":
+            parts.append(f"BARO {rate:+.1f} hPa/hr")
+            worst_color = QColor(RED)
+        elif threat == "RAIN_LIKELY":
+            parts.append(f"BARO {rate:+.1f} hPa/hr")
+            if worst_color != QColor(RED):
+                worst_color = QColor(YELLOW)
+        elif dew_spread < 1.5 and humidity > 93.0:
+            parts.append("FOG RISK")
+            if worst_color != QColor(RED):
+                worst_color = QColor(CYAN)
+        elif threat == "CHANGING":
+            parts.append(f"BARO {rate:+.1f}")
+            if worst_color != QColor(RED) and worst_color != QColor(YELLOW):
+                worst_color = QColor(CYAN)
+
+        # Road surface temperature (only when concerning)
+        if snap.drivebc_available and snap.drivebc_road_temp_c is not None:
+            road_temp = snap.drivebc_road_temp_c
+            if road_temp < 0:
+                parts.append(f"ROAD {road_temp:.0f}°")
+                worst_color = QColor(RED)
+            elif road_temp < 5:
+                parts.append(f"ROAD {road_temp:.0f}°")
+                if worst_color != QColor(RED):
+                    worst_color = QColor(YELLOW)
+
+        # Air temperature (only when near-freezing)
+        air_temp = snap.ambient_temp_c if snap.ambient_temp_c != 0.0 else (
+            snap.drivebc_air_temp_c if snap.drivebc_available and snap.drivebc_air_temp_c is not None else None
+        )
+        if air_temp is not None and air_temp < 2:
+            parts.append(f"AIR {air_temp:.0f}°")
+            if worst_color != QColor(RED) and worst_color != QColor(YELLOW):
+                worst_color = QColor(CYAN)
+
+        return (" | ".join(parts), worst_color) if parts else ("", QColor(GRAY))
+
+    # ------------------------------------------------------------------
+    # Alert bar (y=460..480) — severity-driven, full width
+    # ------------------------------------------------------------------
+
+    def _paint_alert_bar(self, p: QPainter) -> None:
+        """Full-width alert bar. Highest severity wins.
+
+        Canyon-first: FOG gets its own alert.
+        """
+        snap = self._snap
+        if snap is None:
+            return
+
+        # Build candidates: (severity, text, bg, fg)
+        candidates: list[tuple[int, str, QColor, QColor]] = []
+        white = QColor(255, 255, 255)
+        black = QColor(0, 0, 0)
+
+        threat = snap.weather_threat_level
+        rate = snap.pressure_trend_hpa_hr
+        dew_spread = snap.dew_point_spread_c
+        humidity = snap.ambient_humidity_pct
+        fog_risk = dew_spread < 1.5 and humidity > 93.0
+
+        if threat == "STORM":
+            candidates.append((50, f"STORM INCOMING — pressure falling {abs(rate):.1f} hPa/hr",
+                               QColor(180, 20, 20), white))
+        elif threat == "RAIN_LIKELY":
+            candidates.append((25, f"RAIN LIKELY — pressure falling {abs(rate):.1f} hPa/hr",
+                               QColor(200, 120, 0), white))
+
+        if fog_risk:
+            candidates.append((35, "FOG — low visibility, reduce speed",
+                               QColor(30, 80, 160), white))
+
+        if snap.ec_available and snap.ec_warning_level != "none":
+            lvl = snap.ec_warning_level
+            ec_bg = {"warning": QColor(180, 20, 20), "watch": QColor(200, 120, 0),
+                     "advisory": QColor(250, 204, 21)}.get(lvl, QColor(30, 80, 160))
+            ec_fg = black if lvl == "advisory" else white
+            ec_sev = {"warning": 45, "watch": 30, "advisory": 20, "statement": 10}.get(lvl, 10)
+            desc = snap.ec_warning_description.split("\n")[0].strip()
+            ec_text = "EC: " + (desc[:75] + ("..." if len(desc) > 75 else "") if desc else snap.ec_warning_text)
+            candidates.append((ec_sev, ec_text, ec_bg, ec_fg))
+
+        if snap.drivebc_available and snap.drivebc_road_condition:
+            cond = snap.drivebc_road_condition.upper()
+            source = snap.road_weather_source or 'ROAD'
+            if cond in ("ICY", "SNOWY", "FROSTY"):
+                dbc_text = f"{source}: {cond} road — {snap.drivebc_station_name}"
+                candidates.append((42, dbc_text, QColor(180, 20, 20), white))
+            elif cond in ("WET", "SLUSHY", "MOIST"):
+                dbc_text = f"{source}: {cond} road — {snap.drivebc_station_name}"
+                candidates.append((15, dbc_text, QColor(30, 80, 160), white))
+
+        if snap.drivebc_available and snap.drivebc_event_count > 0:
+            sev = snap.drivebc_event_severity
+            evt_sev = 48 if sev == "CLOSURE" else 22
+            evt_bg = QColor(180, 20, 20) if sev == "CLOSURE" else QColor(200, 120, 0)
+            source = snap.road_weather_source or 'ROAD'
+            candidates.append((evt_sev, _road_weather_event_banner(snap.drivebc_event_text, source), evt_bg, white))
+
+        if not candidates:
+            return
+
+        candidates.sort(key=lambda c: c[0], reverse=True)
+        _, text, bg, fg = candidates[0]
+
+        # Full-width bar
+        bar_y, bar_h = _ALERT_Y0, _ALERT_Y1 - _ALERT_Y0
+        p.setPen(Qt.NoPen)
+        p.setBrush(bg)
+        p.drawRect(QRectF(0, bar_y, _W, bar_h))
+        p.setFont(_font(10, bold=True))
+        p.setPen(QPen(fg))
+        p.drawText(QRectF(0, bar_y, _W, bar_h),
+                   Qt.AlignCenter, text)

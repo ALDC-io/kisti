@@ -45,10 +45,40 @@ _SURFACE_LABELS = {
 
 _SURFACE_COLORS = {
     SurfaceState.DRY: "#00CC66",   # Green — good grip
-    SurfaceState.WET: "#00AAFF",   # Blue — wet
-    SurfaceState.COLD: "#AA88FF",  # Purple — cold
-    SurfaceState.LOW_GRIP: "#FF3333",  # Red — danger
+    SurfaceState.WET: "#0088FF",   # Blue — wet
+    SurfaceState.COLD: "#00DDFF",  # Cyan — cold (not purple; better peripheral discrimination)
+    SurfaceState.LOW_GRIP: "#FF2222",  # Red — danger
 }
+
+
+def classify_surface(
+    temp_c: float,
+    ambient_c: float,
+    dew_point_c: float,
+    humidity_pct: float,
+    ambient_available: bool,
+) -> SurfaceState:
+    """Classify a single zone's surface state from temperature + ambient data.
+
+    Thresholds:
+      < 0°C            → LOW_GRIP (ice)
+      ≤ dew point      → LOW_GRIP (frost forming)
+      < 5°C            → COLD
+      < dew_point + 3  → WET (condensation risk)
+      Δambient > 5 & humidity > 70% → WET
+      else             → DRY
+    """
+    if temp_c < 0:
+        return SurfaceState.LOW_GRIP
+    if ambient_available and temp_c <= dew_point_c:
+        return SurfaceState.LOW_GRIP
+    if temp_c < 5:
+        return SurfaceState.COLD
+    if ambient_available and temp_c < dew_point_c + 3:
+        return SurfaceState.WET
+    if ambient_available and (ambient_c - temp_c) > 5 and humidity_pct > 70:
+        return SurfaceState.WET
+    return SurfaceState.DRY
 
 
 class SIDriveMode(IntEnum):
@@ -73,7 +103,7 @@ class SIDriveMode(IntEnum):
 _SI_DRIVE_LABELS = {
     SIDriveMode.INTELLIGENT: "Intelligent",
     SIDriveMode.SPORT: "Sport",
-    SIDriveMode.SPORT_SHARP: "Sport Sharp",
+    SIDriveMode.SPORT_SHARP: "Sport #",
 }
 
 _SI_DRIVE_SHORT_LABELS = {
@@ -129,8 +159,11 @@ class DiffState:
     dccd_command_pct: float = 0.0          # 0.0 – 100.0
     dccd_dial_pct: Optional[float] = None  # None = not available
 
-    # Surface
+    # Surface (overall = worst of L/C/R zones)
     surface_state: SurfaceState = SurfaceState.DRY
+    surface_state_left: SurfaceState = SurfaceState.DRY
+    surface_state_center: SurfaceState = SurfaceState.DRY
+    surface_state_right: SurfaceState = SurfaceState.DRY
 
     # Event flags
     brake: bool = False
@@ -156,12 +189,18 @@ class DiffState:
     steering_angle: float = 0.0      # degrees (negative = right)
     yaw_rate: float = 0.0            # deg/s
     lateral_g: float = 0.0           # g
-    brake_pressure: float = 0.0      # bar
+    brake_pressure: float = 0.0      # bar (backward compat: max of front/rear)
+    brake_pressure_front: float = 0.0  # bar — front axle sensor
+    brake_pressure_rear: float = 0.0   # bar — rear axle sensor
+    brake_bias_pct: float = 0.0        # front % (0-100); 0 = no braking
+
+    # PDM state — from Link Razor PDM via CAN
+    fuel_pump_active: bool = True       # True = pump running (default safe)
 
     # --- G5 Neo 4 additions ---
 
     # SI Drive mode (analog input to ECU, output via User CAN)
-    si_drive_mode: SIDriveMode = SIDriveMode.INTELLIGENT
+    si_drive_mode: SIDriveMode = SIDriveMode.SPORT  # STI hardware default
 
     # Generic Dash stream (0x360-0x362)
     rpm: float = 0.0                   # RPM
@@ -220,6 +259,19 @@ class DiffState:
     timing_mode: str = ""                 # 'circuit' | 'point_to_point' | ''
     lap_distance_m: float = 0.0
 
+    # FLIR thermal camera — brake temps per corner (°C) — reserved for future ECU/CAN data
+    brake_temp_fl: float = 0.0
+    brake_temp_fr: float = 0.0
+    brake_temp_rl: float = 0.0
+    brake_temp_rr: float = 0.0
+    flir_available: bool = False
+
+    # FLIR Lepton 3.5 — road surface temperatures, 3 horizontal zones (°C)
+    road_temp_left: float = 0.0
+    road_temp_center: float = 0.0
+    road_temp_right: float = 0.0
+    road_surface_ts: float = 0.0
+
     # Ambient weather (Yoctopuce Yocto-Meteo-V2, exterior)
     ambient_temp_c: float = 0.0           # °C
     ambient_humidity_pct: float = 0.0     # %RH
@@ -228,10 +280,41 @@ class DiffState:
     dew_point_c: float = 0.0             # °C
     ambient_available: bool = False
 
+    # Weather trends (fed by WeatherEngine at 1Hz)
+    pressure_trend_hpa_hr: float = 0.0    # hPa/hr (negative = falling)
+    humidity_trend_pct_hr: float = 0.0    # %RH/hr (positive = rising)
+    dew_point_spread_c: float = 99.0      # temp - dew_point (small = rain imminent)
+    weather_threat_level: str = "CLEAR"   # CLEAR / CHANGING / RAIN_LIKELY / STORM
+
+    # Environment Canada regional weather (polled every 10-15 min)
+    ec_warning_level: str = "none"        # "none"/"statement"/"advisory"/"watch"/"warning"
+    ec_warning_text: str = ""             # Short warning name (e.g. "Snowfall Warning")
+    ec_warning_description: str = ""      # Actual alert content (truncated to fit banner)
+    ec_condition: str = ""                # Current EC condition (e.g. "Sunny", "Rain")
+    ec_forecast_condition: str = ""       # Next-hour forecast condition
+    ec_available: bool = False
+    ec_data_age_s: float = 0.0            # Seconds since last successful EC fetch
+
+    # DriveBC road weather (RWIS stations, polled every 5-10 min)
+    drivebc_road_condition: str = ""          # DRY/WET/ICY/SNOWY/FROSTY/MOIST/SLUSHY
+    drivebc_road_temp_c: float | None = None  # Road surface temperature from RWIS
+    drivebc_air_temp_c: float | None = None   # Air temperature from nearest RWIS station
+    drivebc_station_name: str = ""            # Nearest RWIS station name
+    drivebc_station_distance_km: float = 99.0 # Distance to nearest station
+    drivebc_precipitation_mm: float = 0.0     # Current precipitation
+    drivebc_wind_kph: float = 0.0             # Wind speed
+    drivebc_event_count: int = 0              # Number of nearby road events
+    drivebc_event_text: str = ""              # Most severe nearby event description
+    drivebc_event_severity: str = ""          # CLOSURE/MAJOR/MINOR
+    drivebc_available: bool = False
+    drivebc_data_age_s: float = 0.0
+    road_weather_source: str = ""  # Active provider: "DriveBC", "511AB", "IEM-IA", "511ON"
+
     # Warm-up state (computed, not from CAN)
     warmup_state: WarmUpState = WarmUpState.COLD
 
     # Staleness tracking (monotonic timestamps)
+    flir_frame_ts: float = 0.0
     diff_frame_ts: float = 0.0
     context_frame_ts: float = 0.0
     wheel_frame_ts: float = 0.0
@@ -299,6 +382,20 @@ class DiffState:
         t = now if now is not None else time.monotonic()
         return (t - self.imu_frame_ts) > timeout
 
+    def is_flir_stale(self, now: Optional[float] = None, timeout: float = 2.0) -> bool:
+        """True if no FLIR frame received within timeout seconds (default 2s for slower sensor)."""
+        if self.flir_frame_ts == 0.0:
+            return True
+        t = now if now is not None else time.monotonic()
+        return (t - self.flir_frame_ts) > timeout
+
+    def is_road_surface_stale(self, now: Optional[float] = None, timeout: float = 2.0) -> bool:
+        """True if no road surface thermal frame received within timeout seconds."""
+        if self.road_surface_ts == 0.0:
+            return True
+        t = now if now is not None else time.monotonic()
+        return (t - self.road_surface_ts) > timeout
+
     def is_any_stale(self, now: Optional[float] = None, timeout: float = 0.5) -> bool:
         return self.is_diff_stale(now, timeout) or self.is_context_stale(now, timeout)
 
@@ -329,11 +426,24 @@ class DiffStateBridge(QObject):
     state_changed = Signal()       # lightweight notification (no payload)
     si_drive_changed = Signal(int) # emitted when SI Drive mode changes (new mode int)
     keypad_pressed = Signal(int)   # emitted on keypad button press (button mask)
+    surface_state_changed = Signal(str, str)  # (from_state, to_state)
+
+    # Hysteresis: require N consecutive readings before DRY↔WET↔COLD transitions.
+    # LOW_GRIP transitions immediately (safety-critical, no delay).
+    # At 3 Hz FLIR, N=3 ≈ 1 second settling time.
+    SURFACE_HYSTERESIS_N = 3
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
         self._state = DiffState()
         self._lock = threading.Lock()
+        self._prev_surface_state: Optional[SurfaceState] = None
+        self._road_log_count: int = 0
+        self._surface_hysteresis_count: int = 0
+        self._surface_pending_state: Optional[SurfaceState] = None
+        # Per-zone hysteresis (L, C, R)
+        self._zone_hysteresis: list[int] = [0, 0, 0]
+        self._zone_pending: list[Optional[SurfaceState]] = [None, None, None]
 
     def snapshot(self) -> DiffState:
         """Return a thread-safe copy of the current state."""
@@ -355,7 +465,12 @@ class DiffStateBridge(QObject):
         with self._lock:
             self._state.dccd_command_pct = dccd_command_pct
             self._state.dccd_dial_pct = dccd_dial_pct
+            prev_ss = self._state.surface_state
             self._state.surface_state = surface_state
+            # CAN provides a single state — apply to all zones
+            self._state.surface_state_left = surface_state
+            self._state.surface_state_center = surface_state
+            self._state.surface_state_right = surface_state
             self._state.brake = brake
             self._state.handbrake = handbrake
             self._state.abs_active = abs_active
@@ -363,6 +478,8 @@ class DiffStateBridge(QObject):
             self._state.slip_delta = slip_delta
             self._state.diff_frame_ts = time.monotonic()
             self._state.can_connected = True
+        if prev_ss != surface_state:
+            self.surface_state_changed.emit(prev_ss.label, surface_state.label)
         self.state_changed.emit()
 
     def update_context(
@@ -410,6 +527,28 @@ class DiffStateBridge(QObject):
             self._state.yaw_rate = yaw_rate
             self._state.lateral_g = lateral_g
             self._state.brake_pressure = brake_pressure
+            self._state.dynamics_frame_ts = time.monotonic()
+            self._state.can_connected = True
+        self.state_changed.emit()
+
+    def update_brake_pressures(
+        self,
+        front: float,
+        rear: float,
+    ) -> None:
+        """Called from CAN listener with dual brake pressure sensors.
+
+        Updates front/rear individually, computes bias %, and sets
+        brake_pressure = max(front, rear) for backward compat.
+        """
+        with self._lock:
+            self._state.brake_pressure_front = front
+            self._state.brake_pressure_rear = rear
+            self._state.brake_pressure = max(front, rear)
+            total = front + rear
+            self._state.brake_bias_pct = (
+                (front / total * 100.0) if total > 1.0 else 0.0
+            )
             self._state.dynamics_frame_ts = time.monotonic()
             self._state.can_connected = True
         self.state_changed.emit()
@@ -560,6 +699,161 @@ class DiffStateBridge(QObject):
             self._state.imu_gyro_frame_ts = time.monotonic()
             self._state.can_connected = True
         self.state_changed.emit()
+
+    def update_flir(
+        self,
+        fl: float,
+        fr: float,
+        rl: float,
+        rr: float,
+    ) -> None:
+        """Called from FLIR thermal camera with brake temps per corner (°C)."""
+        with self._lock:
+            self._state.brake_temp_fl = fl
+            self._state.brake_temp_fr = fr
+            self._state.brake_temp_rl = rl
+            self._state.brake_temp_rr = rr
+            self._state.flir_available = True
+            self._state.flir_frame_ts = time.monotonic()
+        self.state_changed.emit()
+
+    def update_road_surface(self, left: float, center: float, right: float) -> None:
+        """Called from FLIR Lepton reader with road surface temps for 3 horizontal zones (°C).
+
+        Classifies each zone independently using per-zone hysteresis (N=3).
+        Overall surface_state = worst zone (max enum value).
+        """
+        self._road_log_count += 1
+        if self._road_log_count % 27 == 0:  # log every ~3 seconds
+            import logging
+            logging.getLogger("kisti.model").info(
+                "Road temps: L=%.1f C=%.1f R=%.1f surface=%s (L=%s C=%s R=%s)",
+                left, center, right,
+                self._state.surface_state.label,
+                self._state.surface_state_left.label,
+                self._state.surface_state_center.label,
+                self._state.surface_state_right.label)
+        with self._lock:
+            self._state.road_temp_left = left
+            self._state.road_temp_center = center
+            self._state.road_temp_right = right
+            self._state.road_surface_ts = time.monotonic()
+
+            # Derive per-zone surface_state from FLIR + ambient when no CAN data
+            if self._state.is_diff_stale():
+                temps = [left, center, right]
+                zone_fields = ['surface_state_left', 'surface_state_center', 'surface_state_right']
+                if any(t != 0.0 for t in temps):
+                    ambient = self._state.ambient_temp_c
+                    dew_pt = self._state.dew_point_c
+                    humidity = self._state.ambient_humidity_pct
+                    avail = self._state.ambient_available
+
+                    for i, temp in enumerate(temps):
+                        if temp == 0.0:
+                            continue  # stale zone — keep previous state
+                        new_ss = classify_surface(temp, ambient, dew_pt, humidity, avail)
+                        current_zone_ss = getattr(self._state, zone_fields[i])
+                        self._apply_zone_hysteresis(i, new_ss, current_zone_ss, zone_fields[i])
+
+                    # Overall = worst zone (highest enum value)
+                    self._state.surface_state = max(
+                        self._state.surface_state_left,
+                        self._state.surface_state_center,
+                        self._state.surface_state_right,
+                        key=lambda s: s.value,
+                    )
+
+        # Emit surface_state_changed if state actually changed
+        current_ss = self._state.surface_state
+        if self._prev_surface_state is not None and current_ss != self._prev_surface_state:
+            self.surface_state_changed.emit(
+                self._prev_surface_state.label, current_ss.label)
+        self._prev_surface_state = current_ss
+        self.state_changed.emit()
+
+    def _apply_zone_hysteresis(
+        self, zone_idx: int, new_ss: SurfaceState, current_ss: SurfaceState, field: str,
+    ) -> None:
+        """Apply hysteresis to a single zone. LOW_GRIP immediate, others need N consecutive."""
+        if new_ss == SurfaceState.LOW_GRIP:
+            setattr(self._state, field, new_ss)
+            self._zone_hysteresis[zone_idx] = 0
+            self._zone_pending[zone_idx] = None
+        elif new_ss == current_ss:
+            self._zone_hysteresis[zone_idx] = 0
+            self._zone_pending[zone_idx] = None
+        elif new_ss == self._zone_pending[zone_idx]:
+            self._zone_hysteresis[zone_idx] += 1
+            if self._zone_hysteresis[zone_idx] >= self.SURFACE_HYSTERESIS_N:
+                setattr(self._state, field, new_ss)
+                self._zone_hysteresis[zone_idx] = 0
+                self._zone_pending[zone_idx] = None
+        else:
+            self._zone_pending[zone_idx] = new_ss
+            self._zone_hysteresis[zone_idx] = 1
+
+    def update_weather_trends(
+        self,
+        p_rate: float,
+        h_rate: float,
+        dew_spread: float,
+        threat_label: str,
+    ) -> None:
+        """Called from WeatherEngine at 1Hz with computed trend data."""
+        with self._lock:
+            self._state.pressure_trend_hpa_hr = p_rate
+            self._state.humidity_trend_pct_hr = h_rate
+            self._state.dew_point_spread_c = dew_spread
+            self._state.weather_threat_level = threat_label
+
+    def update_ec_weather(
+        self,
+        warning_level: str,
+        warning_text: str,
+        condition: str,
+        forecast_condition: str,
+        data_age_s: float,
+        warning_description: str = "",
+    ) -> None:
+        """Called from EC weather poller with regional weather data."""
+        with self._lock:
+            self._state.ec_warning_level = warning_level
+            self._state.ec_warning_text = warning_text
+            self._state.ec_warning_description = warning_description
+            self._state.ec_condition = condition
+            self._state.ec_forecast_condition = forecast_condition
+            self._state.ec_available = True
+            self._state.ec_data_age_s = data_age_s
+
+    def update_drivebc(
+        self,
+        road_condition: str,
+        road_temp_c: float | None,
+        station_name: str,
+        station_distance_km: float,
+        precipitation_mm: float,
+        wind_kph: float,
+        event_count: int,
+        event_text: str,
+        event_severity: str,
+        data_age_s: float,
+        air_temp_c: float | None = None,
+    ) -> None:
+        """Called from DriveBC poller with road weather data."""
+        with self._lock:
+            self._state.drivebc_road_condition = road_condition
+            self._state.drivebc_road_temp_c = road_temp_c
+            self._state.drivebc_air_temp_c = air_temp_c
+            self._state.drivebc_station_name = station_name
+            self._state.drivebc_station_distance_km = station_distance_km
+            self._state.drivebc_precipitation_mm = precipitation_mm
+            self._state.drivebc_wind_kph = wind_kph
+            self._state.drivebc_event_count = event_count
+            self._state.drivebc_event_text = event_text
+            self._state.drivebc_event_severity = event_severity
+            self._state.drivebc_available = True
+            self._state.drivebc_data_age_s = data_age_s
 
     def update_ambient(
         self,

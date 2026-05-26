@@ -578,7 +578,7 @@ class TestTrackLearning:
         _feed_gps(bridge, _make_learn_loop())
 
         assert len(detected) == 1
-        assert "Track at" in detected[0]
+        assert detected[0] == "New track"
 
         # Verify saved to DuckDB
         from timing.track_db import TrackDatabase
@@ -620,3 +620,51 @@ class TestTrackLearning:
 
         assert learning_mgr._track_learner is None
         assert learning_mgr._learning_active is False
+
+
+# ── TestGetTimingData ──────────────────────────────────────────────
+
+
+class TestGetTimingData:
+    """Test get_timing_data() returns the dict SportSharpScreenWidget expects."""
+
+    def test_empty_before_any_gps(self, timing_mgr):
+        """Before any GPS data, get_timing_data returns zeroed dict."""
+        data = timing_mgr.get_timing_data()
+        assert data["lap_count"] == 0
+        assert data["current_lap_time_ms"] == 0
+        assert data["delta_ms"] == 0
+        assert data["predicted_lap_ms"] == 0
+        assert data["best_lap_ms"] == 0
+        assert data["theoretical_best_ms"] == 0
+        assert data["track_name"] == ""
+        assert data["sector_count"] == 0
+        assert data["current_sector"] == 0
+        assert data["sector_times"] == []
+        assert data["best_sector_times"] == []
+
+    def test_has_track_after_detection(self, timing_mgr, bridge):
+        """After track detection, track_name and sector_count populated."""
+        _feed_gps(bridge, [(_BASE_LAT, _BASE_LON)])  # trigger detection
+        data = timing_mgr.get_timing_data()
+        assert data["track_name"] == "Synthetic Rectangle"
+        assert data["sector_count"] == 3
+
+    def test_all_keys_present(self, timing_mgr):
+        """get_timing_data returns all keys the sharp screen expects."""
+        data = timing_mgr.get_timing_data()
+        expected_keys = {
+            "lap_count", "current_lap_time_ms", "delta_ms",
+            "predicted_lap_ms", "best_lap_ms", "theoretical_best_ms",
+            "track_name", "sector_count", "current_sector",
+            "sector_times", "best_sector_times", "lap_in_progress",
+            "track_outline", "lap_distance_m", "track_length_m",
+        }
+        assert set(data.keys()) == expected_keys
+
+    def test_timing_after_lap(self, timing_mgr, bridge):
+        """After completing a lap, best_lap_ms is set."""
+        _feed_gps(bridge, _SYNTH_LAP_COMPLETE)
+        data = timing_mgr.get_timing_data()
+        assert data["lap_count"] >= 1
+        assert data["best_lap_ms"] > 0

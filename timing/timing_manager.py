@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import time
+from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import QObject, Signal
@@ -21,6 +22,7 @@ from PySide6.QtCore import QObject, Signal
 from timing.lap_timer import LapTimer, TimingEvent, TimingEventType
 from timing.track_db import TrackDatabase
 from timing.track_learner import TrackLearner
+from timing.track_outline import load_outline, import_ztracks_outline
 
 log = logging.getLogger("kisti.timing.timing_manager")
 
@@ -53,12 +55,29 @@ class TimingManager(QObject):
         self._session_id: Optional[str] = None
         self._active = False
 
+        # Track outline cache directory
+        self._outlines_dir = Path(__file__).parent.parent / "data" / "track_outlines"
+
         # Initialize TrackDatabase if DuckDB available
         if db_store is not None:
             try:
                 self._track_db = TrackDatabase(db_store._conn)
+                # Always seed from seed file — seed_tracks uses INSERT OR REPLACE so it's
+                # idempotent. This ensures newly added tracks (e.g. Mission Raceway Park)
+                # appear even if the DB already had data from a previous session.
+                seed_path = Path(__file__).parent.parent / "data" / "tracks_seed.json"
+                if seed_path.exists():
+                    n = self._track_db.seed_tracks(seed_path)
+                    log.info("Seeded %d tracks from %s", n, seed_path.name)
             except Exception as exc:
                 log.warning("TrackDatabase init failed: %s", exc)
+
+        # Auto-import .ztracks outlines from ~/tracks/ if not already cached
+        self._auto_import_ztracks()
+
+        # Loaded outline for the currently-detected track (runtime cache)
+        # Pre-load first available outline so S# Track shows a circuit before GPS detection
+        self._active_outline: list[tuple[float, float]] = self._load_first_available_outline()
 
         # Track learning (when no seeded track matches)
         self._track_learner: Optional[TrackLearner] = None
@@ -126,6 +145,64 @@ class TimingManager(QObject):
             return self._timer._track.name
         return ""
 
+    def get_timing_data(self) -> dict:
+        """Build timing dict for SportSharpScreenWidget.update_timing().
+
+        Returns keys expected by sharp_screen: lap_count, current_lap_time_ms,
+        delta_ms, predicted_lap_ms, best_lap_ms, theoretical_best_ms,
+        track_name, sector_count, current_sector, sector_times, best_sector_times.
+        """
+        timer = self._timer
+
+        # Current lap elapsed time (ms)
+        current_lap_ms = 0
+        if timer._lap_start_ts is not None and timer._prev_ts is not None:
+            current_lap_ms = int(
+                (timer._prev_ts - timer._lap_start_ts) * 1000
+            )
+
+        # Delta and predicted (seconds → ms)
+        delta = timer.get_delta()
+        predicted = timer.get_predicted_lap()
+        theoretical = timer.get_theoretical_best()
+
+        # Best lap time (ms) — use round() not int() to handle sub-ms precision
+        # in tests where monotonic timestamps are microseconds apart
+        best_lap_ms = 0
+        if timer._completed_laps:
+            best_s = min(lap.total_time for lap in timer._completed_laps)
+            best_lap_ms = max(1, round(best_s * 1000)) if best_s > 0 else 0
+
+        # Current sector times (seconds → ms)
+        sector_times = [
+            int(t * 1000) for t in timer._current_sector_times
+        ]
+
+        # Best sector times (seconds → ms, None → None)
+        best_sectors_s = timer.get_best_sector_times()
+        best_sector_times = [
+            int(t * 1000) if t is not None else None
+            for t in best_sectors_s
+        ]
+
+        return {
+            "lap_count": timer._lap_number,
+            "current_lap_time_ms": current_lap_ms,
+            "delta_ms": int(delta * 1000) if delta is not None else 0,
+            "predicted_lap_ms": int(predicted * 1000) if predicted is not None else 0,
+            "best_lap_ms": best_lap_ms,
+            "theoretical_best_ms": int(theoretical * 1000) if theoretical is not None else 0,
+            "track_name": timer._track.name if timer._track else "",
+            "sector_count": len(timer._sectors),
+            "current_sector": timer._sector_index,
+            "sector_times": sector_times,
+            "best_sector_times": best_sector_times,
+            "lap_in_progress": timer._lap_start_ts is not None,
+            "track_outline": self._active_outline,
+            "lap_distance_m": timer.get_current_distance(),
+            "track_length_m": timer._track.length_m if timer._track else 0.0,
+        }
+
     # ── Internal ──────────────────────────────────────────────────────
 
     def _on_state_changed(self) -> None:
@@ -178,12 +255,96 @@ class TimingManager(QObject):
         # Update bridge with current timing state
         self._update_bridge_timing()
 
+    def _load_first_available_outline(self) -> list[tuple[float, float]]:
+        """Return the first cached outline found in the outlines directory."""
+        if not self._outlines_dir.exists():
+            return []
+        for outline_file in sorted(self._outlines_dir.glob("*.json")):
+            outline = load_outline(outline_file.stem, self._outlines_dir)
+            if outline:
+                log.info("Pre-loaded outline from %s (%d pts)", outline_file.name, len(outline))
+                return outline
+        return []
+
+    def _auto_import_ztracks(self) -> None:
+        """Import any *.ztracks files from ~/tracks/ that aren't yet cached.
+
+        Matches files by track name against the seeded track list.
+        Saves outlines to data/track_outlines/{track_id}.json.
+        Runs once at startup; silent on errors.
+        """
+        ztracks_dir = Path.home() / "tracks"
+        if not ztracks_dir.exists():
+            return
+
+        ztracks_files = list(ztracks_dir.glob("*.ztracks"))
+        if not ztracks_files:
+            return
+
+        # Build name→track_id map from DuckDB if available
+        track_name_map: dict[str, str] = {}
+        if self._track_db is not None:
+            try:
+                tracks = self._track_db.list_tracks()
+                log.info("ztracks matching: %d tracks in DB", len(tracks))
+                for track in tracks:
+                    track_name_map[track.name.lower()] = track.track_id
+            except Exception as exc:
+                log.warning("Could not load track names for ztracks matching: %s", exc)
+        else:
+            log.warning("ztracks matching: _track_db is None — name match unavailable")
+
+        for ztracks_path in ztracks_files:
+            # Try to determine track_id from filename or name in file.
+            # Filename heuristic: mission_raceway_park.ztracks → "mission raceway park"
+            stem_words = ztracks_path.stem.replace('_', ' ').lower()
+
+            # Find matching track_id by name similarity (filename stem)
+            track_id = None
+            for db_name, tid in track_name_map.items():
+                if stem_words in db_name or db_name in stem_words:
+                    track_id = tid
+                    break
+
+            if track_id is None:
+                if not track_name_map:
+                    # No DB available — skip rather than writing a hash-named file.
+                    # Pre-committed canonical outline files will be loaded at startup.
+                    log.debug("Skipping %s — no DB for name match", ztracks_path.name)
+                    continue
+                import hashlib
+                track_id = hashlib.md5(ztracks_path.name.encode()).hexdigest()[:8] + \
+                           "-0000-0000-0000-000000000000"
+                log.warning("No DB match for %s (stem=%r) — using hash ID %s",
+                            ztracks_path.name, stem_words, track_id[:8])
+
+            cached = self._outlines_dir / f"{track_id}.json"
+            if cached.exists():
+                log.debug("Outline already cached for %s", ztracks_path.name)
+                continue
+
+            log.info("Auto-importing .ztracks: %s → %s", ztracks_path.name, track_id[:8])
+            try:
+                import_ztracks_outline(ztracks_path, track_id, self._outlines_dir)
+            except Exception as exc:
+                log.warning("Failed to import %s: %s", ztracks_path.name, exc)
+
     def _try_detect_track(self, lat: float, lon: float) -> None:
         """Attempt to auto-detect track, or learn a new one from GPS trace."""
         # Check database first (seeded or previously learned)
         track = self._track_db.find_track(lat, lon)
         if track is not None:
             sectors = track.sectors
+
+            # Load cached GPS outline if available
+            outline = load_outline(track.track_id, self._outlines_dir)
+            if outline:
+                track.outline = outline
+                self._active_outline = outline
+                log.info("Loaded outline for %s (%d pts)", track.name, len(outline))
+            else:
+                self._active_outline = []
+
             self._timer.set_track(track, sectors)
             self._track_detected = True
             self._track_learner = None
@@ -196,7 +357,7 @@ class TimingManager(QObject):
         if self._track_learner is None:
             self._track_learner = TrackLearner()
             self._learning_active = True
-            log.info("No known track at (%.4f, %.4f) — learning started", lat, lon)
+            log.info("No known track — learning started")
 
         if self._learning_active:
             closed = self._track_learner.update(lat, lon)

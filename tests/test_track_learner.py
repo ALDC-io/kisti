@@ -231,13 +231,12 @@ class TestTrackNaming:
     """Track naming and metadata."""
 
     def test_default_track_name(self):
-        """Name matches format 'Track at {lat:.4f}, {lon:.4f}'."""
+        """Track name is 'New track' (no GPS coordinates exposed)."""
         learner = TrackLearner()
         for lat, lon in _make_loop_trace():
             learner.update(lat, lon)
         track, _ = learner.result()
-        assert track.name.startswith("Track at ")
-        assert "." in track.name  # has decimal coordinates
+        assert track.name == "New track"
 
     def test_source_is_learned(self):
         """Track source is 'learned'."""

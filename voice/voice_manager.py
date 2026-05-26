@@ -29,10 +29,11 @@ from typing import Optional
 from PySide6.QtCore import QObject, QThread, Signal
 
 from model.vehicle_state import DiffState, SIDriveMode
-from voice.llm_engine import LLMEngine, _match_persona
+from voice.frontier_engine import FrontierLLMEngine
+from voice.llm_engine import LLMEngine, _match_safety_fast_path
 from voice.mic_capture import MicCapture
 from voice.stt_engine import STTEngine, HybridSTTEngine
-from voice.tts_engine import TTSEngine
+from voice.tts_engine import TTSEngine, split_sentences
 from voice.led_waveform import LEDFrame, LEDWaveformGenerator
 
 log = logging.getLogger("kisti.voice")
@@ -46,6 +47,13 @@ class DialogueTurn:
     response_source: str       # "persona" | "sensor" | "llm"
     response_summary: str      # First 80 chars of response
     timestamp: float           # monotonic time
+
+
+@dataclass(order=True)
+class SpeakItem:
+    """Priority queue item for TTS."""
+    priority: int  # Higher = more critical, dropped first when queue full
+    text: str = field(compare=False)
 
 
 @dataclass
@@ -166,13 +174,20 @@ class PipelineTrace:
 SAMPLE_RATE = 16000
 CHUNK_SIZE = 1024  # samples per audio read
 WAKE_WORDS = [
-    "hey kisti", "hey ki", "kisti",
-    # hey_jarvis_v0.1 wake model — Whisper transcribes as "Jarvis"
-    "jarvis", "hey jarvis",
-    # Common Whisper misheards of "KiSTI"
-    "keys to", "keeps to", "key stee", "keisti",
-    "christy", "cristy", "kisty", "heykisti",
-    "ki sti", "kist", "key sti", "kissty", "dc",
+    # Longest first — stripping logic uses first match, so longer = better
+    "hey kisti", "hey kisty", "hey jarvis",
+    "hey keisti", "hey keesti", "hey keesty", "hey keisty",
+    "hey christy", "hey cristy", "hey keesey", "hey casey",
+    "heykisti",
+    # Then shorter wake words
+    "kisti", "kisty", "jarvis", "keisti",
+    "keesti", "keesty", "keesey", "keesi", "keisty",
+    "christy", "cristy", "casey",
+    "hey ki",  # shortest "hey" variant — only matches if nothing longer does
+    # Common Whisper misheards
+    "keys to", "keeps to", "key stee", "kee stee",
+    "ki sti", "kist", "key sti", "kissty",
+    "kesti",
     # Common Whisper misheards of "Jarvis" (USB mic + gain distortion)
     "nervous", "service", "jervis", "gervis", "jarvus",
     "harvest", "jarves", "javas", "travis",
@@ -196,7 +211,7 @@ def _fuzzy_wake_word(text: str) -> bool:
         return False
     target = words[1]
     # Check edit distance against known wake word targets
-    for ref in ("jarvis", "kisti"):
+    for ref in ("jarvis", "kisti", "keesti"):
         if len(target) < 3:
             continue
         # Simple edit distance — good enough for 5-6 char words
@@ -219,8 +234,11 @@ def _edit_distance(a: str, b: str) -> int:
             curr.append(min(prev[j + 1] + 1, curr[j] + 1, prev[j] + (ca != cb)))
         prev = curr
     return prev[len(b)]
-QUIET_COMMANDS = ["quiet please kisti", "quiet please", "quiet kisti", "be quiet"]
-RESUME_COMMANDS = ["hey kisti"]
+QUIET_COMMANDS = [
+    "quiet please kisti", "quiet please", "quiet kisti", "quiet keesti",
+    "quiet keesty", "quiet keesey", "be quiet", "be quiet kisti",
+]
+RESUME_COMMANDS = ["hey kisti", "hey keesti", "hey keesty", "hey keesey"]
 
 
 class VoiceState(IntEnum):
@@ -265,19 +283,31 @@ class VoiceManager(QObject):
             self._stt = STTEngine()
             log.info("Initialized standard whisper.cpp STT engine")
         self._tts = TTSEngine()
-        self._llm = LLMEngine()
+        # Frontier AI — Claude API when WiFi available, edge cache when offline
+        # Zeus proxy: centralized auth/logging/cost tracking (optional)
+        anthropic_key = os.environ.get("ANTHROPIC_API_KEY_KISTI") or os.environ.get("ANTHROPIC_API_KEY", "")
+        proxy_url = os.environ.get("KISTI_PROXY_URL", "")
+        proxy_key = os.environ.get("KISTI_PROXY_KEY", "")
+        self._frontier = FrontierLLMEngine(
+            api_key=anthropic_key,
+            proxy_url=proxy_url,
+            proxy_key=proxy_key,
+        ) if (anthropic_key or proxy_key) else None
+        self._llm = LLMEngine(frontier=self._frontier)
         self._led = LEDWaveformGenerator()
         self._mic = MicCapture(device=mic_device, wake_model=os.environ.get("KISTI_WAKE_MODEL")) if enable_mic else None
 
-        self._state = VoiceState.IDLE
-        self._toggle_state = VoiceToggleState.NORMAL
+        self._state = VoiceState.OFF
+        self._toggle_state = VoiceToggleState.OFF
         self._si_drive_mode = SIDriveMode.INTELLIGENT
 
         # Shared waveform data — written by voice thread, polled by UI thread.
         # No Qt signal crossing threads. UI reads at 20 Hz via _update_levels.
         self._waveform_data = None  # (envelope_list, start_monotonic) or None
 
-        self._speak_queue: queue.Queue[str] = queue.Queue(maxsize=10)
+        self._speak_queue: queue.PriorityQueue[SpeakItem] = queue.PriorityQueue(maxsize=2)
+        self._startup_ts: float = 0.0
+        self._startup_quiet_period_s: float = 3.5
         self._worker_thread: Optional[threading.Thread] = None
         self._running = False
         self._stt_lock = threading.Lock()  # Serialize STT — one Whisper call at a time
@@ -325,8 +355,21 @@ class VoiceManager(QObject):
         """Initialize all voice subsystems and start the worker thread."""
         self._stt.start()
         self._tts.start()
+        if self._frontier:
+            # Check settings to see if user has enabled frontier cloud
+            # Default to enabled if no setting exists (opt-in by default)
+            frontier_enabled = True
+            if self._edge_memory:
+                frontier_enabled = self._edge_memory.get_setting_bool("frontier_enabled", default=True)
+
+            if frontier_enabled:
+                self._frontier.start()
+            else:
+                log.info("Frontier cloud disabled per user settings")
         self._llm.start()
         self._running = True
+
+        self._startup_ts = time.monotonic()
 
         self._worker_thread = threading.Thread(
             target=self._voice_loop,
@@ -345,11 +388,19 @@ class VoiceManager(QObject):
         elif self._mic:
             mic_status = "no device"
 
-        log.info("Voice manager started (STT=%s, TTS=%s, LLM=%s, Mic=%s)",
+        # Voice is ready — transition from OFF to IDLE so alerts can speak
+        self._set_state(VoiceState.IDLE)
+        self._toggle_state = VoiceToggleState.NORMAL
+
+        # Announce time-of-day greeting
+        self._announce_greeting()
+
+        log.info("Voice manager started (STT=%s, TTS=%s, LLM=%s, Mic=%s, startup_quiet=%.1fs)",
                  "real" if self._stt.is_real else "mock",
                  "real" if self._tts.is_real else "mock",
                  "real" if self._llm.is_real else "persona",
-                 mic_status)
+                 mic_status,
+                 self._startup_quiet_period_s)
 
     def stop(self) -> None:
         """Stop all voice subsystems."""
@@ -361,6 +412,8 @@ class VoiceManager(QObject):
         self._stt.stop()
         self._tts.stop()
         self._llm.stop()
+        if self._frontier:
+            self._frontier.stop()
         log.info("Voice manager stopped")
 
     def set_si_drive_mode(self, mode: SIDriveMode) -> None:
@@ -419,9 +472,12 @@ class VoiceManager(QObject):
         self._edge_memory = edge_memory
 
     def set_duckdb_store(self, store: object, session_id: str = "") -> None:
-        """Inject DuckDB store for latency recording."""
+        """Inject DuckDB store for latency recording + frontier cache."""
         self._duckdb_store = store
         self._session_id = session_id
+        # Wire DuckDB connection to frontier engine for response caching
+        if self._frontier and hasattr(store, "_conn") and store._conn:
+            self._frontier._conn = store._conn
 
     def toggle_voice(self) -> VoiceToggleState:
         """Cycle voice state: Normal → Quiet → Off → Normal (K4 button)."""
@@ -435,14 +491,37 @@ class VoiceManager(QObject):
         log.info("Voice toggle: %s", self._toggle_state.name)
         return self._toggle_state
 
+    def _announce_greeting(self) -> None:
+        """Emit time-of-day greeting at startup."""
+        hour = time.localtime().tm_hour
+        if hour < 12:
+            greeting = "Good morning"
+        elif hour < 18:
+            greeting = "Good afternoon"
+        else:
+            greeting = "Good evening"
+
+        # Queue with high priority, non-blocking
+        item = SpeakItem(priority=95, text=greeting)
+        try:
+            self._speak_queue.put_nowait(item)
+        except queue.Full:
+            pass
+
     def speak(self, text: str) -> None:
         """Queue text to be spoken (from alerts, proactive commentary, etc.)."""
         if self._state in (VoiceState.QUIET, VoiceState.OFF):
             return
         if self._si_drive_mode == SIDriveMode.SPORT_SHARP:
             return  # No queued speech in S#
+
+        # During startup quiet period, suppress non-critical speech
+        if time.monotonic() - self._startup_ts < self._startup_quiet_period_s:
+            return
+
+        item = SpeakItem(priority=10, text=text)  # info priority
         try:
-            self._speak_queue.put_nowait(text)
+            self._speak_queue.put_nowait(item)
         except queue.Full:
             log.debug("Speak queue full, dropping: %s", text[:30])
 
@@ -454,24 +533,32 @@ class VoiceManager(QObject):
         if self._state == VoiceState.OFF:
             return
 
-        # Critical alerts always speak in all modes
-        if severity == "critical":
-            try:
-                self._speak_queue.put_nowait(text)
-            except queue.Full:
-                pass
-            return
+        # During startup quiet period, suppress non-critical alerts
+        if time.monotonic() - self._startup_ts < self._startup_quiet_period_s:
+            if severity != "critical":
+                return
 
-        # Non-critical filtering by mode
-        if self._si_drive_mode == SIDriveMode.SPORT_SHARP:
-            return  # Only critical in S#
-        if self._si_drive_mode == SIDriveMode.SPORT and severity == "info":
-            return  # No info in Sport
+        # Map severity to priority (higher = more critical, dropped last)
+        severity_priority = {
+            "critical": 100,
+            "warning": 50,
+            "advisory": 25,
+            "info": 10,
+        }
+        priority = severity_priority.get(severity, 0)
 
+        # Mode filtering for non-critical
+        if severity != "critical":
+            if self._si_drive_mode == SIDriveMode.SPORT_SHARP:
+                return  # Only critical in S#
+            if self._si_drive_mode == SIDriveMode.SPORT and severity == "info":
+                return  # No info in Sport
+
+        item = SpeakItem(priority=priority, text=text)
         try:
-            self._speak_queue.put_nowait(text)
+            self._speak_queue.put_nowait(item)
         except queue.Full:
-            pass
+            log.debug("Alert queue full, dropping: %s", text[:30])
 
     def _compose_and_speak(
         self, response: VoiceResponse, user_text: str = "",
@@ -504,8 +591,9 @@ class VoiceManager(QObject):
 
         # Queue for TTS (sole audio path — _do_speak handles echo suppression + barge-in)
         if response.text:
+            item = SpeakItem(priority=30, text=response.text)  # advisory priority for LLM responses
             try:
-                self._speak_queue.put_nowait(response.text)
+                self._speak_queue.put_nowait(item)
             except queue.Full:
                 log.debug("Speak queue full, dropping: %s", response.text[:30])
 
@@ -622,14 +710,15 @@ class VoiceManager(QObject):
                 self._compose_and_speak(resp, user_text=transcription, trace=trace)
                 return
 
-        # Check for quiet/resume commands
-        if any(cmd in lower for cmd in QUIET_COMMANDS):
+        # Check for quiet/resume commands (strip punctuation for matching)
+        lower_nopunct = re.sub(r'[^\w\s]', '', lower)
+        if any(cmd in lower_nopunct for cmd in QUIET_COMMANDS):
             self._toggle_state = VoiceToggleState.QUIET
             self._set_state(VoiceState.QUIET)
             resp = VoiceResponse(text="Going quiet.", source="system", tier="system")
             self._compose_and_speak(resp, user_text=transcription)
             return
-        if any(cmd in lower for cmd in RESUME_COMMANDS) and self._state == VoiceState.QUIET:
+        if any(cmd in lower_nopunct for cmd in RESUME_COMMANDS) and self._state == VoiceState.QUIET:
             self._toggle_state = VoiceToggleState.NORMAL
             self._set_state(VoiceState.IDLE)
             resp = VoiceResponse(text="I'm back. What do you need?", source="system", tier="system")
@@ -640,6 +729,13 @@ class VoiceManager(QObject):
         timing_cmd = self._handle_timing_command(lower)
         if timing_cmd:
             resp = VoiceResponse(text=timing_cmd, source="command", tier="system")
+            self._compose_and_speak(resp, user_text=transcription, trace=trace)
+            return
+
+        # Frontier cloud control commands
+        frontier_cmd = self._handle_frontier_command(lower)
+        if frontier_cmd:
+            resp = VoiceResponse(text=frontier_cmd, source="command", tier="system")
             self._compose_and_speak(resp, user_text=transcription, trace=trace)
             return
 
@@ -678,17 +774,30 @@ class VoiceManager(QObject):
         if self._edge_memory and self._si_drive_mode != SIDriveMode.SPORT_SHARP:
             memory_context = self._edge_memory.build_memory_context(resolved_query)
 
-        # Acknowledge before slow LLM path — persona matches return <1ms so skip those
-        if not _match_persona(lower, self._si_drive_mode.label) and self._llm.is_real:
-            self.response_ready.emit("Let me think about that.")
+        # Timeout-based ack: fires "Let me think about that" only if frontier
+        # takes >300ms. Safety fast-path returns instantly, cache hits <2ms,
+        # so the ack only fires for live API calls.
+        is_instant = _match_safety_fast_path(lower, self._si_drive_mode.label) is not None
+        ack_timer = None
+        if not is_instant and self._llm.is_real:
+            ack_timer = threading.Timer(
+                0.3,
+                lambda: self.response_ready.emit("Let me think about that."),
+            )
+            ack_timer.start()
 
-        # Query LLM
+        # Query LLM (pass dialogue history so frontier has conversation context)
         response = self._llm.query(
             user_message=resolved_query,
             telemetry_context=context,
             memory_context=memory_context,
             si_drive_mode=self._si_drive_mode.label,
+            conversation_history=self._dialogue.last_turns,
         )
+
+        # Cancel ack if response arrived before the timer fired
+        if ack_timer:
+            ack_timer.cancel()
 
         if trace:
             trace.llm_done_at = time.monotonic()
@@ -698,7 +807,7 @@ class VoiceManager(QObject):
             text=response.text, source=response.tier, tier=tier,
             latency_ms=int(response.latency_s * 1000),
         )
-        log.info("LLM response (tier=%s, %.1fs): %s", response.tier, response.latency_s, response.text[:80])
+        log.info("LLM response (tier=%s, %.1fs): %s", response.tier, response.latency_s, response.text[:200])
 
         # Log unanswered queries for future persona/sensor improvement
         if response.tier == "fallback":
@@ -719,10 +828,11 @@ class VoiceManager(QObject):
         """Main voice processing loop (runs in worker thread)."""
         while self._running:
             try:
-                # Process speak queue
+                # Process speak queue (priority queue with maxsize=2)
                 try:
-                    text = self._speak_queue.get(timeout=0.1)
-                    self._do_speak(text)
+                    item = self._speak_queue.get(timeout=0.1)
+                    if item:
+                        self._do_speak(item.text)
                 except queue.Empty:
                     # No speech queued — generate idle LED pattern
                     if self._state == VoiceState.IDLE and self._si_drive_mode == SIDriveMode.INTELLIGENT:
@@ -784,7 +894,7 @@ class VoiceManager(QObject):
                 heard_words = set(re.findall(r'\b\w+\b', lower))
                 if heard_words and spoken_words:
                     overlap = len(heard_words & spoken_words) / len(heard_words)
-                    if overlap > 0.3:
+                    if overlap > 0.5:
                         log.info("Echo suppressed (%.0f%% overlap with last speech): '%s'", overlap * 100, text[:60])
                         return
 
@@ -797,11 +907,20 @@ class VoiceManager(QObject):
                     log.info("Self-trigger suppressed: '%s'", text[:60])
                     return
 
-            has_wake_word = any(w in lower for w in WAKE_WORDS) or _fuzzy_wake_word(lower)
+            # Strip punctuation before wake word matching — Whisper adds
+            # commas/periods that break exact matches (e.g. "Hey, Keisty")
+            lower_clean = re.sub(r'[^\w\s]', '', lower)
+            has_wake_word = any(w in lower_clean for w in WAKE_WORDS) or _fuzzy_wake_word(lower_clean)
             # Fallback: OWW detected wake word but Whisper dropped it from transcription
             if not has_wake_word and self._mic and self._mic._last_wake_detected:
                 log.info("OWW wake detected but not in STT text — treating as wake word")
                 has_wake_word = True
+
+            # KISTI_NO_WAKE: bypass wake word requirement (all speech → query)
+            no_wake = os.environ.get("KISTI_NO_WAKE", "")
+            if no_wake and not has_wake_word:
+                has_wake_word = True
+
             in_conversation = (time.monotonic() - self._last_interaction) < self._listen_window_s
 
             # During TTS playback, only respond to wake word (barge-in)
@@ -844,7 +963,12 @@ class VoiceManager(QObject):
         self._interrupted = True
 
     def _do_speak(self, text: str) -> None:
-        """Synthesize and play speech with LED waveform."""
+        """Synthesize and play speech with LED waveform.
+
+        Multi-sentence responses use streaming TTS: first sentence synthesizes
+        and plays immediately, remaining sentences synthesize while audio plays.
+        Cuts perceived latency from full-text TTS time to single-sentence TTS time.
+        """
         self._set_state(VoiceState.SPEAKING)
         self._interrupted = False
         self._last_spoken_text = text.lower()
@@ -852,57 +976,19 @@ class VoiceManager(QObject):
 
         trace = self._active_trace
 
-        # Synthesize
-        result = self._tts.speak(text)
-        if trace:
-            trace.tts_done_at = time.monotonic()
-
         # Barge-in: keep mic active with raised OWW threshold for interruptible
         # responses; full pause for non-interruptible (critical alerts)
         can_barge = True
         if self._last_response and not self._last_response.can_interrupt:
             can_barge = False
 
-        if self._mic:
-            if can_barge:
-                self._mic.set_barge_in_mode(True)
-            else:
-                self._mic.pause()
+        # Split into sentences for streaming TTS
+        sentences = split_sentences(text)
 
-        if trace:
-            trace.speaker_start_at = time.monotonic()
-
-        # Start audio playback, then drive LEDs concurrently.
-        # Previously LED animation ran BEFORE playback, adding ~2s latency.
-        play_proc = None
-        wav_path = None
-        if not self._interrupted:
-            play_proc, wav_path = self._start_audio(result.audio_pcm, result.sample_rate)
-            # Set shared waveform data for UI polling (no cross-thread signals)
-            self._waveform_data = (result.amplitude_envelope, time.monotonic())
-
-        # Drive LEDs synchronized with audio playback
-        if self._si_drive_mode == SIDriveMode.INTELLIGENT:
-            frames = self._led.waveform_from_envelope(result.amplitude_envelope)
-            for frame in frames:
-                if not self._running or self._interrupted:
-                    break
-                self.led_frame_ready.emit(frame)
-                time.sleep(1.0 / 30.0)
-
-        # Wait for playback to finish (if LED loop ended first)
-        if play_proc:
-            try:
-                play_proc.wait(timeout=60)
-            except Exception:
-                pass
-            self._aplay_proc = None
-            if wav_path:
-                import os
-                try:
-                    os.unlink(wav_path)
-                except OSError:
-                    pass
+        if len(sentences) > 1 and not self._interrupted:
+            self._speak_streamed(sentences, trace, can_barge)
+        else:
+            self._speak_single(text, trace, can_barge)
 
         # Clear waveform data — UI will stop animating on next poll
         self._waveform_data = None
@@ -941,16 +1027,181 @@ class VoiceManager(QObject):
         self._last_interaction = time.monotonic()
         self._set_state(VoiceState.IDLE)
 
+    def _speak_single(self, text: str, trace: Optional[PipelineTrace],
+                      can_barge: bool) -> None:
+        """Standard TTS path: synthesize full text then play."""
+        result = self._tts.speak(text)
+        if trace:
+            trace.tts_done_at = time.monotonic()
+
+        if self._mic:
+            if can_barge:
+                self._mic.set_barge_in_mode(True)
+            else:
+                self._mic.pause()
+
+        if trace:
+            trace.speaker_start_at = time.monotonic()
+
+        play_proc = None
+        wav_path = None
+        if not self._interrupted:
+            play_proc, wav_path = self._start_audio(result.audio_pcm, result.sample_rate)
+            self._waveform_data = (result.amplitude_envelope, time.monotonic())
+
+        # Drive LEDs synchronized with audio playback
+        if self._si_drive_mode == SIDriveMode.INTELLIGENT:
+            frames = self._led.waveform_from_envelope(result.amplitude_envelope)
+            for frame in frames:
+                if not self._running or self._interrupted:
+                    break
+                self.led_frame_ready.emit(frame)
+                time.sleep(1.0 / 30.0)
+
+        # Wait for playback to finish (if LED loop ended first)
+        if play_proc:
+            try:
+                play_proc.wait(timeout=60)
+            except Exception:
+                pass
+            self._aplay_proc = None
+            if wav_path:
+                try:
+                    os.unlink(wav_path)
+                except OSError:
+                    pass
+
+    def _speak_streamed(self, sentences: list[str], trace: Optional[PipelineTrace],
+                        can_barge: bool) -> None:
+        """Streaming TTS: synthesize+play first sentence, overlap the rest.
+
+        Opens a single pacat process and writes PCM chunks as sentences
+        synthesize. Playback begins as soon as the first sentence is written.
+        Remaining sentences synthesize while the first plays — since TTS speed
+        (~10 words/s) is faster than speech rate (~3 words/s), synthesis stays
+        ahead of playback and audio is seamless.
+        """
+        import subprocess as _sp
+
+        # Synthesize first sentence — this is the perceived latency
+        first_result = self._tts.speak(sentences[0])
+        if trace:
+            trace.tts_done_at = time.monotonic()
+
+        if self._interrupted:
+            return
+
+        # Enable barge-in before playback starts
+        if self._mic:
+            if can_barge:
+                self._mic.set_barge_in_mode(True)
+            else:
+                self._mic.pause()
+
+        if trace:
+            trace.speaker_start_at = time.monotonic()
+
+        # Open single pacat process for entire response
+        try:
+            proc = _sp.Popen(
+                ["pacat", "--playback", "--raw",
+                 f"--rate={first_result.sample_rate}", "--channels=1", "--format=s16le"],
+                stdin=_sp.PIPE,
+                stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+            )
+        except Exception:
+            # pacat unavailable — fall back to non-streaming
+            log.debug("pacat unavailable for streaming, falling back to single-shot")
+            self._speak_single(" ".join(sentences), trace, can_barge)
+            return
+
+        self._aplay_proc = proc
+        audio_start = time.monotonic()
+
+        # Write first sentence PCM — playback begins immediately
+        try:
+            proc.stdin.write(first_result.audio_pcm)
+        except (BrokenPipeError, OSError):
+            self._aplay_proc = None
+            return
+
+        all_envelope = list(first_result.amplitude_envelope)
+        total_duration = first_result.duration_s
+
+        log.info("Streaming TTS: 1/%d (%.0fms synth, %.1fs audio)",
+                 len(sentences), first_result.latency_s * 1000, first_result.duration_s)
+
+        # Synthesize and write remaining sentences while first sentence plays.
+        # TTS at ~100ms/word < speech at ~300ms/word, so synthesis stays ahead.
+        for i, sentence in enumerate(sentences[1:], start=2):
+            if self._interrupted:
+                break
+            result = self._tts.speak(sentence)
+            if self._interrupted:
+                break
+            try:
+                proc.stdin.write(result.audio_pcm)
+            except (BrokenPipeError, OSError):
+                break  # pacat terminated (barge-in or error)
+            all_envelope.extend(result.amplitude_envelope)
+            total_duration += result.duration_s
+            log.debug("Streaming TTS: %d/%d (%.0fms synth)",
+                      i, len(sentences), result.latency_s * 1000)
+
+        # Close stdin — pacat continues playing buffered audio
+        try:
+            proc.stdin.close()
+        except Exception:
+            pass
+
+        # Set waveform data for UI polling
+        self._waveform_data = (all_envelope, audio_start)
+
+        # Drive LEDs for remaining playback time (skip frames already elapsed)
+        if self._si_drive_mode == SIDriveMode.INTELLIGENT:
+            frames = self._led.waveform_from_envelope(all_envelope)
+            elapsed = time.monotonic() - audio_start
+            skip = int(elapsed * 30)  # 30 fps
+            for frame in frames[skip:]:
+                if not self._running or self._interrupted:
+                    break
+                self.led_frame_ready.emit(frame)
+                time.sleep(1.0 / 30.0)
+
+        # Wait for playback to complete
+        try:
+            proc.wait(timeout=60)
+        except Exception:
+            pass
+        self._aplay_proc = None
+
     def _start_audio(self, audio_pcm: bytes, sample_rate: int) -> tuple:
         """Start audio playback via PulseAudio (non-blocking).
 
         Returns (Popen, wav_path) so caller can wait and clean up.
+        Uses pacat with raw PCM piped via stdin to eliminate temp file latency.
+        Falls back to paplay + temp WAV if pacat fails.
         PulseAudio must stay running to keep the HDA pin-ctl active on Jetson.
         """
         import subprocess as _sp
-        import tempfile
-        import wave
         try:
+            # Fast path: pipe raw PCM directly to pacat (no temp file)
+            self._aplay_proc = _sp.Popen(
+                ["pacat", "--playback", "--raw",
+                 f"--rate={sample_rate}", "--channels=1", "--format=s16le"],
+                stdin=_sp.PIPE,
+                stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+            )
+            self._aplay_proc.stdin.write(audio_pcm)
+            self._aplay_proc.stdin.close()
+            return self._aplay_proc, None  # No wav_path to clean up
+        except Exception:
+            pass
+
+        # Fallback: temp WAV + paplay
+        try:
+            import tempfile
+            import wave
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
                 wav_path = f.name
             with wave.open(wav_path, "wb") as wf:
@@ -966,6 +1217,40 @@ class VoiceManager(QObject):
         except Exception as exc:
             log.warning("Audio playback failed: %s", exc)
             return None, None
+
+    def _handle_frontier_command(self, query_lower: str) -> Optional[str]:
+        """Handle frontier cloud control commands.
+
+        Returns spoken confirmation, or None if not a frontier command.
+        Stores consent in edge memory settings table.
+        """
+        if not self._frontier or not self._edge_memory:
+            return None
+
+        # Disable cloud command (check before enable to avoid "activate"→"deactivate" substring match)
+        if any(phrase in query_lower for phrase in ["disable cloud", "turn off cloud", "deactivate cloud"]):
+            if not self._frontier.is_running:
+                return "Cloud is already disabled."
+            self._frontier.stop()
+            self._edge_memory.set_setting_bool("frontier_enabled", False)
+            log.info("Frontier cloud disabled via voice command")
+            return "Cloud disabled."
+
+        # Enable cloud command
+        if any(phrase in query_lower for phrase in ["enable cloud", "turn on cloud", "activate cloud"]):
+            if self._frontier.is_running:
+                return "Cloud is already enabled."
+            self._frontier.start()
+            self._edge_memory.set_setting_bool("frontier_enabled", True)
+            log.info("Frontier cloud enabled via voice command")
+            return "Cloud enabled."
+
+        # Status query
+        if "cloud status" in query_lower or "is cloud" in query_lower:
+            status = "enabled" if self._frontier.is_running else "disabled"
+            return f"Cloud is {status}."
+
+        return None
 
     def _handle_timing_command(self, query_lower: str) -> Optional[str]:
         """Handle voice commands that control timing mode.
@@ -1151,28 +1436,54 @@ class VoiceManager(QObject):
                 # CAN connected — let ECU block below handle it
 
         # === ECU / CAN sensor queries (when Link G5 is connected) ===
-        _ECU_KEYWORDS = (
+        # Multi-word phrases that unambiguously request live sensor data
+        _ECU_LIVE_PHRASES = (
             "oil temp", "oil temperature", "oil pressure", "oil psi",
             "coolant temp", "coolant temperature", "engine temp", "water temp",
-            "intake temp", "intake air", "iat",
-            "boost pressure", "boost psi", "manifold", "boost",
-            "battery", "voltage", "charging",
+            "intake temp", "intake air",
+            "boost pressure", "boost psi",
             "fuel pressure", "fuel rail", "fuel psi",
-            "injector duty", "injector", "duty cycle",
-            "lambda", "air fuel", "afr", "rich", "lean",
-            "ethanol", "e85", "flex fuel",
-            "rpm", "revs", "engine speed",
-            "how fast", "wheel speed", "wheel slip",
+            "injector duty", "duty cycle",
+            "air fuel", "afr",
+            "flex fuel",
+            "engine speed",
+            "wheel speed", "wheel slip",
             "brake pressure", "steering angle",
-            "lateral g", "g force", "how many g", "yaw",
-            "dccd", "what gear", "which gear", "current gear",
+            "lateral g", "g force", "how many g",
             "tire pressure", "tyre pressure", "tire temp", "tyre temp",
+            "what gear", "which gear", "current gear",
+        )
+
+        # Bare component/sensor words — only block with a live-data indicator
+        _ECU_COMPONENT_BARE = (
+            "boost", "rpm", "revs", "speed", "throttle",
             "tire", "tyre", "brake", "braking",
             "suspension", "sway", "camber", "alignment",
-            "speed", "throttle", "accelerat",
+            "battery", "voltage", "charging",
+            "lambda", "rich", "lean", "ethanol", "e85",
+            "manifold", "iat", "dccd", "accelerat",
+            "injector", "yaw",
         )
-        if not s.can_connected and any(kw in query_lower for kw in _ECU_KEYWORDS):
-            return "No ECU connected. Link G five not installed yet."
+
+        # Words that signal a live-data request (vs general knowledge)
+        _LIVE_DATA_INDICATORS = (
+            "what's my", "what is my", "whats my",
+            "how much", "how many", "how fast",
+            "current", "right now", "live", "actual",
+            "reading", "gauge", "sensor",
+            "pressure", "psi", "voltage", "percent",
+            "degrees", "temperature", "temp",
+        )
+
+        if not s.can_connected:
+            # Multi-word live phrases always block
+            if any(kw in query_lower for kw in _ECU_LIVE_PHRASES):
+                return "No ECU connected. Link G five not installed yet."
+            # Bare component names only block with live-data indicator
+            has_component = any(kw in query_lower for kw in _ECU_COMPONENT_BARE)
+            has_live = any(ind in query_lower for ind in _LIVE_DATA_INDICATORS)
+            if has_component and has_live:
+                return "No ECU connected. Link G five not installed yet."
 
         if s.can_connected:
             # Oil temperature

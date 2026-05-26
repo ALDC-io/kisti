@@ -35,7 +35,7 @@ FRAME_BYTES = SILERO_CHUNK_BYTES  # 1024 bytes per chunk
 # VAD tuning for in-car environment
 SPEECH_THRESHOLD = 0.5    # Silero confidence threshold (0-1). Higher = stricter
 SPEECH_START_FRAMES = 6   # ~192ms of speech to trigger capture start
-SPEECH_END_FRAMES = 8     # ~256ms of silence to end utterance (was 12/384ms)
+SPEECH_END_FRAMES = 19    # ~608ms of silence to end utterance (was 14/448ms — still split on natural pauses; 600ms covers most mid-sentence pauses)
 MAX_UTTERANCE_S = 10.0    # Hard cap — prevent runaway capture
 MIN_UTTERANCE_S = 0.3     # Ignore very short bursts (clicks, bumps)
 

@@ -330,7 +330,7 @@ def train_custom_verifier(
     positive_dir: Path,
     negative_dir: Path,
     output_path: Path,
-    base_model: str = "hey_jarvis_v0.1",
+    base_model: str = "hey_jarvis",
 ) -> bool:
     """Train a custom verifier model using openwakeword's built-in API.
 

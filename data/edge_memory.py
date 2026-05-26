@@ -41,6 +41,14 @@ CREATE TABLE IF NOT EXISTS memories (
 );
 """
 
+SETTINGS_DDL = """
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TIMESTAMP
+);
+"""
+
 # Visibility levels for access control:
 #   private  - owner only (default). Never exported to shared folders
 #   team     - visible to KiSTI share members (tuner, mechanic)
@@ -80,8 +88,9 @@ class EdgeMemory:
         return self._store._conn
 
     def initialize(self) -> None:
-        """Create memories table and optionally install VSS index."""
+        """Create memories and settings tables, optionally install VSS index."""
         self._conn.execute(MEMORIES_DDL)
+        self._conn.execute(SETTINGS_DDL)
 
         # Try to load DuckDB VSS extension for HNSW index
         try:
@@ -357,6 +366,39 @@ class EdgeMemory:
             lines.append(f"- {content}{tag_str}")
 
         return "\n".join(lines)
+
+    # ---- Settings ----
+
+    def get_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        """Retrieve a setting value by key."""
+        rows = self._conn.execute(
+            "SELECT value FROM settings WHERE key = ?",
+            [key],
+        ).fetchall()
+        if rows:
+            return rows[0][0]
+        return default
+
+    def set_setting(self, key: str, value: str) -> None:
+        """Store or update a setting."""
+        self._conn.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, "
+            "updated_at = EXCLUDED.updated_at",
+            [key, value, _now()],
+        )
+        log.debug("Setting stored: %s = %s", key, value)
+
+    def get_setting_bool(self, key: str, default: bool = False) -> bool:
+        """Retrieve a boolean setting."""
+        value = self.get_setting(key)
+        if value is None:
+            return default
+        return value.lower() in ("true", "1", "yes", "enabled")
+
+    def set_setting_bool(self, key: str, value: bool) -> None:
+        """Store a boolean setting."""
+        self.set_setting(key, "true" if value else "false")
 
     # ---- Internal ----
 

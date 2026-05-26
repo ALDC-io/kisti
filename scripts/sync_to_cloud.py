@@ -22,6 +22,11 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Ensure repo is in path for module imports (allows running from any directory)
+repo_root = Path(__file__).parent.parent
+if str(repo_root) not in sys.path:
+    sys.path.insert(0, str(repo_root))
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("kisti.sync.cloud")
 
@@ -30,6 +35,7 @@ CLOUD_BASE = "Project KiSTI"
 DB_PATH = Path("/data/duckdb/kisti.duckdb")
 # Fallback for development (workstation)
 DEV_DB_PATH = Path("/tmp/kisti_test.duckdb")
+SYNC_QUEUE_DIR = Path("/data/sync_queue")
 
 
 def _open_db_readonly(db_path: Path):
@@ -224,10 +230,100 @@ def sync_memories(db_path: Path) -> int:
     return count
 
 
+def sync_flir(db_path: Path) -> int:
+    """Export FLIR thermal readings + surface transitions to Nextcloud."""
+    try:
+        import duckdb
+    except ImportError:
+        log.error("duckdb not installed")
+        return 0
+
+    if not db_path.exists():
+        log.info("No DuckDB at %s — skipping FLIR sync", db_path)
+        return 0
+
+    conn = _open_db_readonly(db_path)
+
+    try:
+        # Check table exists
+        tables = [r[0] for r in conn.execute(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
+        ).fetchall()]
+        if "flir_readings" not in tables:
+            log.info("No flir_readings table — skipping")
+            conn.close()
+            return 0
+
+        count = conn.execute("SELECT COUNT(*) FROM flir_readings").fetchone()[0]
+        if count == 0:
+            log.info("No FLIR data to sync")
+            conn.close()
+            return 0
+
+        with tempfile.TemporaryDirectory() as tmp:
+            # Export FLIR readings
+            out = Path(tmp) / "flir_readings.parquet"
+            conn.execute(
+                f"COPY (SELECT * FROM flir_readings ORDER BY timestamp) "
+                f"TO '{out}' (FORMAT PARQUET)"
+            )
+            csv_out = Path(tmp) / "flir_readings.csv"
+            conn.execute(
+                f"COPY (SELECT * FROM flir_readings ORDER BY timestamp) "
+                f"TO '{csv_out}' (FORMAT CSV, HEADER TRUE)"
+            )
+            _rclone_copy(out, f"{CLOUD_BASE}/flir/flir_readings.parquet")
+            _rclone_copy(csv_out, f"{CLOUD_BASE}/flir/flir_readings.csv")
+
+            # Export surface transitions if available
+            if "surface_transitions" in tables:
+                trans_count = conn.execute("SELECT COUNT(*) FROM surface_transitions").fetchone()[0]
+                if trans_count > 0:
+                    trans_out = Path(tmp) / "surface_transitions.parquet"
+                    conn.execute(
+                        f"COPY (SELECT * FROM surface_transitions ORDER BY timestamp) "
+                        f"TO '{trans_out}' (FORMAT PARQUET)"
+                    )
+                    _rclone_copy(trans_out, f"{CLOUD_BASE}/flir/surface_transitions.parquet")
+
+            # Summary stats
+            stats = conn.execute("""
+                SELECT
+                    COUNT(*) as total_readings,
+                    MIN(timestamp) as first_reading,
+                    MAX(timestamp) as last_reading,
+                    AVG(road_temp_center) as avg_center_c,
+                    MIN(road_temp_center) as min_center_c,
+                    MAX(road_temp_center) as max_center_c,
+                    SUM(CASE WHEN warm_object_detected THEN 1 ELSE 0 END) as warm_detections,
+                    COUNT(DISTINCT surface_state) as unique_states
+                FROM flir_readings
+            """).fetchone()
+
+            summary = {
+                "synced_at": datetime.now(timezone.utc).isoformat(),
+                "total_readings": stats[0],
+                "first_reading": str(stats[1]),
+                "last_reading": str(stats[2]),
+                "avg_road_temp_center_c": round(stats[3], 1) if stats[3] else None,
+                "min_road_temp_center_c": round(stats[4], 1) if stats[4] else None,
+                "max_road_temp_center_c": round(stats[5], 1) if stats[5] else None,
+                "warm_object_detections": stats[6],
+                "unique_surface_states": stats[7],
+            }
+            summary_path = Path(tmp) / "flir_summary.json"
+            summary_path.write_text(json.dumps(summary, indent=2))
+            _rclone_copy(summary_path, f"{CLOUD_BASE}/flir/flir_summary.json")
+
+        log.info("FLIR sync complete: %d readings", count)
+        return count
+    finally:
+        conn.close()
+
+
 def sync_llm() -> bool:
     """Sync LLM configuration (system prompt, persona, token caps) to Nextcloud."""
-    with tempfile.TemporaryDirectory() as tmp:
-        # Export current LLM config as reference
+    try:
         from voice.llm_engine import (
             KISTI_SYSTEM_PROMPT,
             MODE_TOKEN_CAPS,
@@ -235,6 +331,12 @@ def sync_llm() -> bool:
             PERSONA_RESPONSES,
             DEFAULT_MODEL,
         )
+    except ImportError as exc:
+        log.warning("Could not import LLM config: %s — skipping LLM sync", exc)
+        return False
+
+    with tempfile.TemporaryDirectory() as tmp:
+        # Export current LLM config as reference
 
         config = {
             "synced_at": datetime.now(timezone.utc).isoformat(),
@@ -244,8 +346,8 @@ def sync_llm() -> bool:
             "system_prompt": KISTI_SYSTEM_PROMPT,
             "persona_responses_count": len(PERSONA_RESPONSES),
             "persona_keywords": [
-                {"keywords": kws, "response_preview": resp[:80] + "..."}
-                for kws, resp in PERSONA_RESPONSES
+                {"keywords": kws, "response_preview": resp[:80] + "...", "category": cat}
+                for kws, resp, cat in PERSONA_RESPONSES
             ],
         }
 
@@ -254,7 +356,12 @@ def sync_llm() -> bool:
         _rclone_copy(out, f"{CLOUD_BASE}/llm/llm_config.json")
 
         # Export build record
-        from data.build_record import build_summary, build_detail, BASELINES
+        try:
+            from data.build_record import build_summary, build_detail, BASELINES
+        except ImportError:
+            log.warning("Could not import build record — skipping")
+            log.info("LLM config sync complete")
+            return True
 
         build = {
             "synced_at": datetime.now(timezone.utc).isoformat(),
@@ -287,12 +394,186 @@ def sync_llm() -> bool:
     return True
 
 
+NAS_HOST = "192.168.22.220"
+NAS_SHARE = "LL824"
+NAS_BACKUP_PATH = "Backup/KiSTI"
+NAS_CREDS_FILE = "/etc/kisti-nas.creds"
+# Jetson network interfaces
+WIFI_IFACE = "wlP1p1s0"
+LAN_IFACE = "enP8p1s0"
+
+
+def _nas_reachable(iface: str) -> bool:
+    """Ping NAS using a specific network interface."""
+    try:
+        result = subprocess.run(
+            ["ping", "-c", "1", "-W", "2", "-I", iface, NAS_HOST],
+            capture_output=True, timeout=5,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def _nas_pick_iface() -> str | None:
+    """Return the first reachable interface (WiFi preferred) or None."""
+    for candidate in (WIFI_IFACE, LAN_IFACE):
+        if _nas_reachable(candidate):
+            log.info("NAS reachable via %s", candidate)
+            return candidate
+    log.warning("NAS %s unreachable on both interfaces", NAS_HOST)
+    return None
+
+
+def _nas_put(local_path: Path, remote_subpath: str, timeout: int = 300) -> bool:
+    """Upload a single file to NAS at Backup/KiSTI/<remote_subpath>/<filename>.
+
+    Creates the remote subdirectory if needed.  Returns True on success.
+    """
+    remote_dir = f"{NAS_BACKUP_PATH}/{remote_subpath}"
+    remote_dest = f"{remote_dir}/{local_path.name}"
+    smb_cmds = f'mkdir "{remote_dir}"; put "{local_path}" "{remote_dest}"'
+    try:
+        cmd = [
+            "smbclient",
+            f"//{NAS_HOST}/{NAS_SHARE}",
+            "-A", NAS_CREDS_FILE,
+            "-c", smb_cmds,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        if result.returncode == 0:
+            log.info("NAS upload OK: %s → //%s/%s/%s", local_path.name, NAS_HOST, NAS_SHARE, remote_dest)
+            return True
+        log.warning("NAS upload failed (%s): %s", local_path.name,
+                    result.stderr.strip() or result.stdout.strip())
+        return False
+    except Exception as exc:
+        log.warning("NAS upload error (%s): %s", local_path.name, exc)
+        return False
+
+
+def sync_nas(db_path: Path) -> bool:
+    """Copy DuckDB snapshot to UNAS-Pro-8 NAS via SMB. WiFi-first, LAN fallback. Best-effort."""
+    if not db_path.exists():
+        log.info("No DuckDB at %s — skipping NAS sync", db_path)
+        return False
+
+    iface = _nas_pick_iface()
+    if iface is None:
+        return False
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    remote_filename = f"kisti_{timestamp}.duckdb"
+
+    try:
+        remote_dest = f"{NAS_BACKUP_PATH}/{remote_filename}"
+        cmd = [
+            "smbclient",
+            f"//{NAS_HOST}/{NAS_SHARE}",
+            "-A", NAS_CREDS_FILE,
+            "-c", f'put "{db_path}" "{remote_dest}"',
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if result.returncode == 0:
+            log.info("NAS sync complete: %s → //%s/%s/%s",
+                     db_path.name, NAS_HOST, NAS_SHARE, remote_dest)
+            return True
+        log.warning("NAS sync failed: %s", result.stderr.strip() or result.stdout.strip())
+        return False
+    except Exception as exc:
+        log.warning("NAS sync error: %s", exc)
+        return False
+
+
+def sync_nas_sessions(sync_queue: Path = SYNC_QUEUE_DIR) -> bool:
+    """Tar the session/sensor Parquet export queue and upload to NAS Backup/KiSTI/sessions/.
+
+    Best-effort — skips silently if NAS unreachable or queue is empty.
+    """
+    if not sync_queue.exists() or not any(sync_queue.iterdir()):
+        log.info("sync_queue empty or absent — skipping NAS sessions backup")
+        return False
+
+    iface = _nas_pick_iface()
+    if iface is None:
+        return False
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    archive_name = f"sessions_{timestamp}.tar.gz"
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        archive_path = Path(tmpdir) / archive_name
+        try:
+            result = subprocess.run(
+                ["tar", "-czf", str(archive_path), "-C", str(sync_queue.parent), sync_queue.name],
+                capture_output=True, text=True, timeout=120,
+            )
+            if result.returncode != 0:
+                log.warning("tar sessions failed: %s", result.stderr.strip())
+                return False
+            size_mb = archive_path.stat().st_size / 1024 / 1024
+            log.info("sessions archive: %.1f MB", size_mb)
+            return _nas_put(archive_path, "sessions")
+        except Exception as exc:
+            log.warning("NAS sessions backup error: %s", exc)
+            return False
+
+
+def sync_nas_image() -> bool:
+    """Weekly system image backup: tar repos/kisti + tracks + .env → NAS Backup/KiSTI/images/.
+
+    Best-effort — skips silently if NAS unreachable.
+    """
+    iface = _nas_pick_iface()
+    if iface is None:
+        return False
+
+    home = Path("/home/aldc")
+    targets = [
+        home / "repos" / "kisti",
+        home / "tracks",
+        home / ".env",
+    ]
+    # Only include paths that actually exist
+    existing = [str(t) for t in targets if t.exists()]
+    if not existing:
+        log.info("No image backup targets found — skipping")
+        return False
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    archive_name = f"kisti_image_{timestamp}.tar.gz"
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        archive_path = Path(tmpdir) / archive_name
+        try:
+            result = subprocess.run(
+                ["tar", "-czf", str(archive_path), "--exclude=__pycache__",
+                 "--exclude=*.pyc", "--exclude=.git"] + existing,
+                capture_output=True, text=True, timeout=600,
+            )
+            if result.returncode != 0:
+                log.warning("tar image failed: %s", result.stderr.strip())
+                return False
+            size_mb = archive_path.stat().st_size / 1024 / 1024
+            log.info("image archive: %.1f MB", size_mb)
+            return _nas_put(archive_path, "images", timeout=600)
+        except Exception as exc:
+            log.warning("NAS image backup error: %s", exc)
+            return False
+
+
 def main():
     parser = argparse.ArgumentParser(description="KiSTI — Sync data to Nextcloud")
     parser.add_argument("--weather", action="store_true", help="Sync weather data only")
     parser.add_argument("--database", action="store_true", help="Sync DuckDB only")
     parser.add_argument("--memories", action="store_true", help="Sync memories only")
     parser.add_argument("--llm", action="store_true", help="Sync LLM config only")
+    parser.add_argument("--flir", action="store_true", help="Sync FLIR thermal data only")
+    parser.add_argument("--nas", action="store_true", help="Sync DuckDB to NAS only")
+    parser.add_argument("--nas-sessions", action="store_true",
+                        help="Sync session/sensor Parquet queue to NAS only")
+    parser.add_argument("--nas-image", action="store_true",
+                        help="Weekly system image backup to NAS only")
     parser.add_argument("--db-path", type=str, default=None,
                         help="Override DuckDB path")
     args = parser.parse_args()
@@ -302,10 +583,14 @@ def main():
     if not db_path.exists():
         db_path = DEV_DB_PATH
 
-    sync_all = not (args.weather or args.database or args.memories or args.llm)
+    sync_all = not (args.weather or args.database or args.memories or args.llm
+                    or args.flir or args.nas or args.nas_sessions or args.nas_image)
 
     if sync_all or args.weather:
         sync_weather(db_path)
+
+    if sync_all or args.flir:
+        sync_flir(db_path)
 
     if sync_all or args.database:
         sync_database(db_path)
@@ -315,6 +600,15 @@ def main():
 
     if sync_all or args.llm:
         sync_llm()
+
+    if sync_all or args.nas:
+        sync_nas(db_path)
+
+    if sync_all or args.nas_sessions:
+        sync_nas_sessions()
+
+    if args.nas_image:
+        sync_nas_image()
 
     log.info("All syncs complete")
 

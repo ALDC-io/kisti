@@ -891,7 +891,7 @@ class TestSIDriveMode:
     def test_labels(self):
         assert SIDriveMode.INTELLIGENT.label == "Intelligent"
         assert SIDriveMode.SPORT.label == "Sport"
-        assert SIDriveMode.SPORT_SHARP.label == "Sport Sharp"
+        assert SIDriveMode.SPORT_SHARP.label == "Sport #"
 
     def test_short_labels(self):
         assert SIDriveMode.INTELLIGENT.short_label == "I"
@@ -1126,24 +1126,21 @@ class TestAmbientAlertEngine:
         assert len(ambient_alerts) == 0
 
     def test_ambient_pressure_drop_fires_alert(self):
-        """Pressure drop >= 5 hPa fires advisory."""
+        """Falling pressure with RAIN_LIKELY threat fires weather alert."""
         from alerts.alert_engine import AlertEngine
         bridge = self._make_bridge()
         engine = AlertEngine(bridge)
         alerts = []
         engine.alert_fired.connect(lambda a: alerts.append(a))
 
-        # Baseline
-        bridge.update_ambient(20.0, 50.0, 1013.0, 0.0, 9.0)
-        engine._evaluate()
-
-        # Significant pressure drop
+        # Set ambient with weather trend data indicating rain likely
         bridge.update_ambient(20.0, 50.0, 1007.0, 0.0, 9.0)
+        bridge.update_weather_trends(-1.8, 2.0, 3.0, "RAIN_LIKELY")
         engine._evaluate()
 
-        pressure_alerts = [a for a in alerts if a.alert_type == "pressure_falling"]
+        pressure_alerts = [a for a in alerts if a.alert_type == "weather_rain_likely"]
         assert len(pressure_alerts) == 1
-        assert pressure_alerts[0].severity.label == "advisory"
+        assert pressure_alerts[0].severity.label == "warning"
 
     def test_ambient_temp_drop_fires_alert(self):
         """Temperature drop >= 3°C fires advisory."""
@@ -1163,21 +1160,19 @@ class TestAmbientAlertEngine:
         assert len(temp_alerts) == 1
 
     def test_ambient_humidity_rise_fires_alert(self):
-        """Humidity rise >= 15% fires advisory."""
+        """Storm-level weather threat fires weather_storm alert."""
         from alerts.alert_engine import AlertEngine
         bridge = self._make_bridge()
         engine = AlertEngine(bridge)
         alerts = []
         engine.alert_fired.connect(lambda a: alerts.append(a))
 
-        bridge.update_ambient(20.0, 40.0, 1013.0, 0.0, 9.0)
-        engine._evaluate()
-
         bridge.update_ambient(20.0, 60.0, 1013.0, 0.0, 9.0)
+        bridge.update_weather_trends(-4.0, 5.0, 1.5, "STORM")
         engine._evaluate()
 
-        hum_alerts = [a for a in alerts if a.alert_type == "humidity_rising"]
-        assert len(hum_alerts) == 1
+        storm_alerts = [a for a in alerts if a.alert_type == "weather_storm"]
+        assert len(storm_alerts) == 1
 
     def test_no_alert_below_threshold(self):
         """Small changes below threshold produce no alert."""
@@ -1307,3 +1302,173 @@ class TestAmbientSimulator:
         # No single-tick jump > 2 hPa (gradual interpolation)
         for i in range(1, len(pressures)):
             assert abs(pressures[i] - pressures[i - 1]) < 2.0
+
+
+class TestG5DispatchIntegration:
+    """Integration tests for CanListenerThread._dispatch_frame() using G5GenericDashParser.
+
+    Verifies that the live CAN dispatch correctly routes multiplexed G5 frames
+    through the parser and calls bridge update methods with decoded engineering values.
+    Uses a Mock bridge to avoid Qt dependency.
+    """
+
+    @staticmethod
+    def _make_g5_frame(frame_idx: int, s0: int, s1: int, s2: int) -> bytes:
+        """Build a valid G5 Generic Dash frame (byte[0]=idx, byte[1]=0x00, 3× LE int16)."""
+        return bytes([frame_idx, 0x00]) + struct.pack('<hhh', s0, s1, s2)
+
+    @staticmethod
+    def _make_listener():
+        """Create a CanListenerThread with a Mock bridge (no thread started)."""
+        from unittest.mock import Mock
+        from can.kisti_can import CanListenerThread
+        from can.can_config import GENERIC_DASH_BASE_ID  # noqa: F401 — used below
+        bridge = Mock()
+        return CanListenerThread(bridge, interface="can_test"), bridge
+
+    def test_frame0_triggers_gd1_with_partial_values(self):
+        """Sub-frame 0 (RPM/MAP/TPS) → gd1 called; coolant_temp=0.0 until frame 1."""
+        from can.can_config import GENERIC_DASH_BASE_ID
+        listener, bridge = self._make_listener()
+        # RPM=2000 (raw=2000), MAP=120kPa (raw=1200), TPS=30% (raw=300)
+        data = self._make_g5_frame(0, 2000, 1200, 300)
+        listener._dispatch_frame(GENERIC_DASH_BASE_ID, data)
+        bridge.update_generic_dash_1.assert_called_once()
+        call_kwargs = bridge.update_generic_dash_1.call_args[1]
+        assert abs(call_kwargs["rpm"] - 2000.0) < 0.1
+        assert abs(call_kwargs["map_kpa"] - 120.0) < 0.1
+        assert abs(call_kwargs["tps"] - 30.0) < 0.1
+        assert call_kwargs["coolant_temp"] == 0.0  # frame 1 not yet received
+        bridge.update_generic_dash_2.assert_not_called()
+        bridge.update_generic_dash_3.assert_not_called()
+
+    def test_frame1_triggers_gd1_and_gd2(self):
+        """Sub-frame 1 (CLT/IAT/Lambda) → gd1 updated with coolant_temp + gd2 partially filled."""
+        from can.can_config import GENERIC_DASH_BASE_ID
+        listener, bridge = self._make_listener()
+        # First feed frame 0 to populate rpm/map/tps
+        listener._dispatch_frame(GENERIC_DASH_BASE_ID, self._make_g5_frame(0, 3000, 1500, 800))
+        bridge.reset_mock()
+        # Now feed frame 1: CLT=87°C (raw=870), IAT=25°C (raw=250), Lambda=0.99 (raw=990)
+        listener._dispatch_frame(GENERIC_DASH_BASE_ID, self._make_g5_frame(1, 870, 250, 990))
+        bridge.update_generic_dash_1.assert_called_once()
+        gd1_kwargs = bridge.update_generic_dash_1.call_args[1]
+        assert abs(gd1_kwargs["coolant_temp"] - 87.0) < 0.1  # now fresh from frame 1
+        assert abs(gd1_kwargs["rpm"] - 3000.0) < 0.1         # still cached from frame 0
+        bridge.update_generic_dash_2.assert_called_once()
+        gd2_kwargs = bridge.update_generic_dash_2.call_args[1]
+        assert abs(gd2_kwargs["iat_c"] - 25.0) < 0.1
+        assert abs(gd2_kwargs["lambda_1"] - 0.99) < 0.001
+
+    def test_frame3_completes_gd3(self):
+        """After frames 0-3, gd3 is called with all four fields populated."""
+        from can.can_config import GENERIC_DASH_BASE_ID
+        listener, bridge = self._make_listener()
+        listener._dispatch_frame(GENERIC_DASH_BASE_ID, self._make_g5_frame(0, 1500, 1000, 500))
+        listener._dispatch_frame(GENERIC_DASH_BASE_ID, self._make_g5_frame(1, 800, 200, 1000))
+        listener._dispatch_frame(GENERIC_DASH_BASE_ID, self._make_g5_frame(2, 3500, 900, 3800))
+        bridge.reset_mock()
+        # Frame 3: Battery=14.1V (raw=1410), InjDuty=45% (raw=450), Ethanol=10% (raw=100)
+        listener._dispatch_frame(GENERIC_DASH_BASE_ID, self._make_g5_frame(3, 1410, 450, 100))
+        bridge.update_generic_dash_3.assert_called_once()
+        gd3_kwargs = bridge.update_generic_dash_3.call_args[1]
+        assert abs(gd3_kwargs["battery_v"] - 14.1) < 0.01
+        assert abs(gd3_kwargs["injector_duty"] - 45.0) < 0.1
+        assert abs(gd3_kwargs["ethanol_pct"] - 10.0) < 0.1
+        assert abs(gd3_kwargs["fuel_pressure_kpa"] - 380.0) < 0.1  # from frame 2
+
+    def test_gd1_not_called_before_frame0(self):
+        """If only frame 1 arrives (no frame 0 yet), gd1 is not called (rpm=None)."""
+        from can.can_config import GENERIC_DASH_BASE_ID
+        listener, bridge = self._make_listener()
+        # Feed frame 1 without frame 0 — rpm not yet known
+        listener._dispatch_frame(GENERIC_DASH_BASE_ID, self._make_g5_frame(1, 800, 200, 1000))
+        bridge.update_generic_dash_1.assert_not_called()
+        bridge.update_generic_dash_2.assert_called_once()  # iat_c now known
+
+    def test_wrong_can_id_not_dispatched(self):
+        """A frame on an unrelated ID does not touch bridge or parser."""
+        from can.can_config import GENERIC_DASH_BASE_ID
+        listener, bridge = self._make_listener()
+        data = self._make_g5_frame(0, 1000, 1000, 500)
+        listener._dispatch_frame(GENERIC_DASH_BASE_ID + 100, data)  # wrong ID
+        bridge.update_generic_dash_1.assert_not_called()
+        bridge.update_generic_dash_2.assert_not_called()
+        bridge.update_generic_dash_3.assert_not_called()
+
+    def test_malformed_frame_not_dispatched(self):
+        """A frame with incorrect byte[1] (non-zero reserved) is rejected by parser."""
+        from can.can_config import GENERIC_DASH_BASE_ID
+        listener, bridge = self._make_listener()
+        # byte[1] should be 0x00 — use 0xFF to trigger rejection
+        bad_data = bytes([0, 0xFF]) + struct.pack('<hhh', 1000, 1000, 500)
+        listener._dispatch_frame(GENERIC_DASH_BASE_ID, bad_data)
+        bridge.update_generic_dash_1.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# MockCanGenerator demo mode tests
+# ---------------------------------------------------------------------------
+
+class TestMockCanDemoMode:
+    """Test that MockCanGenerator.set_demo_mode controls SI-Drive cycling."""
+
+    @pytest.fixture(autouse=True)
+    def _qapp(self):
+        import os
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PySide6.QtWidgets import QApplication
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication([])
+        self.app = app
+
+    def _make_mock(self):
+        from can.kisti_can import MockCanGenerator
+        from model.vehicle_state import DiffStateBridge
+        bridge = DiffStateBridge()
+        mock = MockCanGenerator(bridge)
+        return mock, bridge
+
+    def test_default_locked_to_sport(self):
+        """Without demo mode, SI-Drive stays at 1 (Sport) — STI hardware default."""
+        mock, bridge = self._make_mock()
+        # Tick many times — should stay at mode 1
+        for _ in range(200):
+            mock._si_drive_tick()
+        snap = bridge.snapshot()
+        assert snap.si_drive_mode == 1
+
+    def test_demo_mode_cycles(self):
+        """With demo mode, SI-Drive cycles 0→1→2→0 every 15s."""
+        from can.can_config import MOCK_SI_DRIVE_HZ
+        mock, bridge = self._make_mock()
+        mock.set_demo_mode(True)
+        ticks_per_15s = int(15.0 * MOCK_SI_DRIVE_HZ) + 1
+
+        # Start at Intelligent (0)
+        mock._si_drive_tick()
+        assert bridge.snapshot().si_drive_mode == 0
+
+        # Tick past 15s → should advance to Sport (1)
+        for _ in range(ticks_per_15s):
+            mock._si_drive_tick()
+        assert bridge.snapshot().si_drive_mode == 1
+
+        # Another 15s → Sport Sharp (2)
+        for _ in range(ticks_per_15s):
+            mock._si_drive_tick()
+        assert bridge.snapshot().si_drive_mode == 2
+
+        # Another 15s → back to Intelligent (0)
+        for _ in range(ticks_per_15s):
+            mock._si_drive_tick()
+        assert bridge.snapshot().si_drive_mode == 0
+
+    def test_demo_mode_resets_state(self):
+        """set_demo_mode(True) resets SI-Drive to Intelligent."""
+        mock, bridge = self._make_mock()
+        mock._si_drive = 2  # pretend we're in Sport Sharp
+        mock.set_demo_mode(True)
+        assert mock._si_drive == 0
+        assert mock._si_drive_timer == 0.0

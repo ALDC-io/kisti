@@ -24,7 +24,7 @@ from typing import Optional
 
 log = logging.getLogger("kisti.voice.stt")
 
-WHISPER_MODEL_NAME = "base.en"
+WHISPER_MODEL_NAME = "medium.en"
 WHISPER_CPP_URL = "http://127.0.0.1:8081"  # whisper.cpp server
 SAMPLE_RATE = 16000
 CHUNK_DURATION_S = 2.0  # VAD chunk size
@@ -88,7 +88,7 @@ def _is_hallucination(text: str) -> bool:
         "huh",
     ]
     for h in hallucinations:
-        if lower == h or lower.startswith(h):
+        if lower == h:
             return True
     return False
 
@@ -206,6 +206,11 @@ class STTEngine:
             f'Content-Disposition: form-data; name="temperature"\r\n\r\n0.0\r\n'
             f"--{boundary}\r\n"
             f'Content-Disposition: form-data; name="response_format"\r\n\r\njson\r\n'
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="language"\r\n\r\nen\r\n'
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="initial_prompt"\r\n\r\n'
+            f"Hey KiSTI, the AI co-driver. Porsche, Subaru, WRX, STI, Brembo, Recaro. Boost, oil, brake, tire, RPM, ECU, turbo, PSI.\r\n"
             f"--{boundary}--\r\n"
         ).encode()
 
@@ -216,7 +221,7 @@ class STTEngine:
                 headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=15) as resp:
                 result = _json.loads(resp.read().decode())
             text = result.get("text", "").strip()
             latency = time.monotonic() - start_time

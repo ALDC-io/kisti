@@ -7,9 +7,10 @@ Listens to SI Drive CAN state and switches all subsystems between:
 
 Also manages:
   - Warm-up state machine (Cold → Warming → Ready)
-  - Display mode cycling (KiSTI → STREET → TRACK → DIFF)
+  - Sub-page cycling within each SI-Drive mode (K6 button)
   - Coaching level cycling (Intelligent mode only)
   - Keypad K1-K6 command routing
+  - SI-Drive staleness fallback (→ Intelligent after 5s)
 """
 
 from __future__ import annotations
@@ -100,6 +101,7 @@ class ModeManager(QObject):
     si_drive_changed = Signal(int)
     warmup_changed = Signal(int)
     display_changed = Signal(int)
+    subpage_changed = Signal(int)
     coaching_changed = Signal(int)
     session_toggle = Signal()
     segment_mark = Signal()
@@ -114,10 +116,11 @@ class ModeManager(QObject):
         super().__init__(parent)
         self._bridge = bridge
 
-        self._si_drive = SIDriveMode.INTELLIGENT
+        self._si_drive = SIDriveMode.SPORT  # STI default SI-Drive position
         self._warmup = WarmUpState.COLD
         self._display = DisplayMode.KISTI
         self._coaching = CoachingLevel.FULL
+        self._sharp_subpage: int = 0  # 0=canyon, 1=track
 
         self._session_active = False
 
@@ -133,6 +136,8 @@ class ModeManager(QObject):
     def start(self) -> None:
         """Start mode manager."""
         self._warmup_timer.start()
+        # Emit initial mode so main window shows correct screen at startup
+        self.si_drive_changed.emit(self._si_drive.value)
         log.info("Mode manager started (SI Drive: %s, Display: %s)",
                  self._si_drive.label, self._display.label)
 
@@ -181,13 +186,20 @@ class ModeManager(QObject):
                 log.debug("K5 ignored — coaching only in Intelligent mode")
 
         if buttons & KEYPAD_K6:
-            self._display = DisplayMode((self._display + 1) % 4)
-            log.info("Display mode: %s (K6)", self._display.label)
-            self.display_changed.emit(int(self._display))
+            if self._si_drive == SIDriveMode.SPORT_SHARP:
+                self._sharp_subpage = 1 - self._sharp_subpage
+                label = "track" if self._sharp_subpage == 1 else "canyon"
+                log.info("S# sub-page: %s (K6)", label)
+                self.subpage_changed.emit(self._sharp_subpage)
+            else:
+                log.debug("K6 ignored — sub-page only in S# mode")
 
     def _check_warmup(self) -> None:
-        """Check engine temperatures and update warm-up state."""
+        """Check engine temperatures, warm-up state, and SI-Drive staleness."""
         state = self._bridge.snapshot()
+
+        # SI-Drive staleness fallback: if no SI-Drive frame for 5s, go Intelligent
+        self._check_si_drive_staleness(state)
 
         # Need engine data to determine warm-up state
         if state.is_engine_stale():
@@ -210,6 +222,20 @@ class ModeManager(QObject):
                      old_warmup.label, self._warmup.label, oil_t, clt_t)
             self.warmup_changed.emit(int(self._warmup))
 
+    # SI-Drive staleness threshold (seconds without 0x6B0 frame)
+    # 3600s for bench testing without CAN; revert to 5.0 for car install
+    SI_DRIVE_STALE_TIMEOUT_S = 3600.0
+
+    def _check_si_drive_staleness(self, state: DiffState) -> None:
+        """Fall back to Intelligent if SI-Drive signal is stale."""
+        if state.si_drive_frame_ts == 0.0:
+            return  # Never received — stay in default (Intelligent)
+        elapsed = time.monotonic() - state.si_drive_frame_ts
+        if elapsed > self.SI_DRIVE_STALE_TIMEOUT_S and self._si_drive != SIDriveMode.INTELLIGENT:
+            log.warning("SI Drive stale (%.1fs) — falling back to Intelligent", elapsed)
+            self._si_drive = SIDriveMode.INTELLIGENT
+            self.si_drive_changed.emit(int(SIDriveMode.INTELLIGENT))
+
     @property
     def si_drive_mode(self) -> SIDriveMode:
         return self._si_drive
@@ -225,6 +251,11 @@ class ModeManager(QObject):
     @property
     def coaching_level(self) -> CoachingLevel:
         return self._coaching
+
+    @property
+    def sharp_subpage(self) -> int:
+        """0 = canyon (sharp_screen), 1 = track (sharp_screen_track)."""
+        return self._sharp_subpage
 
     @property
     def session_active(self) -> bool:

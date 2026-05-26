@@ -12,7 +12,8 @@ import pytest
 from voice.stt_engine import STTEngine, HybridSTTEngine, TranscriptionResult, SAMPLE_RATE
 from voice.tts_engine import TTSEngine, TTSResult, compute_amplitude_envelope
 from voice.llm_engine import (
-    LLMEngine, LLMResponse, _match_persona, FALLBACK_RESPONSE,
+    LLMEngine, LLMResponse, _match_persona, _match_safety_fast_path,
+    FALLBACK_RESPONSE,
     MODE_TOKEN_CAPS, MODE_TEMPERATURE, _MODE_ALLOWED_CATEGORIES,
 )
 from voice.mic_capture import (
@@ -212,7 +213,7 @@ class TestPersonaMatching:
         assert _match_persona("How are the brakes?") is not None
 
     def test_turbo_keywords(self):
-        assert _match_persona("How's the boost?") is not None
+        assert _match_persona("How's your boost?") is not None
 
     def test_identity_keywords(self):
         result = _match_persona("Who are you?")
@@ -221,6 +222,62 @@ class TestPersonaMatching:
 
     def test_no_match(self):
         assert _match_persona("xyzzyx gibberish qqq") is None
+
+
+class TestSafetyFastPath:
+    """Safety fast-path catches safety/joke/identity queries instantly."""
+
+    def test_safety_brakes(self):
+        result = _match_safety_fast_path("How are the brakes?")
+        assert result is not None
+        assert "caliper" in result.lower() or "piston" in result.lower()
+
+    def test_safety_oil_pressure(self):
+        result = _match_safety_fast_path("Oil pressure is low")
+        assert result is not None
+
+    def test_safety_emergency(self):
+        result = _match_safety_fast_path("I think there's a problem")
+        assert result is not None
+
+    def test_safety_overheat(self):
+        result = _match_safety_fast_path("Engine overheating!")
+        assert result is not None
+
+    def test_joke_instant(self):
+        result = _match_safety_fast_path("Tell me a joke")
+        assert result is not None
+
+    def test_identity_who(self):
+        result = _match_safety_fast_path("Who are you?")
+        assert result is not None
+        assert "kisti" in result.lower()
+
+    def test_identity_greeting(self):
+        result = _match_safety_fast_path("Good morning")
+        assert result is not None
+
+    def test_identity_help(self):
+        result = _match_safety_fast_path("What can you do?")
+        assert result is not None
+
+    def test_tech_not_instant(self):
+        """Tech queries should NOT be caught by fast-path."""
+        assert _match_safety_fast_path("Tell me about the pistons") is None
+
+    def test_fun_not_instant(self):
+        """Fun queries (except jokes/identity) should NOT be caught."""
+        assert _match_safety_fast_path("Tell me about Star Trek") is None
+
+    def test_general_not_instant(self):
+        """General knowledge should NOT be caught."""
+        assert _match_safety_fast_path("What is the capital of France") is None
+
+    def test_sport_sharp_truncation(self):
+        """Sport Sharp truncates safety fast-path to 5 words."""
+        result = _match_safety_fast_path("How are the brakes?", "Sport #")
+        assert result is not None
+        assert len(result.split()) <= 6  # 5 words + period
 
 
 # ========================================================================
@@ -335,15 +392,15 @@ class TestLLMTokenCaps:
         """All SI Drive modes have token caps."""
         assert "Intelligent" in MODE_TOKEN_CAPS
         assert "Sport" in MODE_TOKEN_CAPS
-        assert "Sport Sharp" in MODE_TOKEN_CAPS
+        assert "Sport #" in MODE_TOKEN_CAPS
 
     def test_sport_sharp_is_tightest(self):
         """Sport Sharp has the lowest token cap."""
-        assert MODE_TOKEN_CAPS["Sport Sharp"] < MODE_TOKEN_CAPS["Sport"]
+        assert MODE_TOKEN_CAPS["Sport #"] < MODE_TOKEN_CAPS["Sport"]
         assert MODE_TOKEN_CAPS["Sport"] < MODE_TOKEN_CAPS["Intelligent"]
 
     def test_sport_sharp_cap(self):
-        assert MODE_TOKEN_CAPS["Sport Sharp"] == 20
+        assert MODE_TOKEN_CAPS["Sport #"] == 20
 
     def test_sport_cap(self):
         assert MODE_TOKEN_CAPS["Sport"] == 64
@@ -353,7 +410,7 @@ class TestLLMTokenCaps:
 
     def test_temperature_decreases_with_urgency(self):
         """More aggressive modes use lower temperature."""
-        assert MODE_TEMPERATURE["Sport Sharp"] < MODE_TEMPERATURE["Sport"]
+        assert MODE_TEMPERATURE["Sport #"] < MODE_TEMPERATURE["Sport"]
         assert MODE_TEMPERATURE["Sport"] < MODE_TEMPERATURE["Intelligent"]
 
     def test_query_uses_mode_cap(self):
@@ -361,7 +418,7 @@ class TestLLMTokenCaps:
         engine = LLMEngine()
         engine.start()
         # Without Ollama, falls back to persona — just verify it doesn't crash
-        response = engine.query("How's the oil?", si_drive_mode="Sport Sharp")
+        response = engine.query("How's the oil?", si_drive_mode="Sport #")
         assert isinstance(response, LLMResponse)
         engine.stop()
 
@@ -376,7 +433,7 @@ class TestMicCapture:
         assert MIC_SAMPLE_RATE == 16000
         assert FRAME_BYTES == 1024  # Silero VAD: 512 samples * 2 bytes
         assert SPEECH_START_FRAMES == 6
-        assert SPEECH_END_FRAMES == 8
+        assert SPEECH_END_FRAMES == 19  # ~608ms — reduced sentence splitting
         assert VAD_MODE == 3  # Most aggressive — in-car noise rejection
 
     def test_init_defaults(self):
@@ -512,8 +569,9 @@ class TestExpandedPersona:
     def test_speed_how_fast(self):
         assert _match_persona("How fast are you?") is not None
 
-    def test_exhaust(self):
-        assert _match_persona("Tell me about the exhaust") is not None
+    def test_exhaust_routes_to_frontier(self):
+        assert _match_persona("Tell me about the exhaust") is None  # no self-ref → frontier
+        assert _match_persona("Tell me about your exhaust") is not None  # self-ref
 
     def test_suspension(self):
         assert _match_persona("How's the suspension?") is not None
@@ -533,8 +591,8 @@ class TestExpandedPersona:
     def test_help(self):
         assert _match_persona("What can you do?") is not None
 
-    def test_music(self):
-        assert _match_persona("Play some music") is not None
+    def test_music_routes_to_frontier(self):
+        assert _match_persona("Play some music") is None  # no self-ref, score < 10 → frontier
 
     def test_joke(self):
         assert _match_persona("Tell me a joke") is not None
@@ -549,7 +607,9 @@ class TestExpandedPersona:
         assert _match_persona("Who tunes you?") is not None
 
     def test_can_bus(self):
-        assert _match_persona("How does the CAN bus work?") is not None
+        # "How does" is a general knowledge signal → frontier passthrough
+        # Direct question about KiSTI's CAN still matches persona
+        assert _match_persona("Tell me about your CAN bus") is not None
 
     def test_emergency(self):
         assert _match_persona("I think there's a problem") is not None
@@ -569,11 +629,11 @@ class TestExpandedPersona:
     def test_fast_and_furious(self):
         assert _match_persona("This is like fast and furious") is not None
 
-    def test_back_to_future(self):
-        assert _match_persona("We need a flux capacitor") is not None
+    def test_back_to_future_routes_to_frontier(self):
+        assert _match_persona("We need a flux capacitor") is None  # score < 10 → frontier
 
-    def test_top_gear(self):
-        assert _match_persona("What would Clarkson say?") is not None
+    def test_top_gear_routes_to_frontier(self):
+        assert _match_persona("What would Clarkson say?") is None  # score < 10 → frontier
 
     def test_initial_d(self):
         assert _match_persona("Do you know Initial D?") is not None
@@ -589,7 +649,7 @@ class TestModeAwarePersona:
     def test_intelligent_returns_all_categories(self):
         """Intelligent mode returns fun, tech, and safety."""
         assert _match_persona("Who are you?", "Intelligent") is not None  # fun
-        assert _match_persona("How's the boost?", "Intelligent") is not None  # tech
+        assert _match_persona("How's your boost?", "Intelligent") is not None  # tech
         assert _match_persona("How are the brakes?", "Intelligent") is not None  # safety
 
     def test_sport_blocks_fun(self):
@@ -599,7 +659,7 @@ class TestModeAwarePersona:
 
     def test_sport_allows_tech(self):
         """Sport mode allows tech-category responses."""
-        result = _match_persona("How's the boost?", "Sport")
+        result = _match_persona("How's your boost?", "Sport")
         assert result is not None
 
     def test_sport_allows_safety(self):
@@ -609,15 +669,15 @@ class TestModeAwarePersona:
 
     def test_sport_sharp_blocks_fun(self):
         """Sport Sharp blocks fun responses."""
-        assert _match_persona("Tell me a joke", "Sport Sharp") is None
+        assert _match_persona("Tell me a joke", "Sport #") is None
 
     def test_sport_sharp_blocks_tech(self):
         """Sport Sharp blocks tech responses."""
-        assert _match_persona("How's the boost?", "Sport Sharp") is None
+        assert _match_persona("How's the boost?", "Sport #") is None
 
     def test_sport_sharp_allows_safety(self):
         """Sport Sharp allows safety responses."""
-        result = _match_persona("How are the brakes?", "Sport Sharp")
+        result = _match_persona("How are the brakes?", "Sport #")
         assert result is not None
 
     def test_sport_truncates_to_first_sentence(self):
@@ -630,7 +690,7 @@ class TestModeAwarePersona:
 
     def test_sport_sharp_truncates_to_five_words(self):
         """Sport Sharp truncates to 5 words max."""
-        result = _match_persona("How are the brakes?", "Sport Sharp")
+        result = _match_persona("How are the brakes?", "Sport #")
         assert result is not None
         words = result.rstrip(".").split()
         assert len(words) <= 5
@@ -641,13 +701,13 @@ class TestModeAwarePersona:
 
     def test_roast_blocked_in_sport_sharp(self):
         """Roast battle is fun-only, blocked in Sport Sharp."""
-        assert _match_persona("Roast me!", "Sport Sharp") is None
+        assert _match_persona("Roast me!", "Sport #") is None
 
     def test_mode_categories_complete(self):
         """All three modes are defined in _MODE_ALLOWED_CATEGORIES."""
         assert "Intelligent" in _MODE_ALLOWED_CATEGORIES
         assert "Sport" in _MODE_ALLOWED_CATEGORIES
-        assert "Sport Sharp" in _MODE_ALLOWED_CATEGORIES
+        assert "Sport #" in _MODE_ALLOWED_CATEGORIES
 
     def test_unknown_mode_defaults_to_all(self):
         """Unknown mode name defaults to all categories."""
@@ -1048,27 +1108,36 @@ class TestGoldenPersona:
         "What is the oil pressure?",
         "Is the coolant temperature ok?",
     ]
-    _TECH_QUERIES = [
+    # Tech queries WITH self-ref still match persona
+    _TECH_QUERIES_SELF_REF = [
+        "What fuel do you use?",
+    ]
+    # Tech queries WITHOUT self-ref now route to frontier (score < 10)
+    _TECH_QUERIES_FRONTIER = [
         "How is the boost?",
         "Tell me about the engine.",
-        "What fuel do you use?",
     ]
 
     def test_safety_queries_all_modes(self):
         for q in self._SAFETY_QUERIES:
-            for mode in ("Intelligent", "Sport", "Sport Sharp"):
+            for mode in ("Intelligent", "Sport", "Sport #"):
                 result = _match_persona(q, mode)
                 assert result is not None, f"'{q}' returned None in {mode}"
 
-    def test_tech_queries_intelligent_and_sport(self):
-        for q in self._TECH_QUERIES:
+    def test_tech_queries_with_self_ref(self):
+        for q in self._TECH_QUERIES_SELF_REF:
             for mode in ("Intelligent", "Sport"):
                 result = _match_persona(q, mode)
                 assert result is not None, f"'{q}' returned None in {mode}"
 
+    def test_tech_queries_without_self_ref_route_to_frontier(self):
+        for q in self._TECH_QUERIES_FRONTIER:
+            result = _match_persona(q, "Intelligent")
+            assert result is None, f"'{q}' should route to frontier (no self-ref)"
+
     def test_tech_queries_blocked_sport_sharp(self):
-        for q in self._TECH_QUERIES:
-            result = _match_persona(q, "Sport Sharp")
+        for q in self._TECH_QUERIES_SELF_REF:
+            result = _match_persona(q, "Sport #")
             assert result is None, f"'{q}' should be None in Sport Sharp"
 
 
@@ -1081,26 +1150,23 @@ class TestTier1PersonaExpansion:
     """Tests for TIER 1 persona responses added in kisti-11."""
 
     # --- DCCD & AWD ---
-    def test_dccd_education(self):
-        result = _match_persona("Tell me about the DCCD")
-        assert result is not None
+    def test_dccd_education_routes_to_frontier(self):
+        assert _match_persona("Tell me about the DCCD") is None  # no self-ref → frontier
+        result = _match_persona("Tell me about your DCCD")
+        assert result is not None  # self-ref → persona
         assert "center diff" in result.lower() or "biasing" in result.lower()
 
-    def test_dccd_feel(self):
-        result = _match_persona("What does the locking feel like?")
-        assert result is not None
-        assert "grip" in result.lower()
+    def test_dccd_feel_routes_to_frontier(self):
+        assert _match_persona("What does the locking feel like?") is None  # → frontier
 
     # --- Turbo Operation ---
-    def test_turbo_spool(self):
-        result = _match_persona("How long does it take to spool?")
-        assert result is not None
-        assert "3,200" in result or "spool" in result.lower()
+    def test_turbo_spool_routes_to_frontier(self):
+        assert _match_persona("How long does it take to spool?") is None  # → frontier
+        result = _match_persona("How long does your turbo take to spool?")
+        assert result is not None  # self-ref → persona
 
-    def test_turbo_lag(self):
-        result = _match_persona("Why is there turbo lag?")
-        assert result is not None
-        assert "lag" in result.lower()
+    def test_turbo_lag_routes_to_frontier(self):
+        assert _match_persona("Why is there turbo lag?") is None  # → frontier
 
     def test_turbo_whistle(self):
         result = _match_persona("What is that turbo noise?")
@@ -1157,11 +1223,11 @@ class TestTier1PersonaExpansion:
 
     def test_knock_available_all_modes(self):
         """Safety responses must be available in ALL SI Drive modes."""
-        for mode in ("Intelligent", "Sport", "Sport Sharp"):
+        for mode in ("Intelligent", "Sport", "Sport #"):
             assert _match_persona("I hear pinging", mode) is not None
 
     def test_fuel_quality_available_all_modes(self):
-        for mode in ("Intelligent", "Sport", "Sport Sharp"):
+        for mode in ("Intelligent", "Sport", "Sport #"):
             assert _match_persona("What about cheap fuel?", mode) is not None
 
 
@@ -1169,19 +1235,20 @@ class TestTier2DrivingTechnique:
     """Tests for TIER 2 driving technique responses."""
 
     def test_braking_technique(self):
+        # "What is" is a general knowledge signal → frontier passthrough
+        # Direct question about KiSTI's brakes still matches persona
         result = _match_persona("What is trail braking technique?")
+        assert result is None  # → frontier handles general technique questions
+        result = _match_persona("How are your brakes?")
         assert result is not None
-        assert "brake" in result.lower() or "trail" in result.lower()
 
     def test_cornering(self):
         result = _match_persona("What's the best racing line?")
         assert result is not None
         assert "apex" in result.lower() or "steering" in result.lower()
 
-    def test_g_force(self):
-        result = _match_persona("What g-force can this car pull?")
-        assert result is not None
-        assert "1.0" in result or "lateral" in result.lower()
+    def test_g_force_routes_to_frontier(self):
+        assert _match_persona("What g-force can this car pull?") is None  # → frontier
 
     def test_weight_transfer(self):
         result = _match_persona("Explain weight transfer")
@@ -1200,7 +1267,7 @@ class TestTier2DrivingTechnique:
 
     def test_emergency_responses_all_modes(self):
         """Overheat and blowout are safety — available in ALL modes."""
-        for mode in ("Intelligent", "Sport", "Sport Sharp"):
+        for mode in ("Intelligent", "Sport", "Sport #"):
             assert _match_persona("Engine overheating", mode) is not None
             assert _match_persona("Tire blowout!", mode) is not None
 
@@ -1211,8 +1278,8 @@ class TestTier3ComponentSpecs:
     def test_clutch(self):
         assert _match_persona("What clutch do you have?") is not None
 
-    def test_flywheel(self):
-        assert _match_persona("Tell me about the flywheel") is not None
+    def test_flywheel_routes_to_frontier(self):
+        assert _match_persona("Tell me about the flywheel") is None  # → frontier
 
     def test_aim_strada(self):
         assert _match_persona("What's on the AiM dash?") is not None
@@ -1226,8 +1293,8 @@ class TestTier3ComponentSpecs:
     def test_suspension_brand(self):
         assert _match_persona("What suspension brand?") is not None
 
-    def test_sway_bar(self):
-        assert _match_persona("How are the sway bars?") is not None
+    def test_sway_bar_routes_to_frontier(self):
+        assert _match_persona("How are the sway bars?") is None  # → frontier (score < 10)
 
     def test_pdm(self):
         assert _match_persona("What's the Razor PDM do?") is not None
@@ -1239,7 +1306,7 @@ class TestTier3ComponentSpecs:
 
     def test_tier3_blocked_in_sport_sharp(self):
         """TIER 3 blocked in Sport Sharp too."""
-        assert _match_persona("What's the AiM dash?", "Sport Sharp") is None
+        assert _match_persona("What's the AiM dash?", "Sport #") is None
 
 
 class TestTemperatureRouting:
@@ -1470,7 +1537,7 @@ class TestECUSensorVoiceHandlers:
         vm = self._make_vm(can_connected=False)
         result = vm._answer_from_sensors("oil temp")
         assert result is not None and "No ECU" in result
-        result2 = vm._answer_from_sensors("what rpm")
+        result2 = vm._answer_from_sensors("current rpm")
         assert result2 is not None and "No ECU" in result2
 
     def test_ambient_still_works_without_can(self):
@@ -1646,6 +1713,302 @@ class TestWakeModelSessionConfig:
         """MicCapture defaults to None wake_model."""
         mic = MicCapture(device="nonexistent")
         assert mic._wake_model is None
+
+
+# ========================================================================
+# Frontier Cloud Control Commands (KiSTI-14 Phase 5)
+# ========================================================================
+
+
+class TestFrontierCloudCommands:
+    """Tests for 'enable cloud' / 'disable cloud' voice commands."""
+
+    def test_edge_memory_settings_table_created(self):
+        """Settings table is created on initialize()."""
+        import tempfile
+        from data.duckdb_store import DuckDBStore
+        from data.edge_memory import EdgeMemory
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.duckdb"
+            store = DuckDBStore(db_path=db_path)
+            store.open()
+            memory = EdgeMemory(db_store=store, embedder=None)
+            memory.initialize()
+
+            # Verify settings table exists
+            result = store._conn.execute(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'settings'"
+            ).fetchone()
+            assert result[0] > 0, "Settings table should exist"
+
+    def test_edge_memory_get_set_string_setting(self):
+        """Test get/set string settings."""
+        import tempfile
+        from data.duckdb_store import DuckDBStore
+        from data.edge_memory import EdgeMemory
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.duckdb"
+            store = DuckDBStore(db_path=db_path)
+            store.open()
+            memory = EdgeMemory(db_store=store, embedder=None)
+            memory.initialize()
+
+            # Test set and get
+            memory.set_setting("test_key", "test_value")
+            assert memory.get_setting("test_key") == "test_value"
+
+            # Test default
+            assert memory.get_setting("nonexistent", "default") == "default"
+
+    def test_edge_memory_get_set_bool_setting(self):
+        """Test get/set boolean settings."""
+        import tempfile
+        from data.duckdb_store import DuckDBStore
+        from data.edge_memory import EdgeMemory
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.duckdb"
+            store = DuckDBStore(db_path=db_path)
+            store.open()
+            memory = EdgeMemory(db_store=store, embedder=None)
+            memory.initialize()
+
+            # Test set true
+            memory.set_setting_bool("frontier_enabled", True)
+            assert memory.get_setting_bool("frontier_enabled") is True
+
+            # Test set false
+            memory.set_setting_bool("frontier_enabled", False)
+            assert memory.get_setting_bool("frontier_enabled") is False
+
+            # Test default
+            assert memory.get_setting_bool("nonexistent", True) is True
+            assert memory.get_setting_bool("nonexistent", False) is False
+
+    def test_edge_memory_bool_parsing(self):
+        """Test boolean setting string parsing."""
+        import tempfile
+        from data.duckdb_store import DuckDBStore
+        from data.edge_memory import EdgeMemory
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.duckdb"
+            store = DuckDBStore(db_path=db_path)
+            store.open()
+            memory = EdgeMemory(db_store=store, embedder=None)
+            memory.initialize()
+
+            # Test various true representations
+            for true_val in ["true", "True", "TRUE", "1", "yes", "YES", "enabled"]:
+                memory.set_setting("bool_test", true_val)
+                assert memory.get_setting_bool("bool_test") is True, f"Failed for: {true_val}"
+
+            # Test false representations
+            for false_val in ["false", "False", "FALSE", "0", "no", "NO", "disabled", ""]:
+                memory.set_setting("bool_test", false_val)
+                assert memory.get_setting_bool("bool_test") is False, f"Failed for: {false_val}"
+
+    def test_frontier_llm_engine_lifecycle(self):
+        """Test FrontierLLMEngine start/stop lifecycle."""
+        from voice.frontier_engine import FrontierLLMEngine
+
+        # Without API key, should not start
+        engine = FrontierLLMEngine(api_key="")
+        engine.start()
+        assert not engine.is_running, "Engine should not run without API key"
+
+        # With API key, should start
+        engine = FrontierLLMEngine(api_key="sk-test-key")
+        assert not engine.is_running
+        engine.start()
+        assert engine.is_running, "Engine should be running with API key"
+        engine.stop()
+        assert not engine.is_running, "Engine should stop"
+
+    def test_frontier_llm_engine_start_idempotent(self):
+        """Test FrontierLLMEngine start is idempotent."""
+        from voice.frontier_engine import FrontierLLMEngine
+
+        engine = FrontierLLMEngine(api_key="sk-test-key")
+        engine.start()
+        assert engine.is_running
+
+        # Second start should be safe (idempotent)
+        engine.start()
+        assert engine.is_running
+
+        engine.stop()
+
+    def test_voice_manager_frontier_command_enable(self):
+        """Test voice manager frontier enable command handler."""
+        import tempfile
+        from data.duckdb_store import DuckDBStore
+        from data.edge_memory import EdgeMemory
+        from voice.frontier_engine import FrontierLLMEngine
+        from voice.voice_manager import VoiceManager
+        from unittest.mock import MagicMock
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.duckdb"
+            store = DuckDBStore(db_path=db_path)
+            store.open()
+            memory = EdgeMemory(db_store=store, embedder=None)
+            memory.initialize()
+
+            # Create voice manager
+            voice_mgr = VoiceManager(enable_mic=False)
+            voice_mgr._frontier = FrontierLLMEngine(api_key="sk-test-key")
+            voice_mgr._edge_memory = memory
+
+            # Initially frontier is not running
+            assert not voice_mgr._frontier.is_running
+
+            # Handle enable command
+            response = voice_mgr._handle_frontier_command("enable cloud")
+            assert response == "Cloud enabled."
+            assert voice_mgr._frontier.is_running
+            assert memory.get_setting_bool("frontier_enabled") is True
+
+            # Handle enable again (should be idempotent)
+            response = voice_mgr._handle_frontier_command("enable cloud")
+            assert response == "Cloud is already enabled."
+
+            voice_mgr._frontier.stop()
+
+    def test_voice_manager_frontier_command_disable(self):
+        """Test voice manager frontier disable command handler."""
+        import tempfile
+        from data.duckdb_store import DuckDBStore
+        from data.edge_memory import EdgeMemory
+        from voice.frontier_engine import FrontierLLMEngine
+        from voice.voice_manager import VoiceManager
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.duckdb"
+            store = DuckDBStore(db_path=db_path)
+            store.open()
+            memory = EdgeMemory(db_store=store, embedder=None)
+            memory.initialize()
+
+            # Create voice manager with running frontier
+            voice_mgr = VoiceManager(enable_mic=False)
+            voice_mgr._frontier = FrontierLLMEngine(api_key="sk-test-key")
+            voice_mgr._frontier.start()
+            voice_mgr._edge_memory = memory
+
+            assert voice_mgr._frontier.is_running
+
+            # Handle disable command
+            response = voice_mgr._handle_frontier_command("disable cloud")
+            assert response == "Cloud disabled."
+            assert not voice_mgr._frontier.is_running
+            assert memory.get_setting_bool("frontier_enabled") is False
+
+            # Handle disable again (should be idempotent)
+            response = voice_mgr._handle_frontier_command("disable cloud")
+            assert response == "Cloud is already disabled."
+
+    def test_voice_manager_frontier_command_status(self):
+        """Test voice manager frontier status command handler."""
+        import tempfile
+        from data.duckdb_store import DuckDBStore
+        from data.edge_memory import EdgeMemory
+        from voice.frontier_engine import FrontierLLMEngine
+        from voice.voice_manager import VoiceManager
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.duckdb"
+            store = DuckDBStore(db_path=db_path)
+            store.open()
+            memory = EdgeMemory(db_store=store, embedder=None)
+            memory.initialize()
+
+            voice_mgr = VoiceManager(enable_mic=False)
+            voice_mgr._frontier = FrontierLLMEngine(api_key="sk-test-key")
+            voice_mgr._edge_memory = memory
+
+            # Test status when disabled
+            response = voice_mgr._handle_frontier_command("cloud status")
+            assert "disabled" in response.lower()
+
+            # Test status when enabled
+            voice_mgr._frontier.start()
+            response = voice_mgr._handle_frontier_command("is cloud enabled")
+            assert "enabled" in response.lower()
+
+            voice_mgr._frontier.stop()
+
+    def test_voice_manager_frontier_command_phrase_variants(self):
+        """Test voice manager recognizes multiple frontier command phrases."""
+        import tempfile
+        from data.duckdb_store import DuckDBStore
+        from data.edge_memory import EdgeMemory
+        from voice.frontier_engine import FrontierLLMEngine
+        from voice.voice_manager import VoiceManager
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.duckdb"
+            store = DuckDBStore(db_path=db_path)
+            store.open()
+            memory = EdgeMemory(db_store=store, embedder=None)
+            memory.initialize()
+
+            voice_mgr = VoiceManager(enable_mic=False)
+            voice_mgr._frontier = FrontierLLMEngine(api_key="sk-test-key")
+            voice_mgr._edge_memory = memory
+
+            # Test enable variants
+            enable_phrases = ["enable cloud", "turn on cloud", "activate cloud"]
+            for phrase in enable_phrases:
+                voice_mgr._frontier.stop()
+                response = voice_mgr._handle_frontier_command(phrase)
+                assert response == "Cloud enabled.", f"Failed for: {phrase}"
+                assert voice_mgr._frontier.is_running
+
+            # Test disable variants
+            disable_phrases = ["disable cloud", "turn off cloud", "deactivate cloud"]
+            for phrase in disable_phrases:
+                voice_mgr._frontier.start()
+                response = voice_mgr._handle_frontier_command(phrase)
+                assert response == "Cloud disabled.", f"Failed for: {phrase}"
+                assert not voice_mgr._frontier.is_running
+
+    def test_voice_manager_frontier_command_no_frontier(self):
+        """Test frontier command handler when frontier is None."""
+        import tempfile
+        from data.duckdb_store import DuckDBStore
+        from data.edge_memory import EdgeMemory
+        from voice.voice_manager import VoiceManager
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.duckdb"
+            store = DuckDBStore(db_path=db_path)
+            store.open()
+            memory = EdgeMemory(db_store=store, embedder=None)
+            memory.initialize()
+
+            voice_mgr = VoiceManager(enable_mic=False)
+            voice_mgr._frontier = None  # No frontier
+            voice_mgr._edge_memory = memory
+
+            # Should return None (not a command match)
+            response = voice_mgr._handle_frontier_command("enable cloud")
+            assert response is None
+
+    def test_voice_manager_frontier_command_no_edge_memory(self):
+        """Test frontier command handler when edge_memory is None."""
+        from voice.frontier_engine import FrontierLLMEngine
+        from voice.voice_manager import VoiceManager
+
+        voice_mgr = VoiceManager(enable_mic=False)
+        voice_mgr._frontier = FrontierLLMEngine(api_key="sk-test-key")
+        voice_mgr._edge_memory = None  # No edge memory
+
+        # Should return None (not a command match)
+        response = voice_mgr._handle_frontier_command("enable cloud")
+        assert response is None
 
     def test_wake_model_path_is_onnx(self):
         """Configured wake model path has .onnx extension."""

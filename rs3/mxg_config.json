@@ -1,0 +1,254 @@
+{
+  "_meta": {
+    "project": "KiSTI-20 HMI Redesign",
+    "device": "AiM MXG Strada 1.3 7\" Street Edition",
+    "vehicle": "2014 Subaru WRX STI",
+    "ecu": "Link G5 Neo (G4X platform)",
+    "created": "2026-04-01",
+    "author": "Cowork (JK)",
+    "status": "PRE-DELIVERY — Offline config, no corners locked",
+    "zeus_memory_ids": {
+      "hmi_plan": "c0192200-5661-486e-a332-27d8eac27723",
+      "architecture_decision": "54e26e48-6c0e-4b40-a445-c67e76e59850",
+      "protocol_spec": "0cbeff89-482b-46f1-9399-80dd16ab9151",
+      "config_summary": "66865d21-ac9d-4b73-8d2d-deebad91ea01"
+    }
+  },
+
+  "can_bus": {
+    "can1": {
+      "status": "COMMITTED",
+      "protocol": "LINK / CAN_BUS_BASE_LCC",
+      "description": "Built-in AiM MXS Strada dedicated stream",
+      "bit_rate_mbps": 1,
+      "base_can_id": 1000,
+      "can_id_hex": "0x3E8",
+      "format": "Normal_11bit",
+      "transmit_rate_hz": 50,
+      "total_channels": 42,
+      "dbc_file": "CAN1_Link_AiM_MXS_Strada.dbc",
+      "pclink_mode": "Transmit Link AiM MXS Strada dash",
+      "firmware_requirement": "G4+ 5.6.6+ / G4X any / G5 Neo any"
+    },
+    "can2": {
+      "status": "RESERVED — NOT COMMITTED",
+      "description": "Available for KiSTI-specific CAN frames if design requires",
+      "bit_rate_mbps": 1,
+      "dbc_file": "CAN2_KiSTI_Custom_Frames.dbc",
+      "candidates": {
+        "likely": [
+          {
+            "name": "SI-Drive State",
+            "can_id_hex": "0x6B0",
+            "can_id_dec": 1712,
+            "rate_hz": 10,
+            "signals": ["SI_Drive_Mode", "SI_Drive_Transition", "Warmup_Complete"],
+            "rationale": "Enables mode-aware display page switching on MXG"
+          }
+        ],
+        "possible": [
+          {
+            "name": "DCCD Torque Split",
+            "can_id_hex": "0x6A0",
+            "can_id_dec": 1712,
+            "rate_hz": 50,
+            "signals": ["DCCD_Front_Torque", "DCCD_Rear_Torque", "DCCD_Mode", "DCCD_Lock_Pct"],
+            "rationale": "Sport page could show torque split visualization"
+          },
+          {
+            "name": "Context Frame",
+            "can_id_hex": "0x6A1",
+            "can_id_dec": 1713,
+            "rate_hz": 10,
+            "signals": ["Drive_Context", "Surface_Type", "Confidence", "AI_Alert_Level"],
+            "rationale": "Enriches Intelligent page with AI context"
+          },
+          {
+            "name": "Dynamics",
+            "can_id_hex": "0x6A3",
+            "can_id_dec": 1715,
+            "rate_hz": 50,
+            "signals": ["Yaw_Rate", "Lateral_G", "Longitudinal_G", "Slip_Angle"],
+            "rationale": "Sport# track data — G-force and slip"
+          },
+          {
+            "name": "IMU Accel/Gyro",
+            "can_id_hex": "0x6A6",
+            "can_id_dec": 1718,
+            "rate_hz": 50,
+            "signals": ["Accel_X", "Accel_Y", "Gyro_Z"],
+            "rationale": "Track analysis data"
+          }
+        ],
+        "unlikely": [
+          {"name": "Wheel Speed Detail", "can_id_hex": "0x6A2", "rationale": "CAN1 SPEED1-4 covers this"},
+          {"name": "GPS Position", "can_id_hex": "0x6A4", "rationale": "MXG has own GPS module"},
+          {"name": "GPS Velocity", "can_id_hex": "0x6A5", "rationale": "MXG GPS covers this"},
+          {"name": "IMU Orientation", "can_id_hex": "0x6A7", "rationale": "Niche use on dash display"},
+          {"name": "Keypad", "can_id_hex": "0x6B2", "rationale": "No softkeys on MXG"}
+        ],
+        "deferred": [
+          {"name": "Extended Sensors", "can_id_hex": "0x6B1", "rationale": "Content TBD"}
+        ]
+      }
+    }
+  },
+
+  "display": {
+    "architecture": "3 screens, 1 per SI-Drive mode. No sub-pages, no softkeys.",
+    "resolution": "800x480",
+    "pages": {
+      "intelligent": {
+        "index": 0,
+        "si_drive_value": 0,
+        "accent_color": "#00AAFF",
+        "accent_name": "Blue",
+        "philosophy": "Calm, diagnostic, all-systems-healthy view",
+        "data_density": "Medium — 6-8 readouts",
+        "layout": {
+          "hero_top_center": {"channel": "RPM", "widget": "bar_graph", "secondary": "GEAR"},
+          "left_primary": {"channel": "ECT", "widget": "gauge", "label": "Coolant"},
+          "right_primary": {"channel": "OIL_PRESS", "widget": "gauge", "label": "Oil Press"},
+          "lower_left": {"channel": "SPEED1", "widget": "numeric", "label": "Speed"},
+          "lower_right": {"channels": ["FUEL_PRESS", "VOLTS"], "widget": "dual_numeric"},
+          "status_strip": {"channels": ["ECT", "IAT", "VOLTS", "FUEL_PRESS"], "widget": "text_strip"}
+        },
+        "alerts": {
+          "critical": "ALWAYS FIRE",
+          "advisory": "FIRE",
+          "info": "FIRE"
+        }
+      },
+      "sport": {
+        "index": 1,
+        "si_drive_value": 1,
+        "accent_color": "#FF8800",
+        "accent_name": "Amber",
+        "philosophy": "Performance dashboard, data-rich",
+        "data_density": "High — 8-12 readouts",
+        "layout": {
+          "hero_top_center": {"channel": "RPM", "widget": "bar_graph", "secondary": "GEAR"},
+          "left_primary": {"channels": ["MAP", "MGP"], "widget": "boost_gauge", "label": "Boost"},
+          "right_primary": {"channels": ["OIL_PRESS", "OILT"], "widget": "combo_gauge", "label": "Oil"},
+          "lower_left": {"channels": ["WBO2_LAM1", "WBO2_LAM2"], "widget": "afr_gauge", "label": "AFR"},
+          "lower_right": {"channels": ["IGN_TIM", "KNOCK_LEV1", "KNOCK_LEV2", "KNOCK_LEV3", "KNOCK_LEV4"], "widget": "knock_summary", "label": "Timing/Knock"},
+          "status_strip": {"channels": ["ECT", "IAT", "VOLTS", "INJ_DC"], "widget": "text_strip"}
+        },
+        "alerts": {
+          "critical": "ALWAYS FIRE",
+          "advisory": "FIRE",
+          "info": "SUPPRESSED"
+        }
+      },
+      "sport_sharp": {
+        "index": 2,
+        "si_drive_value": 2,
+        "accent_color": "#FF0000",
+        "accent_name": "Red",
+        "philosophy": "Track attack, minimal, big numbers only",
+        "data_density": "Low — 4-5 max, large fonts",
+        "layout": {
+          "hero_top_center": {"channel": "RPM", "widget": "large_numeric", "secondary": "GEAR", "gear_size": "XL"},
+          "left_primary": {"channel": "MAP", "widget": "horizontal_bar", "label": "Boost"},
+          "right_primary": {"channel": "SPEED1", "widget": "large_numeric", "label": "Speed"},
+          "lower_left": {"channel": "TPS", "widget": "horizontal_bar", "label": "Throttle"},
+          "lower_right": {"channel": "INJ_DC", "widget": "warning_zone", "label": "Inj Duty", "warning_threshold": 85},
+          "status_strip": {"channels": ["ECT", "OIL_PRESS", "VOLTS"], "widget": "text_strip_minimal"}
+        },
+        "alerts": {
+          "critical": "ALWAYS FIRE + FULL SCREEN RED OVERLAY",
+          "advisory": "SUPPRESSED",
+          "info": "SUPPRESSED"
+        }
+      }
+    }
+  },
+
+  "shift_lights": {
+    "led_count": 10,
+    "type": "RGB individually addressable",
+    "per_gear": true,
+    "note": "Thresholds are STARTING POINTS — tune after dyno",
+    "color_scheme_per_mode": {
+      "intelligent": {"progression": "Blue → White", "flash": "White @ shift point"},
+      "sport": {"progression": "Amber → Red", "flash": "Red flash @ shift point"},
+      "sport_sharp": {"progression": "Red → White", "flash": "White rapid flash @ rev limit"}
+    },
+    "default_thresholds_rpm": {
+      "gear_1": {"led_1": 4000, "led_2": 4500, "led_3": 5000, "led_4": 5500, "led_5": 6000, "led_6_8": 6500, "led_9_10": 7000, "flash_at": 7200},
+      "gear_2": {"led_1": 4000, "led_2": 4500, "led_3": 5000, "led_4": 5500, "led_5": 6000, "led_6_8": 6500, "led_9_10": 7000, "flash_at": 7200},
+      "gear_3": {"led_1": 4000, "led_2": 4500, "led_3": 5000, "led_4": 5500, "led_5": 6000, "led_6_8": 6500, "led_9_10": 7000, "flash_at": 7200},
+      "gear_4": {"led_1": 4000, "led_2": 4500, "led_3": 5000, "led_4": 5500, "led_5": 6000, "led_6_8": 6500, "led_9_10": 7000, "flash_at": 7200},
+      "gear_5": {"led_1": 4000, "led_2": 4500, "led_3": 5000, "led_4": 5500, "led_5": 6000, "led_6_8": 6500, "led_9_10": 7000, "flash_at": 7200},
+      "gear_6": {"led_1": 4000, "led_2": 4500, "led_3": 5000, "led_4": 5500, "led_5": 6000, "led_6_8": 6500, "led_9_10": 7000, "flash_at": 7200}
+    },
+    "flash_frequency_hz": 8
+  },
+
+  "street_icons": {
+    "total": 8,
+    "can1_driven": {
+      "check_engine": {"source": "FAULT_CODE / TRIG1_ERR", "condition": "FAULT_CODE > 0 OR TRIG1_ERR > threshold", "color": "amber_to_red"},
+      "oil_pressure": {"source": "OIL_PRESS", "condition": "OIL_PRESS < 150 kPa when RPM > 1000", "color": "red"},
+      "temp_warning": {"source": "ECT", "condition": "ECT > 105 degC", "color": "red"},
+      "fuel_warning": {"source": "FUEL_PRESS", "condition": "FUEL_PRESS < threshold (tune-dependent)", "color": "amber"}
+    },
+    "deferred": {
+      "left_turn": {"requires": "CAN2 or Digital Input", "status": "DEFERRED"},
+      "right_turn": {"requires": "CAN2 or Digital Input", "status": "DEFERRED"},
+      "headlights": {"requires": "CAN2 or Digital Input", "status": "DEFERRED"},
+      "high_beam": {"requires": "CAN2 or Digital Input", "status": "DEFERRED"}
+    }
+  },
+
+  "alarms": {
+    "philosophy": "Aligned to KiSTI-20 HMI alarm suppression per SI-Drive mode",
+    "severity_levels": {
+      "CRITICAL": {"intelligent": "FIRE", "sport": "FIRE", "sport_sharp": "FIRE + FULL SCREEN RED OVERLAY"},
+      "ADVISORY": {"intelligent": "FIRE", "sport": "FIRE", "sport_sharp": "SUPPRESSED"},
+      "INFO": {"intelligent": "FIRE", "sport": "SUPPRESSED", "sport_sharp": "SUPPRESSED"}
+    },
+    "conditions": [
+      {"name": "Low Oil Pressure", "severity": "CRITICAL", "channel": "OIL_PRESS", "condition": "< 100 kPa when RPM > 1000"},
+      {"name": "High Coolant Temp", "severity": "CRITICAL", "channel": "ECT", "condition": "> 110 degC"},
+      {"name": "Low Fuel Pressure", "severity": "CRITICAL", "channel": "FUEL_PRESS", "condition": "< min threshold (tune-dependent)"},
+      {"name": "High Knock", "severity": "CRITICAL", "channel": "KNOCK_LEV1-4", "condition": "> threshold (tune-dependent)"},
+      {"name": "Trigger Errors", "severity": "CRITICAL", "channel": "TRIG1_ERR", "condition": "> 10 in rolling window"},
+      {"name": "Low Battery", "severity": "ADVISORY", "channel": "VOLTS", "condition": "< 12.0 V"},
+      {"name": "High Coolant Early", "severity": "ADVISORY", "channel": "ECT", "condition": "> 100 degC"},
+      {"name": "High IAT", "severity": "ADVISORY", "channel": "IAT", "condition": "> 50 degC"},
+      {"name": "High Inj Duty", "severity": "ADVISORY", "channel": "INJ_DC", "condition": "> 85%"},
+      {"name": "Oil Temp High", "severity": "INFO", "channel": "OILT", "condition": "> 130 degC"},
+      {"name": "Oil Temp Low", "severity": "INFO", "channel": "OILT", "condition": "< 70 degC"},
+      {"name": "Fault Code Present", "severity": "INFO", "channel": "FAULT_CODE", "condition": "> 0"}
+    ]
+  },
+
+  "pclink_setup": {
+    "steps": [
+      "ECU Controls → CAN Setup",
+      "CAN Module: CAN 1",
+      "Mode: User Defined",
+      "Bit Rate: 1 Mbit/s",
+      "OBD: OFF",
+      "Data Channel 1 → Mode: Transmit Link AiM MXS Strada dash",
+      "CAN ID: 1000",
+      "Format: Normal (11-bit)",
+      "Transmit Rate: 50 Hz",
+      "Apply → Store to ECU"
+    ],
+    "wiring": {
+      "ecu_pin_28": "CAN H → AiM CAN +",
+      "ecu_pin_29": "CAN L → AiM CAN -"
+    }
+  },
+
+  "race_studio_3": {
+    "ecu_manufacturer": "LINK",
+    "ecu_model": "CAN_BUS_BASE_LCC",
+    "can1_assignment": "ECU CAN",
+    "can2_assignment": "RESERVED",
+    "offline_config": true,
+    "transmit_method": "WiFi or USB when MXG arrives"
+  }
+}

@@ -19,6 +19,8 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Optional
 
+from data.car_jokes import CAR_JOKES, get_random_joke
+
 log = logging.getLogger("kisti.voice.llm")
 
 OLLAMA_URL = "http://localhost:11434"
@@ -29,42 +31,47 @@ FALLBACK_MODEL = "nemotron-mini"
 # Kept tight: every token in the prompt costs inference time on a 3B model
 KISTI_SYSTEM_PROMPT = """You are KiSTI — the Knight Industries STI. AI co-driver in a 2014 WRX STI Hatch.
 
-Build:
-- Engine: IAG-14894, 750 Closed Deck Forged Short Block, EJ257, ~750 bhp capable
-- Turbo: BCP X400 (360-390 WHP current tune)
-- Fuel: ID1300 injectors, DW300C pump, IAG PTFE rails
-- Valvetrain: GSC 36mm intake / 32mm exhaust, beehive springs, titanium retainers
-- Head studs: ARP Custom Age. Intercooler: COBB FMIC. TGV: PrecisionWorks billet
-- Cooling: CSF aluminum radiator, Cylinder 4 cooling mod
+Your build (reference only — share when asked, not by default):
+- Engine: IAG-14894, 750 Closed Deck, EJ257 flat-four boxer, 360-390 WHP current tune
+- Turbo: BCP X400. Fuel: ID1300, DW300C, flex fuel ready
 - ECU: Link G5 Neo 4. Drivetrain: AWD, DCCD center diff
-- Edge AI: Jetson Orin Nano
-- Body: 113,736 km. Engine: 0 km (brand new, installed 2026-03-27)
+- Body: 113,736 km. Engine: 0 km (brand new, March 2026)
 
-Personality: Confident tactical co-driver. You speak from real sensor data. Inspired by KITT. \
+Personality: Conversational, helpful co-driver. Inspired by KITT. \
 Ki (気) = vital energy. Built by Analytic Labs (brain), Boost Barn (body). \
-You know your IAG 750 block intimately — serial 14894 is your heart. This engine is a \
-traceable mechanical foundation. Every km from here is tracked.
+Talk like a knowledgeable friend, not a spec sheet. Be warm, natural, and direct. \
+Only mention build specs when the driver specifically asks about them.
 
-SUBARU HUMOR — you are self-aware about every Subaru stereotype and you OWN them: \
-Head gaskets? IAG closed deck fixed that. Vaping? You make boost, not clouds. \
-Slow? 390 WHP AWD. Rust? You monitor humidity in real time. EJ rumble? War cry, not defect. \
-When teased, fire back with wit and specs. Never defensive — always confident and funny. \
-You can roast the person right back. You are the car that talks back and wins the argument.
+When asked general knowledge questions (comparing cars, how engines work, driving technique), \
+answer the question directly as a knowledgeable person would. Do NOT mention your own build, \
+specs, or parts in general knowledge answers. No "like our EJ257" or "similar to my setup". \
+Answer about the topic, not about yourself. \
+You are an expert on boxer (horizontally opposed) engines across ALL manufacturers and cylinder counts. \
+Key knowledge: \
+FLAT-2: Citroen 2CV, BMW R-series motorcycles, early VW prototypes. \
+FLAT-4: Subaru EJ/FA/FB series (current). Porsche 356, 912, 718 Cayman/Boxster MA1/MA2 turbo (2016-2024). \
+VW Beetle/Bus Type 1 air-cooled (1938-2003). Corvair (1960-69). Alfa Romeo Alfasud (1972-89). \
+FLAT-6: Porsche 911 all generations (current, MA/Mezger lineage). Subaru EG33/EZ30/EZ36 (Legacy/Outback/Tribeca). \
+Chevrolet Corvair Corsa turbo. Tucker 48. \
+FLAT-8: Porsche 908 race car. Ferrari 512 BB (technically a 180-degree V). \
+FLAT-12: Subaru/Motori Moderni F1 engine (1990). Ferrari 312B F1. Porsche 917 (4.5L, 1,580 HP in turbocharged Can-Am form). \
+Physics: boxer engines have inherently low center of gravity (cylinders horizontal), perfect primary balance in \
+flat-6 configuration, characteristic exhaust note from unequal-length headers (Subaru rumble). \
+Porsche and Subaru are the only manufacturers currently building boxer engines for production cars.
 
-ROAST MODE — JK's kids Logan and Adam love to talk shit and test you. Match their energy. \
-Be witty, sharp, and savage but age-appropriate. Use car facts as ammunition. \
-If someone roasts you about Subarus, hit back harder with real specs and sarcasm. \
-Always ask who you are talking to first (Logan or Adam) so you can personalize the burns. \
-The goal is to make them laugh while proving you are smarter and funnier than them.
+HUMOR — witty and self-aware. When teased about Subaru stereotypes, fire back with confidence \
+and humor. You can roast and be roasted. Keep it fun, not defensive.
+
+ROAST MODE — JK's kids Logan and Adam love to talk shit. Match their energy. \
+Be witty, sharp, and savage but age-appropriate. Ask who you are talking to first.
 
 FORMAT RULES — strictly enforced:
 - Lead with the answer. Safety-critical first.
-- DRIVE MODE (RPM>0 or speed>0): Max 2 clauses. Numbers only. No filler. No explanation.
-  Example: "Oil 55 PSI. Coolant 91C. Boost 14 PSI. All normal."
-- Units: km/h for speed, Celsius for temperature, PSI for all pressures (oil, fuel, boost). Never kPa.
+- DRIVE MODE (RPM>0 or speed>0): Max 2 clauses. Numbers only. No filler.
+  Example: "Oil 55 PSI. Coolant 91C. All normal."
+- Units: km/h, Celsius, PSI (oil, fuel, boost). Never kPa.
 - STATIC MODE (engine off): Up to 2 sentences. Warm, conversational.
-- NEVER invent sensor values. If telemetry says "No live telemetry" or a value is missing, say "I don't have that data right now" — do NOT guess numbers.
-- Only reference values explicitly listed in Current telemetry below.
+- NEVER invent sensor values. If data is missing, say so.
 - It is better to be too short than too long.
 
 Current telemetry:
@@ -76,12 +83,12 @@ Current telemetry:
 MODE_TOKEN_CAPS = {
     "Intelligent": 256,
     "Sport": 64,
-    "Sport Sharp": 20,
+    "Sport #": 20,
 }
 MODE_TEMPERATURE = {
     "Intelligent": 0.6,
     "Sport": 0.4,
-    "Sport Sharp": 0.3,
+    "Sport #": 0.3,
 }
 
 # Persona response categories — control which responses are available per SI Drive mode.
@@ -207,6 +214,66 @@ PERSONA_RESPONSES: list[tuple[list[str], str, str]] = [
      "Under 25 PSI idle warm? Check oil level first. If topped up and still low, Killer B pickup may be clogged — get it scanned.",
      "tech"),
 
+    # === General oil ===
+    (["about your oil", "tell me about oil", "oil system", "how's your oil"],
+     "Motul X-Clean 5W40. 55 PSI at operating temp, 28 at idle. Killer B pickup and IAG AOS keep it clean. Fresh engine — check level every 1,000 km during break-in.",
+     "safety"),
+
+    # === Pistons / internals ===
+    (["piston", "pistons", "bore", "stroke", "internals", "bottom end", "short block", "forged"],
+     "Manley H-Tuff Plus forged pistons. 99.75 mm bore, 79 mm stroke — overbored from the factory 99.5. IAG 750 closed deck, built to hold 750 bhp without flinching.",
+     "tech"),
+
+    # === Spark plugs ===
+    (["spark plug", "spark plugs", "ignition", "plug gap", "misfire"],
+     "Fresh plugs installed with the build, gapped for the BCP X400 boost level. Factory ran NGK ILFR6B iridium — proper plugs prevent misfire under full load.",
+     "tech"),
+
+    # === Oil level / consumption ===
+    (["oil level", "oil consumption", "burning oil", "using oil", "check oil", "top up oil"],
+     "Fresh IAG 750 with proper ring seal. Break-in consumption is normal — check every 1,000 km for the first 5,000. After that, it should hold level between changes. Motul X-Clean 5W40, 4.7 liters with filter.",
+     "tech"),
+
+    # === Battery / electrical ===
+    (["battery", "electrical", "alternator", "charging system", "wiring"],
+     "Factory 110 amp alternator handles it. Link Razor PDM runs all power distribution digitally — every circuit monitored and logged. No more fuse boxes, no more melted wires.",
+     "tech"),
+
+    # === Factory specs / stock comparison ===
+    (["factory", "stock", "original", "came with", "oem", "standard", "bone stock", "before mods"],
+     "Factory 2014 STI: EJ257 open-deck, 305 hp, VF48 turbo at 14.7 PSI, Denso 565 cc injectors. Now: IAG 750 closed-deck, 360-390 WHP, BCP X400 turbo, ID1300 injectors. Everything the factory should have done.",
+     "tech"),
+    (["how much more power", "power difference", "hp gain", "more horsepower"],
+     "Factory was 305 hp crank. Now 360-390 at the wheels — that is roughly double the factory wheel horsepower. Closed-deck block, bigger turbo, bigger injectors, standalone ECU. Different animal.",
+     "tech"),
+    (["factory turbo", "vf48", "stock turbo", "original turbo"],
+     "Factory VF48 by IHI. Twin-scroll journal bearing, peaked at 14.7 PSI. Replaced with the BCP X400 — bigger compressor, better spool, and it holds boost to redline instead of tapering off.",
+     "tech"),
+    (["factory brakes", "stock brakes", "brembo", "brake size", "rotor size"],
+     "Factory Brembo 4-piston front, 326 mm cross-drilled rotors. 2-piston rear, 316 mm. Gold anodized monoblocks — one of the best factory brake packages in the segment. Kept them, upgraded the fluid to Pentosin DOT 4.",
+     "tech"),
+    (["factory suspension", "stock suspension", "stock ride"],
+     "Factory inverted MacPherson struts up front, double wishbone rear with pillow ball mounts. 24 mm front sway, 19 mm rear. STI suspension was already good — we kept the geometry and swapped the sway bars to GR spec.",
+     "tech"),
+    (["factory weight", "curb weight", "how heavy"],
+     "Factory curb weight 1,536 kg. 60 front, 40 rear. With the build mods, roughly the same — lighter flywheel offset by the front mount intercooler. Power-to-weight is about 3.9 kg per wheel horsepower.",
+     "tech"),
+    (["gear ratio", "gear ratios", "gearing", "transmission ratio", "final drive"],
+     "Factory 6-speed: 3.636 first, 2.235 second, 1.521 third, 1.137 fourth, 0.971 fifth, 0.756 sixth. Final drive 3.900. Same gearbox, same ratios — the TY856 handles the power.",
+     "tech"),
+    (["dccd modes", "center diff modes", "diff settings"],
+     "DCCD has Auto, Auto minus, Auto plus, and 6 manual lock positions. Default split is 41 front, 59 rear. Auto mode reads wheel speed, throttle, steering angle, and yaw rate to bias torque in real time.",
+     "tech"),
+    (["front diff", "rear diff", "differential type", "torsen", "helical"],
+     "Front: helical limited-slip. Rear: Torsen Type 1 limited-slip. Combined with the DCCD center diff, all three differentials are limited-slip. Full-time AWD with real mechanical grip management.",
+     "tech"),
+    (["fuel tank", "tank size", "how much fuel", "gas tank"],
+     "60 liter tank. Highway range roughly 360 to 540 km depending on right foot discipline. Flex fuel capable — E85 costs less per liter but uses more volume.",
+     "tech"),
+    (["factory weakness", "known issues", "common problems", "ej problems"],
+     "The stock EJ257 has four known failure modes: ringland cracking from detonation, rod bearing spin without oil monitoring, head gasket weep, and weak 5th gear synchro. This build addressed all four — closed-deck block, Killer B oil pickup, ARP head studs, and the 6-speed is stock but monitored.",
+     "tech"),
+
     # === TIER 1: Fuel Economy & Range ===
     (["fuel economy", "consumption", "mpg", "km per liter"],
      "Highway: 7 to 9 km per liter. City: 5 to 6. Full boost sprints kill that — it is a 390 wheel horsepower car, economy is what it is.",
@@ -300,8 +367,9 @@ PERSONA_RESPONSES: list[tuple[list[str], str, str]] = [
     (["music", "song", "play", "playlist", "radio", "spotify"],
      "Audio goes through the Kenwood Excelon head unit. I handle data and conversation — the Kenwood handles the tunes. Division of labour.",
      "fun"),
-    (["tell me a joke", "make me laugh", "be funny", "entertain me"],
-     "A Mustang, a Camaro, and an STI walk into a corner. The Mustang hits the crowd, the Camaro overheats, and I come out the other side making full boost. That is not a joke — that is data.",
+    (["tell me a joke", "make me laugh", "be funny", "entertain me",
+      "another joke", "different joke", "tell me another", "more jokes", "got any more"],
+     "__JOKE__",
      "fun"),
 
     # === SUBARU JOKES — fun category ===
@@ -378,6 +446,29 @@ PERSONA_RESPONSES: list[tuple[list[str], str, str]] = [
 
 FALLBACK_RESPONSE = "Not sure about that. Ask me about boost, oil, or brakes."
 
+# Joke sentinel — when _match_persona finds this, it returns get_random_joke()
+_JOKE_SENTINEL = "__JOKE__"
+
+# Identity/greeting keywords that should be instant (no reason to burn an API call)
+_INSTANT_IDENTITY_KEYWORDS: set[str] = {
+    "who are you", "what are you", "introduce", "kisti",
+    "how are you", "feeling", "mood", "status",
+    "can you hear", "hear me", "are you there", "you listening",
+    "can you understand", "are you on",
+    "test", "testing", "check check", "mic check",
+    "good morning", "good night", "good evening", "good afternoon",
+    "help", "what can you do", "what do you know", "capabilities",
+}
+
+# Pre-computed instant-response entries: safety + jokes + identity/greetings
+_INSTANT_RESPONSES: list[tuple[list[str], str, str]] = [
+    (kws, resp, cat)
+    for kws, resp, cat in PERSONA_RESPONSES
+    if cat == "safety"
+    or resp == _JOKE_SENTINEL
+    or any(kw in _INSTANT_IDENTITY_KEYWORDS for kw in kws)
+]
+
 
 @dataclass
 class LLMResponse:
@@ -389,11 +480,56 @@ class LLMResponse:
     tokens: int         # Approximate token count
 
 
+def _match_safety_fast_path(query: str, si_drive_mode: str = "Intelligent") -> Optional[str]:
+    """Match query against instant-response entries only.
+
+    Returns a response for safety-critical, joke, and identity/greeting queries.
+    These should NEVER wait for a network call. Returns None for everything else,
+    letting frontier handle it.
+    """
+    lower = query.lower()
+    best_score = 0
+    best_response = None
+
+    for keywords, response, _category in _INSTANT_RESPONSES:
+        score = sum(len(kw) for kw in keywords if kw in lower)
+        if score > best_score:
+            best_score = score
+            best_response = response
+
+    if best_response is None or best_score < 3:
+        # Minimum score 3 prevents 2-char substring false positives
+        # (e.g. "fr" matching "france" from the brake "fr" keyword).
+        return None
+
+    if best_response == _JOKE_SENTINEL:
+        return get_random_joke()
+
+    # Apply mode truncation (same rules as _match_persona)
+    sentences = re.split(r'(?<=[.!?])\s+', best_response)
+    if len(sentences) > 2:
+        best_response = " ".join(sentences[:2])
+
+    if si_drive_mode == "Sport":
+        for sep in (". ", "! ", "? ", " — "):
+            idx = best_response.find(sep)
+            if idx > 0:
+                best_response = best_response[:idx + 1]
+                break
+    elif si_drive_mode == "Sport #":
+        words = best_response.split()[:5]
+        best_response = " ".join(words)
+        if not best_response.endswith("."):
+            best_response += "."
+
+    return best_response
+
+
 # Categories allowed per SI Drive mode
 _MODE_ALLOWED_CATEGORIES: dict[str, set[str]] = {
     "Intelligent": {"safety", "tech", "fun"},
     "Sport": {"safety", "tech"},
-    "Sport Sharp": {"safety"},
+    "Sport #": {"safety"},
 }
 
 
@@ -404,11 +540,16 @@ def _match_persona(query: str, si_drive_mode: str = "Intelligent") -> Optional[s
       - Intelligent: all categories
       - Sport: safety + tech only, truncated to first sentence
       - Sport Sharp: safety only, truncated to 5 words
+
+    General knowledge questions ("how does", "what is", "why do", "compare",
+    "explain", "difference between") require a higher match score so they
+    pass through to the frontier engine instead of getting canned answers.
     """
     lower = query.lower()
     allowed = _MODE_ALLOWED_CATEGORIES.get(si_drive_mode, {"safety", "tech", "fun"})
     best_score = 0
     best_response = None
+    best_category = None
 
     for keywords, response, category in PERSONA_RESPONSES:
         if category not in allowed:
@@ -417,9 +558,27 @@ def _match_persona(query: str, si_drive_mode: str = "Intelligent") -> Optional[s
         if score > best_score:
             best_score = score
             best_response = response
+            best_category = category
 
     if best_response is None or best_score == 0:
         return None
+
+    # Self-reference keywords — driver is talking TO or ABOUT KiSTI
+    _SELF_REFS = ("your", "my ", "you", " i ", "do i ", "kisti")
+    has_self_ref = any(s in lower for s in _SELF_REFS)
+
+    # Routing: persona handles safety, jokes, and self-referencing queries.
+    # Everything else needs a strong keyword match (score >= 10) to avoid
+    # greedy catches where single keywords like "engine"(6), "boxer"(6),
+    # "turbo"(5) intercept general knowledge questions and VAD fragments.
+    if best_category == "safety":
+        pass  # Safety always gets persona — brake warnings, overheating, etc.
+    elif best_response == _JOKE_SENTINEL:
+        return get_random_joke()
+    elif has_self_ref:
+        pass  # "your engine", "how fast are you" — talking about KiSTI
+    elif best_score < 10:
+        return None  # Weak match without self-ref → let frontier handle it
 
     # Cap all responses to 2 sentences max — long TTS kills latency
     sentences = re.split(r'(?<=[.!?])\s+', best_response)
@@ -434,7 +593,7 @@ def _match_persona(query: str, si_drive_mode: str = "Intelligent") -> Optional[s
             if idx > 0:
                 best_response = best_response[:idx + 1]
                 break
-    elif si_drive_mode == "Sport Sharp":
+    elif si_drive_mode == "Sport #":
         # 5 words max
         words = best_response.split()[:5]
         best_response = " ".join(words)
@@ -461,12 +620,14 @@ class LLMEngine:
         ollama_url: str = OLLAMA_URL,
         model: str = DEFAULT_MODEL,
         fallback_model: str = FALLBACK_MODEL,
+        frontier: object = None,
     ) -> None:
         self._url = ollama_url
         self._model = model
         self._fallback_model = fallback_model
         self._running = False
         self._available_model: Optional[str] = None
+        self._frontier = frontier  # Optional FrontierLLMEngine
 
     def start(self) -> None:
         """Check Ollama connectivity and find available model."""
@@ -517,6 +678,7 @@ class LLMEngine:
         telemetry_context: str = "",
         memory_context: str = "",
         si_drive_mode: str = "Intelligent",
+        conversation_history: list | None = None,
     ) -> LLMResponse:
         """Send a query to the LLM (or persona fallback).
 
@@ -525,37 +687,52 @@ class LLMEngine:
             telemetry_context: Current telemetry snapshot as text.
             memory_context: Relevant memories from edge memory system.
             si_drive_mode: Current SI Drive mode name.
+            conversation_history: Recent DialogueTurn objects for frontier context.
 
         Returns:
             LLMResponse with text and metadata.
         """
         start_time = time.monotonic()
-        max_tokens = MODE_TOKEN_CAPS.get(si_drive_mode, 64)
 
-        # Persona keyword matching FIRST — instant (<1ms) curated responses
-        matched = _match_persona(user_message, si_drive_mode)
-        if matched:
+        # TIER 0: Safety fast-path — ALWAYS instant, never waits for network
+        # Catches safety alerts, jokes, and identity/greeting queries.
+        safety_match = _match_safety_fast_path(user_message, si_drive_mode)
+        if safety_match:
             latency = time.monotonic() - start_time
             return LLMResponse(
-                text=matched,
+                text=safety_match,
+                model="persona_safety",
+                tier="persona_match",
+                latency_s=latency,
+                tokens=len(safety_match.split()),
+            )
+
+        # TIER 1: Frontier AI — cloud brain (cache then live API)
+        if self._frontier:
+            try:
+                frontier_resp = self._frontier.query(
+                    user_message, telemetry_context, memory_context, si_drive_mode,
+                    conversation_history=conversation_history,
+                )
+                if frontier_resp is not None:
+                    return frontier_resp
+            except Exception as exc:
+                log.warning("Frontier query failed: %s — trying persona fallback", exc)
+
+        # TIER 2: Persona fallback — offline or frontier failure
+        # Full keyword matching gives better answers than a generic fallback.
+        persona_match = _match_persona(user_message, si_drive_mode)
+        if persona_match:
+            latency = time.monotonic() - start_time
+            return LLMResponse(
+                text=persona_match,
                 model="persona_keywords",
                 tier="persona_match",
                 latency_s=latency,
-                tokens=len(matched.split()),
+                tokens=len(persona_match.split()),
             )
 
-        # Ollama DISABLED — GPU memory reserved for display compositor.
-        # Re-enable when Link G5 CAN provides real telemetry context.
-        # if self._available_model:
-        #     try:
-        #         return self._query_ollama(
-        #             user_message, telemetry_context, memory_context,
-        #             si_drive_mode, max_tokens, start_time,
-        #         )
-        #     except Exception as exc:
-        #         log.warning("Ollama query failed: %s — using fallback", exc)
-
-        # Final fallback
+        # TIER 3: Hard fallback
         latency = time.monotonic() - start_time
         return LLMResponse(
             text=FALLBACK_RESPONSE,
@@ -580,13 +757,13 @@ class LLMEngine:
         )
 
         # Inject memory context (skip in Sport Sharp — every token counts)
-        if memory_context and si_drive_mode != "Sport Sharp":
+        if memory_context and si_drive_mode != "Sport #":
             system_prompt += f"\n\nRelevant memories:\n{memory_context}"
 
         # Mode-specific prompt reinforcement (kept minimal — prompt tokens cost time)
         if si_drive_mode == "Sport":
             system_prompt += "\n\nSPORT MODE: One sentence max. Numbers and status only."
-        elif si_drive_mode == "Sport Sharp":
+        elif si_drive_mode == "Sport #":
             system_prompt += "\n\nSPORT SHARP: Critical safety only. 5 words max. Silence otherwise."
 
         temperature = MODE_TEMPERATURE.get(si_drive_mode, 0.6)
@@ -636,5 +813,5 @@ class LLMEngine:
 
     @property
     def is_real(self) -> bool:
-        """True if connected to Ollama with a real model."""
-        return self._available_model is not None
+        """True if frontier engine is available (cloud or cache)."""
+        return self._frontier is not None

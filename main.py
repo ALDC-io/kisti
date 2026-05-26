@@ -30,6 +30,7 @@ import argparse
 import logging
 import os
 import sys
+from pathlib import Path
 
 
 def setup_logging() -> None:
@@ -52,7 +53,10 @@ def main():
     parser.add_argument("--no-duckdb", action="store_true", help="Disable DuckDB recording")
     parser.add_argument("--no-memory", action="store_true", help="Disable edge memory system")
     parser.add_argument("--no-zeus-sync", action="store_true", help="Disable Zeus memory sync")
-    parser.add_argument("--demo", action="store_true", help="Enable demo mode (idle chatter)")
+    parser.add_argument("--demo", action="store_true",
+                        help="Trade show mode: mock CAN telemetry + SI-Drive rotation")
+    parser.add_argument("--lock-mode", action="store_true",
+                        help="Lock SI-Drive mode (no auto-cycling in demo, use SIGUSR1)")
     parser.add_argument("--sim-ambient", action="store_true",
                         help="Run ambient weather simulation (scripted scenario, ~90s)")
     parser.add_argument("--sim-voice", action="store_true",
@@ -64,6 +68,14 @@ def main():
     parser.add_argument("--headless", action="store_true",
                         help="Headless voice mode — no display, pure voice chat")
     args = parser.parse_args()
+
+    # .demo-mode flag file: toggle demo without editing session script
+    # Create ~/repos/kisti/.demo-mode to enable, remove to disable
+    _demo_flag = Path(__file__).parent / ".demo-mode"
+    if _demo_flag.exists():
+        args.demo = True
+        args.sim_ambient = True
+        args.lock_mode = True
 
     setup_logging()
     log = logging.getLogger("kisti")
@@ -144,7 +156,32 @@ def main():
 
     # Core: CAN bus bridge
     bridge = DiffStateBridge()
+
+    # SIGUSR1: cycle SI Drive mode (for dev/demo without CAN hardware)
+    _usr1_mode = [1]  # mutable counter: 0=I, 1=S, 2=S# — default Sport (STI default)
+    _mock_ref = [None]  # populated after create_can_source
+
+    def _cycle_si_drive(*_args):
+        _usr1_mode[0] = (_usr1_mode[0] + 1) % 3
+        bridge.update_si_drive(_usr1_mode[0])
+        # Also update mock CAN generator so it doesn't override us on next tick
+        if _mock_ref[0] is not None:
+            _mock_ref[0]._si_drive = _usr1_mode[0]
+        log.info("SIGUSR1 → SI Drive mode %d", _usr1_mode[0])
+
+    signal.signal(signal.SIGUSR1, _cycle_si_drive)
     listener, mock = create_can_source(bridge)
+    _mock_ref[0] = mock
+    # Set initial SI Drive to Sport (STI default)
+    bridge.update_si_drive(1)
+    # Demo mode: start mock CAN with telemetry data
+    if args.demo and mock is not None:
+        mock.set_demo_mode(not args.lock_mode)
+        mock.start()
+        if args.lock_mode:
+            log.info("Demo mode: mock CAN active, SI-Drive locked (use SIGUSR1 to change)")
+        else:
+            log.info("Demo mode: mock CAN active, SI-Drive cycling I→S→S# every 15s")
 
     # Mode manager: SI Drive → subsystem control
     mode_mgr = ModeManager(bridge)
@@ -153,6 +190,7 @@ def main():
     # Alert engine: deterministic Tier 1 threshold monitoring
     alert_eng = AlertEngine(bridge)
     alert_eng.start()
+    mode_mgr.si_drive_changed.connect(alert_eng.set_si_drive_mode)
 
     # Ambient weather sensor (Yoctopuce Yocto-Meteo-V2) or simulator
     ambient_source = None  # YoctopuceReader or AmbientSimulator — same signal interface
@@ -173,13 +211,88 @@ def main():
         except Exception as exc:
             log.info("Ambient sensor unavailable: %s", exc)
 
+    # Weather nowcasting engine — feeds trend data into DiffState
+    from sensors.weather_engine import WeatherEngine
+    weather_engine = WeatherEngine()
+
+    # Environment Canada regional weather (extends prediction window)
+    ec_poller = None
+    # Road weather manager — GPS-based provider activation (DriveBC/511AB/IEM/511ON)
+    road_mgr = None
+    # Event simulator (demo mode only — replaces real EC + road weather pollers)
+    event_sim = None
+
+    if args.demo:
+        from sensors.event_simulator import EventSimulator
+        event_sim = EventSimulator(bridge)
+        event_sim.start()
+        log.info("Demo mode: DriveBC + EC event simulator active (looping)")
+    else:
+        try:
+            from sensors.ec_weather import ECWeatherPoller
+            ec_poller = ECWeatherPoller()
+            pass  # EC disabled for now
+        except Exception as exc:
+            log.info("EC weather poller unavailable: %s", exc)
+
+        try:
+            from sensors.road_weather_manager import RoadWeatherManager
+            road_mgr = RoadWeatherManager(bridge)
+            road_mgr.start()
+            log.info("Road weather manager online (GPS-based provider activation)")
+        except Exception as exc:
+            log.info("Road weather manager unavailable: %s", exc)
+
     if ambient_source:
-        ambient_source.reading_updated.connect(
-            lambda r: bridge.update_ambient(
+        def _on_ambient_for_bridge_and_weather(r):
+            bridge.update_ambient(
                 r.temperature_c, r.humidity_pct, r.pressure_hpa,
                 r.density_altitude_ft, r.dew_point_c,
             )
-        )
+            # Fuse hyperlocal sensors with EC regional data
+            import time as _wtime
+            ec_level = "none"
+            ec_age = 9999.0
+            if ec_poller:
+                ec = ec_poller.data
+                if ec.available:
+                    ec_level = ec.highest_warning
+                    ec_age = (_wtime.monotonic() - ec.fetch_ts) if ec.fetch_ts else 9999.0
+                    bridge.update_ec_weather(
+                        ec.highest_warning, ec.warning_text,
+                        ec.ec_condition, ec.forecast_condition, ec_age,
+                        warning_description=ec.warning_description,
+                    )
+            wx = weather_engine.feed(
+                r.pressure_hpa, r.humidity_pct,
+                r.temperature_c, r.dew_point_c,
+                ec_warning_level=ec_level,
+                ec_data_age_s=ec_age,
+            )
+            bridge.update_weather_trends(
+                wx.pressure_trend_hpa_hr, wx.humidity_trend_pct_hr,
+                wx.dew_point_spread_c, wx.threat_label,
+            )
+            # Road weather data pushed by RoadWeatherManager providers directly
+
+        ambient_source.reading_updated.connect(_on_ambient_for_bridge_and_weather)
+
+    # FLIR Lepton thermal camera (road surface temps — forward-facing)
+    flir_reader = None
+    try:
+        from sensors.flir_lepton_reader import FLIRLeptonReader
+        flir_reader = FLIRLeptonReader()
+        if flir_reader.start():
+            flir_reader.temps_updated.connect(
+                lambda t: bridge.update_road_surface(t.left, t.center, t.right)
+            )
+            log.info("FLIR Lepton online: road surface thermal imaging")
+        else:
+            log.info("No FLIR Lepton found — road surface temps unavailable")
+            flir_reader = None
+    except Exception as exc:
+        log.info("FLIR Lepton unavailable: %s", exc)
+        flir_reader = None
 
     # Voice pipeline (optional)
     voice_mgr = None
@@ -206,14 +319,43 @@ def main():
             mode_mgr.si_drive_changed.connect(_on_mode_change)
             mode_mgr.voice_toggle.connect(voice_mgr.toggle_voice)
 
-            # Wire alerts to voice + personality quotes
+            # Wire alerts to voice + personality quotes.
+            # grip_low_grip → voice (safety-critical, RWR/TCAS principle).
+            # grip_wet, grip_cold, grip_cleared → visual only (no voice chatter).
+            _VISUAL_ONLY_TYPES = frozenset({
+                "grip_wet", "grip_cold", "grip_cleared",
+            })
+
+            def _force_repaint():
+                """Force immediate screen repaint so banner syncs with voice."""
+                if window is None:
+                    return
+                for attr in ('_intelligent_screen', '_sport_screen', '_sharp_screen', '_sharp_screen_track'):
+                    screen = getattr(window, attr, None)
+                    if screen:
+                        screen.repaint()
+
             def _on_alert(a):
-                voice_mgr.speak_alert(a.message, a.severity.label)
+                if a.alert_type in _VISUAL_ONLY_TYPES:
+                    return  # visual-only — no voice, no quote
+                # Force repaint before any voice output
+                _force_repaint()
+                # Safety-critical types spoken via voice_alert signal
+                if a.alert_type not in AlertEngine.VOICE_ALERT_TYPES:
+                    voice_mgr.speak_alert(a.message, a.severity.label)
                 quote = get_alert_quote(a.alert_type)
                 if quote:
                     voice_mgr.speak(quote)
 
             alert_eng.alert_fired.connect(_on_alert)
+
+            # Safety-critical alerts → dedicated voice routing
+            # voice_alert is gated by VOICE_ALERT_TYPES — always speak, all modes
+            def _on_voice_alert(a):
+                _force_repaint()
+                voice_mgr.speak_alert(a.message, "critical")
+
+            alert_eng.voice_alert.connect(_on_voice_alert)
 
             # Wire analyze run (K3) to voice query
             mode_mgr.analyze_run.connect(
@@ -266,6 +408,10 @@ def main():
 
         except Exception as exc:
             log.warning("Voice pipeline failed to start: %s", exc)
+
+    # Warm object detection — display only, no voice (too many false positives stationary)
+    if flir_reader is not None:
+        log.info("Warm object detection enabled (display only, no voice)")
 
     # DuckDB session recording (optional)
     db_store = None
@@ -370,26 +516,34 @@ def main():
                     t = e["time_s"]
                     delta = e["delta_s"]
                     tb = e.get("theoretical_best_s")
+                    trend = _session_lap_tracker.complete_lap(lap, t) if _session_lap_tracker else ""
 
                     if mode == SIDriveMode.SPORT_SHARP:
                         # S# — PBs only (new best lap)
                         if delta < 0:
-                            voice_mgr.speak(f"P B. {t:.1f}.")
+                            msg = f"P B. {t:.1f}."
+                            if trend:
+                                msg += f" {trend}"
+                            voice_mgr.speak(msg)
                     elif mode == SIDriveMode.SPORT:
-                        # S — lap + delta
+                        # S — lap + delta + trend
                         msg = f"{t:.1f}."
                         if delta != 0:
                             d = "plus" if delta > 0 else "minus"
                             msg += f" {d} {abs(delta):.1f}."
+                        if trend:
+                            msg += f" {trend}"
                         voice_mgr.speak(msg)
                     else:
-                        # I — full detail
+                        # I — full detail + trend
                         msg = f"Lap {lap}: {t:.1f} seconds."
                         if delta != 0:
                             d = "plus" if delta > 0 else "minus"
                             msg += f" {d} {abs(delta):.1f}."
                         if tb and tb > 0:
                             msg += f" Theoretical best: {tb:.1f}."
+                        if trend:
+                            msg += f" {trend}"
                         voice_mgr.speak(msg)
 
                 timing_mgr.lap_completed.connect(_on_lap_complete)
@@ -397,7 +551,7 @@ def main():
                 def _on_track_detected(name):
                     mode = mode_mgr.si_drive_mode
                     if mode != SIDriveMode.SPORT_SHARP:
-                        voice_mgr.speak(f"Track detected: {name}.")
+                        voice_mgr.speak(f"{name} detected.")
 
                 timing_mgr.track_detected.connect(_on_track_detected)
 
@@ -494,22 +648,91 @@ def main():
 
         threading.Thread(target=_push, daemon=True).start()
 
-    # --- DuckDB session lifecycle (K1 start/stop, telemetry recording) ---
+    # --- DuckDB session lifecycle + data collection ---
     session_id = None
     telemetry_tick = [0]  # mutable for closure
+    _telemetry_buffer = []  # batch buffer for native-rate telemetry
+    _prev_knock_count = [0]  # track knock count changes
+    pattern_eng = None
+    parked_debrief = None
+    _pending_debrief = [None]  # debrief text from bg thread → UI coaching bar
 
     if db_store:
+        # Pattern engine: 1Hz CPU-only analysis
+        from analysis.pattern_engine import PatternEngine
+        pattern_eng = PatternEngine(db_store, lambda: session_id)
+
+        # Parked debrief: Haiku session analysis (WiFi-gated)
+        from analysis.parked_debrief import ParkedDebrief
+        _anthropic_key = os.environ.get("ANTHROPIC_API_KEY_KISTI") or os.environ.get("ANTHROPIC_API_KEY", "")
+        parked_debrief = ParkedDebrief(db_store, _anthropic_key) if _anthropic_key else None
+
         def _on_state_changed():
             telemetry_tick[0] += 1
-            # Record telemetry at ~1 Hz (bridge fires at 20-50 Hz)
-            if session_id and telemetry_tick[0] % 20 == 0:
-                try:
-                    db_store.record_telemetry(session_id, bridge.snapshot())
-                except Exception:
-                    pass
+            if not session_id:
+                # Feed voice telemetry context every ~5s even without session
+                if voice_mgr and telemetry_tick[0] % 100 == 0:
+                    voice_mgr.set_telemetry(bridge.snapshot())
+                return
+
+            # Buffer telemetry at native rate (bridge fires at 20-50 Hz)
+            try:
+                snap = bridge.snapshot()
+                _telemetry_buffer.append(snap)
+
+                # Flush buffer every ~1 second (every 50 ticks at 50Hz)
+                if telemetry_tick[0] % 50 == 0 and _telemetry_buffer:
+                    for s in _telemetry_buffer:
+                        db_store.record_telemetry(session_id, s)
+                    _telemetry_buffer.clear()
+
+                # Track knock count changes for knock_events table
+                # (knock_count and iam come from Link G5 CAN when configured)
+                knock = getattr(snap, 'knock_count', None)
+                if knock is not None and knock > _prev_knock_count[0]:
+                    delta = knock - _prev_knock_count[0]
+                    boost_psi = (getattr(snap, 'map_kpa', 0) or 0) * 0.14503773 - 14.696
+                    db_store.record_knock_event(
+                        session_id, delta,
+                        rpm=snap.rpm or 0,
+                        boost_psi=max(0, boost_psi),
+                        gear=snap.gear or 0,
+                        iam=getattr(snap, 'iam', 1.0) or 1.0,
+                    )
+                if knock is not None:
+                    _prev_knock_count[0] = knock
+
+            except Exception:
+                pass
+
             # Feed voice telemetry context every ~5s
             if voice_mgr and telemetry_tick[0] % 100 == 0:
                 voice_mgr.set_telemetry(bridge.snapshot())
+
+        def _on_flir_temps(temps):
+            """Log FLIR road temps to DuckDB at 3Hz."""
+            if session_id:
+                try:
+                    snap = bridge.snapshot()
+                    db_store.record_flir_temps(
+                        session_id, temps.left, temps.center, temps.right,
+                        snap.surface_state.label,
+                    )
+                except Exception:
+                    pass
+
+        def _on_surface_state_changed(from_state: str, to_state: str):
+            """Log surface state transitions to DuckDB."""
+            if session_id:
+                try:
+                    snap = bridge.snapshot()
+                    db_store.record_surface_transition(
+                        session_id, from_state, to_state,
+                        snap.road_temp_center or 0.0,
+                        snap.dew_point_c or 0.0,
+                    )
+                except Exception:
+                    pass
 
         def _on_session_toggle():
             nonlocal session_id
@@ -517,12 +740,24 @@ def main():
                 session_id = db_store.start_session(
                     si_drive_mode=mode_mgr.si_drive_mode.label,
                 )
+                _prev_knock_count[0] = 0
+                _telemetry_buffer.clear()
                 if timing_mgr:
                     timing_mgr.set_session_id(session_id)
+                if pattern_eng:
+                    pattern_eng.start()
                 if voice_mgr:
                     voice_mgr.speak("Session recording started.")
                 log.info("Session started: %s", session_id[:8])
             else:
+                # Flush remaining telemetry buffer
+                if _telemetry_buffer:
+                    for s in _telemetry_buffer:
+                        try:
+                            db_store.record_telemetry(session_id, s)
+                        except Exception:
+                            pass
+                    _telemetry_buffer.clear()
                 # Mode-aware timing debrief before ending session
                 if timing_mgr and voice_mgr:
                     summary = timing_mgr.get_session_summary()
@@ -555,14 +790,54 @@ def main():
                 if timing_mgr:
                     _push_timing_to_zeus(session_id, timing_mgr.get_session_summary())
                     timing_mgr.set_session_id(None)
+                # Stop pattern engine
+                if pattern_eng:
+                    pattern_eng.stop()
                 db_store.end_session(session_id)
+                # Trigger Haiku debrief in background if WiFi available
+                if parked_debrief:
+                    import threading as _debrief_threading
+                    _debrief_sid = session_id
+                    def _run_debrief(sid=_debrief_sid):
+                        try:
+                            from sync.sync_manager import SyncManager
+                            if SyncManager._check_connectivity():
+                                result = parked_debrief.generate(sid)
+                                if result:
+                                    insights = result.get("insights", "")
+                                    if insights:
+                                        # Push to UI coaching bar (main thread picks up)
+                                        _pending_debrief[0] = insights
+                                        # Speak all insights with pauses
+                                        if voice_mgr:
+                                            import re
+                                            import time as _dtime
+                                            points = re.split(r'\d+[\.\)]\s+', insights.strip())
+                                            points = [p.strip() for p in points if len(p.strip()) > 10]
+                                            if not points:
+                                                points = [insights]
+                                            voice_mgr.speak("Session debrief.")
+                                            for p in points[:3]:
+                                                _dtime.sleep(3)
+                                                voice_mgr.speak(p)
+                            else:
+                                log.info("No WiFi — debrief skipped")
+                        except Exception as exc:
+                            log.debug("Debrief failed: %s", exc)
+                    _debrief_threading.Thread(target=_run_debrief, daemon=True).start()
                 if voice_mgr:
                     voice_mgr.speak("Session recording stopped.")
                 log.info("Session ended: %s", session_id[:8])
                 session_id = None
 
         bridge.state_changed.connect(_on_state_changed)
+        bridge.surface_state_changed.connect(_on_surface_state_changed)
         mode_mgr.session_toggle.connect(_on_session_toggle)
+
+        # Wire FLIR temps to DuckDB (3Hz logging)
+        if flir_reader:
+            flir_reader.temps_updated.connect(_on_flir_temps)
+            log.info("FLIR → DuckDB wired (3Hz road temps)")
 
         # Record alerts to DuckDB
         alert_eng.alert_fired.connect(
@@ -571,31 +846,232 @@ def main():
                 a.alert_type, a.severity.label, a.message, a.value,
             )
         )
-        log.info("DuckDB session lifecycle wired (K1 start/stop)")
+        log.info("DuckDB data collection wired (native-rate telemetry, FLIR 3Hz, surface transitions, knock events)")
+
+        # Connect pattern → voice for safety-critical patterns
+        if voice_mgr:
+            def _on_pattern(p):
+                if p.pattern_type == "ice_risk_imminent":
+                    voice_mgr.speak_alert(
+                        "Reduce speed. Ice risk.",
+                        "critical",
+                    )
+                elif p.pattern_type == "ice_risk_trending":
+                    voice_mgr.speak_alert(
+                        f"Caution, road cooling toward dew point. "
+                        f"Delta {p.value:.1f} degrees.",
+                        "warning",
+                    )
+                elif p.pattern_type == "knock_burst":
+                    voice_mgr.speak_alert(
+                        f"Knock burst. {int(p.value)} events at "
+                        f"{p.context.get('avg_rpm', 0):.0f} RPM.",
+                        "warning",
+                    )
+            pattern_eng.pattern_detected.connect(_on_pattern)
+
+        log.info("Pattern engine wired (1Hz analysis, session-gated)")
+        if parked_debrief:
+            log.info("Parked debrief enabled (Haiku, WiFi-gated)")
 
     # --- UI vs Headless ---
     window = None
     if not args.headless:
-        window = MainWindow(fullscreen=args.fullscreen, bridge=bridge)
+        window = MainWindow(
+            fullscreen=args.fullscreen,
+            bridge=bridge,
+            mode_manager=mode_mgr,
+            flir_reader=flir_reader,
+        )
 
-        # Wire timing display to bridge for live updates (4 Hz is enough for UI)
-        if timing_mgr:
-            _timing_tick = [0]
+        # Feed DiffState snapshots to the active screen at 20Hz
+        _ui_tick = [0]
 
-            def _update_timing_display():
-                _timing_tick[0] += 1
-                if _timing_tick[0] % 5 == 0:
-                    snap = bridge.snapshot()
-                    if hasattr(window, '_track_mode'):
-                        window._track_mode.update_timing(snap)
+        def _update_screen():
+            _ui_tick[0] += 1
+            snap = bridge.snapshot()
+            window.update_from_bridge(snap)
+            # Also feed timing display at 4Hz
+            if timing_mgr and _ui_tick[0] % 5 == 0:
+                if hasattr(window, '_track_mode'):
+                    window._track_mode.update_timing(snap)
+                # Feed timing data to both Sport Sharp screen variants
+                if hasattr(timing_mgr, 'get_timing_data'):
+                    td = timing_mgr.get_timing_data()
+                    window._sharp_screen.update_timing(td)
+                    window._sharp_screen_track.update_timing(td)
 
-            bridge.state_changed.connect(_update_timing_display)
+        bridge.state_changed.connect(_update_screen)
 
-            if mode_mgr:
-                mode_mgr.si_drive_changed.connect(
-                    lambda m: window._track_mode.set_timing_mode(m)
-                    if hasattr(window, '_track_mode') else None
+        # Visual flash overlay for WARNING/CRITICAL alerts in S# mode
+        alert_eng.alert_fired.connect(window.flash_alert)
+
+        if timing_mgr and mode_mgr:
+            mode_mgr.si_drive_changed.connect(
+                lambda m: window._track_mode.set_timing_mode(m)
+                if hasattr(window, '_track_mode') else None
+            )
+
+        # --- Voice activity ticker (all 3 screens) ---
+        from PySide6.QtCore import QTimer
+        from collections import deque as _deque
+        _voice_ticker_deque = _deque(maxlen=3)
+
+        if voice_mgr:
+            def _on_speaking_text(text: str):
+                _voice_ticker_deque.appendleft(text)
+            voice_mgr.speaking_text.connect(_on_speaking_text)
+
+        _ticker_timer = QTimer()
+        _ticker_timer.setInterval(1000)
+
+        def _push_ticker():
+            lines = list(_voice_ticker_deque)
+            for screen in (window._intelligent_screen, window._sport_screen,
+                           window._sharp_screen, window._sharp_screen_track):
+                screen.update_voice_ticker(lines)
+
+        _ticker_timer.timeout.connect(_push_ticker)
+        _ticker_timer.start()
+
+        # --- Coaching analyzers (Sport + Sharp screen at 1Hz) ---
+        from coaching.technique_analyzer import TechniqueAnalyzer
+        from coaching.balance_analyzer import BalanceAnalyzer
+        from coaching.grip_analyzer import GripAnalyzer
+        from coaching.condition_rules import evaluate as _eval_conditions
+        from coaching.session_lap_tracker import SessionLapTracker as _SessionLapTracker
+        _technique_analyzer = TechniqueAnalyzer()
+        _balance_analyzer = BalanceAnalyzer()
+        _grip_analyzer = GripAnalyzer()
+        _session_lap_tracker = _SessionLapTracker()
+
+        _coaching_timer = QTimer()
+        _coaching_timer.setInterval(1000)
+
+        def _coaching_tick():
+            snap = bridge.snapshot()
+
+            # Technique analyzer — brake G, trail brake, coaching text
+            _technique_analyzer.feed(snap)
+            text, sentiment = _technique_analyzer.analyze()
+            # SC-3: safety conditions override technique coaching on Sport screen
+            cond = _eval_conditions(snap, 0)  # level 0 = ICE + LOW_GRIP only
+            if cond:
+                text, sentiment = cond
+            window._sport_screen.update_coaching(text, sentiment)
+            window._sharp_screen.update_coaching(text, sentiment)
+            window._sharp_screen_track.update_coaching(text, sentiment)
+            _session_lap_tracker.record_tick(text, sentiment)
+
+            # Balance analyzer — understeer/oversteer via bicycle model
+            _balance_analyzer.feed(snap)
+            ratio = _balance_analyzer.current_ratio()
+            bal_text, bal_sentiment = _balance_analyzer.coaching_text()
+            window._sport_screen.update_balance(ratio, bal_text, bal_sentiment)
+            window._sharp_screen.update_balance(ratio, bal_text, bal_sentiment)
+            window._sharp_screen_track.update_balance(ratio, bal_text, bal_sentiment)
+
+            # Grip analyzer — per-axle traction from wheel speeds
+            _grip_analyzer.feed(snap)
+            front = _grip_analyzer.front_grip_pct()
+            rear = _grip_analyzer.rear_grip_pct()
+            window._sport_screen.update_grip(front, rear)
+            window._sharp_screen.update_grip(front, rear)
+            window._sharp_screen_track.update_grip(front, rear)
+
+            # Brake analysis — longitudinal G as peak brake G to Sport screen
+            peak_g = abs(snap.imu_accel_x) if snap.imu_accel_x < -0.1 else 0.0
+            trail = 1.0 if (snap.imu_accel_x < -0.3 and abs(snap.imu_accel_y) > 0.3) else 0.0
+            window._sport_screen.update_brake_analysis(peak_g, trail * 100.0)
+
+            # Brake quality dots — fed to both S# screen variants (uniform per rolling window)
+            if timing_mgr:
+                td = timing_mgr.get_timing_data()
+                sc = td.get("sector_count", 0)
+                if sc > 0:
+                    quality = _technique_analyzer.brake_quality()
+                    qualities = [quality] * sc
+                    window._sharp_screen.update_brake_quality(qualities)
+                    window._sharp_screen_track.update_brake_quality(qualities)
+
+            # GPS → road weather manager: feed position + heading for region switching
+            if road_mgr and snap.gps_latitude != 0.0:
+                road_mgr.update_position(snap.gps_latitude, snap.gps_longitude)
+                if snap.gps_heading != 0.0:
+                    road_mgr.update_heading(snap.gps_heading)
+                # Auto-detect highway for DriveBC provider (BC region)
+                provider = road_mgr._active_provider
+                if provider and hasattr(provider, 'auto_detect_highway'):
+                    if not os.environ.get("DRIVEBC_HIGHWAY", ""):
+                        hwy = provider.auto_detect_highway()
+                        if hwy and hwy != provider.detected_highway:
+                            provider.update_highway(hwy)
+                            log.info("Road weather auto-detect: switched to Hwy %s", hwy)
+
+            # Update AiM Strada alert frame (0x6C2) for Status element display
+            if can_output:
+                can_output.set_alert_state(
+                    road_condition=snap.drivebc_road_condition,
+                    road_event_severity=snap.drivebc_event_severity,
+                    ec_warning_level=snap.ec_warning_level,
+                    weather_threat_level=snap.weather_threat_level,
                 )
+
+        _coaching_timer.timeout.connect(_coaching_tick)
+        _coaching_timer.start()
+
+        # --- Condition rules (Intelligent screen coaching at 1Hz) ---
+        # Debrief display state (bg thread writes _pending_debrief, this timer reads)
+        _debrief_items = []
+        _debrief_idx = [0]
+        _debrief_ticks = [0]
+
+        _condition_timer = QTimer()
+        _condition_timer.setInterval(1000)
+
+        def _condition_tick():
+            snap = bridge.snapshot()
+
+            # Check for new debrief from background thread
+            if _pending_debrief[0] is not None:
+                import re
+                raw = _pending_debrief[0]
+                _pending_debrief[0] = None
+                pts = re.split(r'\d+[\.\)]\s+', raw.strip())
+                _debrief_items.clear()
+                _debrief_items.extend([p.strip() for p in pts if len(p.strip()) > 10])
+                _debrief_idx[0] = 0
+                _debrief_ticks[0] = 0
+
+            # Cycle debrief insights (5s each, then resume normal coaching)
+            if _debrief_items:
+                _debrief_ticks[0] += 1
+                idx = _debrief_idx[0]
+                if idx < len(_debrief_items):
+                    window._intelligent_screen.update_coaching(
+                        f"[{idx+1}/{len(_debrief_items)}] {_debrief_items[idx]}", "green"
+                    )
+                    if _debrief_ticks[0] % 5 == 0:
+                        _debrief_idx[0] += 1
+                else:
+                    _debrief_items.clear()
+                return
+
+            level = mode_mgr.coaching_level
+            result = _eval_conditions(snap, level)
+            if result:
+                text, sentiment = result
+                window._intelligent_screen.update_coaching(text, sentiment)
+            else:
+                window._intelligent_screen.update_coaching("", "dim")
+
+        _condition_timer.timeout.connect(_condition_tick)
+        _condition_timer.start()
+
+        # Wire coaching level changes from K5 button
+        mode_mgr.coaching_changed.connect(
+            window._intelligent_screen.set_coaching_level
+        )
 
     # Helper: speak through voice_mgr directly (headless) or window AudioPlayer (UI)
     def _speak(text, urgency="normal"):
@@ -629,26 +1105,26 @@ def main():
                 )
             except Exception:
                 pass
-            _speak(change.message, urgency="alert")
+            # Voice handled by alert engine (rate-based, deduplicated, mode-aware).
+            # condition_changed is for DuckDB logging only.
 
         ambient_source.reading_updated.connect(_on_ambient_reading)
         ambient_source.condition_changed.connect(_on_condition_changed)
         log.info("Ambient DuckDB recording enabled (1/min + change events)")
 
     elif ambient_source:
-        ambient_source.condition_changed.connect(
-            lambda c: _speak(c.message, urgency="alert")
-        )
+        # Voice handled by alert engine — condition_changed is legacy path
+        pass
 
     # --- Ambient simulation lifecycle ---
     if args.sim_ambient and ambient_source:
         from sensors.ambient_simulator import AmbientSimulator
         if isinstance(ambient_source, AmbientSimulator):
             ambient_source.simulation_started.connect(
-                lambda: _speak("Starting ambient weather simulation. Monitoring conditions.")
+                lambda: _speak("Weather monitoring active.")
             )
             ambient_source.simulation_ended.connect(
-                lambda: _speak("Ambient weather simulation complete.")
+                lambda: _speak("Weather simulation complete.")
             )
             ambient_source.simulation_started.connect(
                 lambda: log.info("SIM: Ambient weather simulation started")
@@ -704,20 +1180,25 @@ def main():
              "ON" if can_output else "OFF",
              "SIM" if args.sim_ambient else ("YOCTO" if ambient_source else "OFF"))
 
-    # Headless boot greeting (UI has its own via kisti_mode._on_boot_ready)
-    if args.headless and voice_mgr:
-        def _headless_boot():
-            ecu = "ECU online" if listener else "No ECU"
-            ambient = "Conditions good" if ambient_source else "No sensors"
-            voice_mgr.speak(f"Online. Headless mode. {ecu}. {ambient}.")
-        from PySide6.QtCore import QTimer
-        QTimer.singleShot(3000, _headless_boot)
+    # Headless boot greeting — disabled (visual-only UX)
+    # if args.headless and voice_mgr:
+    #     ...
+
+
+    # Demo mode: auto-start session after 5s so PatternEngine + data collection
+    # run unattended (trade show / 30-min validation target)
+    if args.demo and db_store:
+        from PySide6.QtCore import QTimer as _DemoTimer
+        _DemoTimer.singleShot(5000, mode_mgr.session_toggle.emit)
+        log.info("Demo mode: auto-session start in 5s")
 
     # Run Qt event loop
     exit_code = app.exec()
 
     # Cleanup
     log.info("Shutting down...")
+    if pattern_eng:
+        pattern_eng.stop()
     if listener:
         listener.stop()
     if can_output:
@@ -736,8 +1217,16 @@ def main():
         if session_id:
             db_store.end_session(session_id)
         db_store.close()
+    if flir_reader:
+        flir_reader.stop()
     if ambient_source:
         ambient_source.stop()
+    if road_mgr:
+        road_mgr.stop()
+    if event_sim:
+        event_sim.stop()
+    if ec_poller:
+        ec_poller.stop()
     mode_mgr.stop()
     alert_eng.stop()
 

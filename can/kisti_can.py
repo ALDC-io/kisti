@@ -47,6 +47,13 @@ from can.can_config import (
     DIFF_SLIP_OFFSET,
     DIFF_SLIP_SCALE,
     DIFF_SURFACE_OFFSET,
+    BRAKE_PRESSURE_FRAME_ID,
+    BRK_FRONT_OFFSET,
+    BRK_PDM_PUMP_FAULT,
+    BRK_PDM_PUMP_OFFSET,
+    BRK_PDM_PUMP_ON,
+    BRK_REAR_OFFSET,
+    BRK_SCALE,
     DYN_BRAKE_OFFSET,
     DYN_BRAKE_SCALE,
     DYN_LATG_OFFSET,
@@ -84,6 +91,7 @@ from can.can_config import (
     KEYPAD_FRAME_ID,
     KEYPAD_PREV_OFFSET,
     KEYPAD_STATE_OFFSET,
+    KISTI_ALERT_FRAME_ID,
     KISTI_CAN_IDS,
     KISTI_CAN_OUTPUT_IDS,
     LED2_BRIGHTNESS_START,
@@ -148,6 +156,7 @@ from can.can_config import (
     WS_RR_OFFSET,
     WS_SCALE,
 )
+from can.g5_generic_dash import G5GenericDashParser
 from model.vehicle_state import DiffStateBridge, SurfaceState
 
 log = logging.getLogger("kisti.can")
@@ -301,6 +310,30 @@ def decode_dynamics_frame(data: bytes) -> dict:
         "yaw_rate": yaw_rate,
         "lateral_g": lateral_g,
         "brake_pressure": brake_pressure,
+    }
+
+
+def decode_brake_pressure_frame(data: bytes) -> dict:
+    """Decode a BRAKE_PRESSURE frame (0x6B3, 8 bytes).
+
+    Dual brake pressure sensors (front/rear) + PDM fuel pump state.
+
+    Returns:
+        dict with keys: brake_front (bar), brake_rear (bar),
+        fuel_pump_active (bool), fuel_pump_fault (bool).
+    """
+    if len(data) < 5:
+        raise ValueError(f"BRAKE_PRESSURE frame too short: {len(data)} bytes (need 5)")
+
+    front = struct.unpack_from(">H", data, BRK_FRONT_OFFSET)[0] * BRK_SCALE
+    rear = struct.unpack_from(">H", data, BRK_REAR_OFFSET)[0] * BRK_SCALE
+    pdm_byte = data[BRK_PDM_PUMP_OFFSET]
+
+    return {
+        "brake_front": front,
+        "brake_rear": rear,
+        "fuel_pump_active": pdm_byte == BRK_PDM_PUMP_ON,
+        "fuel_pump_fault": pdm_byte == BRK_PDM_PUMP_FAULT,
     }
 
 
@@ -608,6 +641,58 @@ def encode_led_output(
     return frame1, frame2
 
 
+def encode_kisti_alert(
+    road_condition: str,
+    road_event_severity: str,
+    ec_warning_level: str,
+    weather_threat_level: str = "CLEAR",
+) -> bytes:
+    """Encode KiSTI Alert frame (0x6C2) for AiM Strada Status display.
+
+    Maps road conditions, weather alerts, and barometric threat to enum for
+    Race Studio 3 visualization.
+
+    Enum values:
+        0 = OK (dry road, no events, no alerts)
+        1 = WET (wet road surface)
+        2 = ICY (icy/cold/low grip road)
+        3 = RAIN (rain likely from barometric trend)
+        4 = STORM (major event, severe EC alert, or barometric storm)
+        5 = CLOSURE (road closure)
+
+    Priority chain:
+        CLOSURE > ICY > MAJOR_EVENT > EC_WARNING > WEATHER_STORM >
+        WEATHER_RAIN_LIKELY > WET/MOIST/SLUSHY > OK
+
+    Args:
+        road_condition: "DRY", "WET", "ICY", "SNOWY", "FROSTY", "MOIST", "SLUSHY", ""
+        road_event_severity: "", "MINOR", "MAJOR", "CLOSURE"
+        ec_warning_level: "none", "statement", "advisory", "watch", "warning"
+        weather_threat_level: "CLEAR", "CHANGING", "RAIN_LIKELY", "STORM"
+
+    Returns:
+        Single byte (0-5) encoded as CAN frame data.
+    """
+    if road_event_severity == "CLOSURE":
+        status = 5  # CLOSURE
+    elif road_condition in ("ICY", "SNOWY", "FROSTY", "COLD"):
+        status = 2  # ICY
+    elif road_event_severity == "MAJOR":
+        status = 4  # STORM (major road event)
+    elif ec_warning_level in ("warning", "watch"):
+        status = 4  # STORM (severe EC alert)
+    elif weather_threat_level == "STORM":
+        status = 4  # STORM (barometric)
+    elif weather_threat_level == "RAIN_LIKELY":
+        status = 3  # RAIN (barometric)
+    elif road_condition in ("WET", "MOIST", "SLUSHY"):
+        status = 1  # WET
+    else:
+        status = 0  # OK
+
+    return struct.pack("B", status)
+
+
 # ---------------------------------------------------------------------------
 # CAN Listener Thread
 # ---------------------------------------------------------------------------
@@ -624,6 +709,7 @@ class CanListenerThread(threading.Thread):
         self._interface = interface
         self._running = threading.Event()
         self._running.set()
+        self._g5_parser: G5GenericDashParser = G5GenericDashParser()
 
     def stop(self) -> None:
         self._running.clear()
@@ -679,16 +765,35 @@ class CanListenerThread(threading.Thread):
         elif arb_id == DYNAMICS_FRAME_ID:
             d = decode_dynamics_frame(data)
             self._bridge.update_dynamics(**d)
-        # G5 Neo 4 frames
+        # G5 Neo 4 — single multiplexed ID (byte[0]=sub-frame index, LE int16 signals)
+        # VERIFY CAN ID against raw sniff before flipping MOCK_ENABLED = False
         elif arb_id == GENERIC_DASH_BASE_ID:
-            d = decode_generic_dash_1(data)
-            self._bridge.update_generic_dash_1(**d)
-        elif arb_id == GENERIC_DASH_BASE_ID + 1:
-            d = decode_generic_dash_2(data)
-            self._bridge.update_generic_dash_2(**d)
-        elif arb_id == GENERIC_DASH_BASE_ID + 2:
-            d = decode_generic_dash_3(data)
-            self._bridge.update_generic_dash_3(**d)
+            if self._g5_parser.feed(arb_id, data):
+                p = self._g5_parser
+                # gd1: rpm/map/tps from sub-frame 0; coolant_temp from sub-frame 1
+                if p.rpm is not None:
+                    self._bridge.update_generic_dash_1(
+                        rpm=p.rpm,
+                        map_kpa=p.map_kpa if p.map_kpa is not None else 0.0,
+                        tps=p.tps_pct if p.tps_pct is not None else 0.0,
+                        coolant_temp=p.coolant_temp_c if p.coolant_temp_c is not None else 0.0,
+                    )
+                # gd2: iat_c/lambda from sub-frame 1; oil data from sub-frame 2
+                if p.iat_c is not None:
+                    self._bridge.update_generic_dash_2(
+                        iat_c=p.iat_c,
+                        lambda_1=p.lambda1 if p.lambda1 is not None else 0.0,
+                        oil_pressure_kpa=p.oil_pressure_kpa if p.oil_pressure_kpa is not None else 0.0,
+                        oil_temp_c=p.oil_temp_c if p.oil_temp_c is not None else 0.0,
+                    )
+                # gd3: fuel_press from sub-frame 2; battery/inj/ethanol from sub-frame 3
+                if p.battery_v is not None:
+                    self._bridge.update_generic_dash_3(
+                        ethanol_pct=p.ethanol_pct if p.ethanol_pct is not None else 0.0,
+                        fuel_pressure_kpa=p.fuel_pressure_kpa if p.fuel_pressure_kpa is not None else 0.0,
+                        battery_v=p.battery_v,
+                        injector_duty=p.injector_duty_pct if p.injector_duty_pct is not None else 0.0,
+                    )
         elif arb_id == SI_DRIVE_FRAME_ID:
             d = decode_si_drive_frame(data)
             self._bridge.update_si_drive(**d)
@@ -698,6 +803,15 @@ class CanListenerThread(threading.Thread):
         elif arb_id == KEYPAD_FRAME_ID:
             d = decode_keypad_frame(data)
             self._bridge.update_keypad(**d)
+        elif arb_id == BRAKE_PRESSURE_FRAME_ID:
+            d = decode_brake_pressure_frame(data)
+            self._bridge.update_brake_pressures(
+                front=d["brake_front"],
+                rear=d["brake_rear"],
+            )
+            if d["fuel_pump_fault"]:
+                logger.warning("PDM fuel pump FAULT detected")
+            self._bridge._state.fuel_pump_active = d["fuel_pump_active"]
         # GPS09 Pro frames
         elif arb_id == GPS_FRAME_ID:
             d = decode_gps_frame(data)
@@ -721,6 +835,7 @@ class CanOutputThread(threading.Thread):
     """Background thread that sends LED waveform frames to the MXG Strada dash.
 
     Reads LED state from a shared buffer and sends CAN frames at LED_OUTPUT_HZ.
+    Also sends KiSTI Alert frames (0x6C2) at 10 Hz for AiM Strada Status display.
     """
 
     def __init__(self, interface: str = CAN_INTERFACE) -> None:
@@ -732,6 +847,11 @@ class CanOutputThread(threading.Thread):
         self._mode: int = 0
         self._brightnesses: list[int] = [0] * LED_COUNT
         self._color: tuple[int, int, int] = (0, 0, 0)
+        # Alert state
+        self._road_condition: str = ""
+        self._road_event_severity: str = ""
+        self._ec_warning_level: str = "none"
+        self._weather_threat_level: str = "CLEAR"
 
     def stop(self) -> None:
         self._running.clear()
@@ -751,6 +871,20 @@ class CanOutputThread(threading.Thread):
             while len(self._brightnesses) < LED_COUNT:
                 self._brightnesses.append(0)
             self._color = (color_r, color_g, color_b)
+
+    def set_alert_state(
+        self,
+        road_condition: str,
+        road_event_severity: str,
+        ec_warning_level: str = "none",
+        weather_threat_level: str = "CLEAR",
+    ) -> None:
+        """Update alert state for AiM Strada (thread-safe)."""
+        with self._lock:
+            self._road_condition = road_condition
+            self._road_event_severity = road_event_severity
+            self._ec_warning_level = ec_warning_level
+            self._weather_threat_level = weather_threat_level
 
     def run(self) -> None:
         try:
@@ -772,12 +906,18 @@ class CanOutputThread(threading.Thread):
             return
 
         interval = 1.0 / LED_OUTPUT_HZ
+        alert_interval = 1.0 / 10.0  # Alert at 10 Hz
+        alert_phase = 0  # Send alert every 3rd LED cycle (30/10 = 3 cycles)
         try:
             while self._running.is_set():
                 with self._lock:
                     mode = self._mode
                     brights = list(self._brightnesses)
                     r, g, b = self._color
+                    road_condition = self._road_condition
+                    road_severity = self._road_event_severity
+                    ec_warning = self._ec_warning_level
+                    weather_threat = self._weather_threat_level
 
                 frame1, frame2 = encode_led_output(mode, brights, r, g, b)
 
@@ -794,6 +934,17 @@ class CanOutputThread(threading.Thread):
                     )
                     bus.send(msg1)
                     bus.send(msg2)
+
+                    # Send alert frame at 10 Hz (LED is 30 Hz)
+                    alert_phase = (alert_phase + 1) % 3
+                    if alert_phase == 0:
+                        alert_data = encode_kisti_alert(road_condition, road_severity, ec_warning, weather_threat)
+                        msg_alert = python_can.Message(
+                            arbitration_id=KISTI_ALERT_FRAME_ID,
+                            data=alert_data,
+                            is_extended_id=False,
+                        )
+                        bus.send(msg_alert)
                 except Exception as exc:
                     log.debug("CAN output send error: %s", exc)
 
@@ -864,6 +1015,7 @@ class MockCanGenerator(QObject):
         super().__init__(parent)
         self._bridge = bridge
         self._t = 0.0
+        self._demo_mode = False  # When True, SI-Drive cycles I→S→S# every 15s
 
         # Internal state for smooth random walk
         self._dccd_cmd = 40.0
@@ -909,8 +1061,15 @@ class MockCanGenerator(QObject):
         self._imu_gz = 0.0
         self._prev_heading = 135.0
 
+        # Mock ambient weather
+        self._amb_temp = 18.0
+        self._amb_humidity = 55.0
+        self._amb_pressure = 1013.0
+        self._amb_density_alt = 850.0
+        self._amb_dew_point = 9.0
+
         # SI Drive state
-        self._si_drive = 0  # Intelligent
+        self._si_drive = 1  # Sport (STI default SI-Drive position)
         self._si_drive_timer = 0.0
 
         self._diff_timer = QTimer(self)
@@ -951,6 +1110,18 @@ class MockCanGenerator(QObject):
         self._imu_timer.setInterval(1000 // MOCK_IMU_HZ)
         self._imu_timer.timeout.connect(self._imu_tick)
 
+        self._amb_timer = QTimer(self)
+        self._amb_timer.setInterval(1000)  # 1 Hz — weather changes slowly
+        self._amb_timer.timeout.connect(self._ambient_tick)
+
+    def set_demo_mode(self, enabled: bool) -> None:
+        """Enable trade-show demo mode: SI-Drive cycles I→S→S# every 15s."""
+        self._demo_mode = enabled
+        if enabled:
+            self._si_drive = 0
+            self._si_drive_timer = 0.0
+            log.info("Demo mode enabled — SI-Drive will cycle every 15s")
+
     def start(self) -> None:
         self._diff_timer.start()
         self._ctx_timer.start()
@@ -962,6 +1133,7 @@ class MockCanGenerator(QObject):
             self._sens_timer.start()
             self._gps_timer.start()
             self._imu_timer.start()
+        self._amb_timer.start()
         log.info("Mock CAN generator started (ECU: %s)", ACTIVE_ECU)
 
     def stop(self) -> None:
@@ -974,6 +1146,7 @@ class MockCanGenerator(QObject):
         self._sens_timer.stop()
         self._gps_timer.stop()
         self._imu_timer.stop()
+        self._amb_timer.stop()
 
     def _diff_tick(self) -> None:
         self._t += 0.02  # 50 Hz
@@ -1075,7 +1248,7 @@ class MockCanGenerator(QObject):
     def _dyn_tick(self) -> None:
         """Mock vehicle dynamics: steering, yaw, lateral G, brake pressure."""
         # Steering — sinusoidal canyon driving
-        self._steering += random.uniform(-15.0, 15.0)
+        self._steering += random.uniform(-3.0, 3.0)
         self._steering += 30.0 * math.sin(self._t * 0.3)  # slow sweeps
         self._steering *= 0.95  # decay toward center
         self._steering = max(-540.0, min(540.0, self._steering))
@@ -1098,12 +1271,22 @@ class MockCanGenerator(QObject):
         self._brake_press += (target_brake - self._brake_press) * 0.3
         self._brake_press = max(0.0, min(80.0, self._brake_press))
 
+        # Split into front/rear with ~65/35 bias + noise
+        if self._brake_press > 1.0:
+            bias = 0.65 + random.uniform(-0.03, 0.03)  # 62-68% front
+            front = self._brake_press * bias
+            rear = self._brake_press * (1.0 - bias)
+        else:
+            front = 0.0
+            rear = 0.0
+
         self._bridge.update_dynamics(
             steering_angle=self._steering,
             yaw_rate=self._yaw,
             lateral_g=self._lat_g,
             brake_pressure=self._brake_press,
         )
+        self._bridge.update_brake_pressures(front=front, rear=rear)
 
     def _generic_dash_tick(self) -> None:
         """Mock Generic Dash engine telemetry (3 frames)."""
@@ -1188,11 +1371,12 @@ class MockCanGenerator(QObject):
         )
 
     def _si_drive_tick(self) -> None:
-        """Mock SI Drive mode — cycles every 30 seconds for demo."""
-        self._si_drive_timer += 1.0 / MOCK_SI_DRIVE_HZ
-        if self._si_drive_timer > 30.0:
-            self._si_drive_timer = 0.0
-            self._si_drive = (self._si_drive + 1) % 3
+        """Mock SI Drive mode — cycles I→S→S# in demo, locked to I otherwise."""
+        if self._demo_mode:
+            self._si_drive_timer += 1.0 / MOCK_SI_DRIVE_HZ
+            if self._si_drive_timer > 15.0:
+                self._si_drive_timer = 0.0
+                self._si_drive = (self._si_drive + 1) % 3
         self._bridge.update_si_drive(mode=self._si_drive)
 
     def _sensor_tick(self) -> None:
@@ -1312,6 +1496,34 @@ class MockCanGenerator(QObject):
             gyro_x=self._imu_gx,
             gyro_y=self._imu_gy,
             gyro_z=self._imu_gz,
+        )
+
+    def _ambient_tick(self) -> None:
+        """Mock ambient weather — slow random walk around spring conditions."""
+        self._amb_temp += random.uniform(-0.1, 0.1)
+        self._amb_temp = max(5.0, min(35.0, self._amb_temp))
+
+        self._amb_humidity += random.uniform(-0.3, 0.3)
+        self._amb_humidity = max(20.0, min(90.0, self._amb_humidity))
+
+        self._amb_pressure += random.uniform(-0.05, 0.05)
+        self._amb_pressure = max(990.0, min(1030.0, self._amb_pressure))
+
+        # Density altitude approximation
+        self._amb_density_alt = (
+            (1013.25 - self._amb_pressure) * 30.0
+            + (self._amb_temp - 15.0) * 120.0
+        )
+
+        # Dew point approximation (Magnus formula simplified)
+        self._amb_dew_point = self._amb_temp - (100.0 - self._amb_humidity) / 5.0
+
+        self._bridge.update_ambient(
+            temp_c=self._amb_temp,
+            humidity_pct=self._amb_humidity,
+            pressure_hpa=self._amb_pressure,
+            density_altitude_ft=self._amb_density_alt,
+            dew_point_c=self._amb_dew_point,
         )
 
 

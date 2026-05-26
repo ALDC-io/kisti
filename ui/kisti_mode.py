@@ -905,9 +905,11 @@ class KistiModeWidget(QWidget):
 
             parts.append(f"Conditions {status}.")
 
-        time.sleep(1)
-        max_urgency = "critical" if critical else "normal"
-        self._queue_lines([" ".join(parts)], urgency=max_urgency)
+        # Boot greeting disabled — visual-only UX. Voice reserved for
+        # safety-critical alerts (oil/coolant/fuel/ice) only.
+        # time.sleep(1)
+        # max_urgency = "critical" if critical else "normal"
+        # self._queue_lines([" ".join(parts)], urgency=max_urgency)
 
     def _check_say_file(self):
         """Check for externally injected speech or questions.

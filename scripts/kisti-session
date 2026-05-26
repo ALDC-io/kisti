@@ -22,9 +22,45 @@ if ! flock -n 9; then
 fi
 # Lock held for lifetime of this process (fd 9 stays open).
 
-export DISPLAY="${DISPLAY:-:0}"
+# Auto-detect X display when not set (SSH case).
+# When GDM launches this as the X session, it sets DISPLAY — skip detection.
+if [ -z "$DISPLAY" ]; then
+    _DETECTED=""
+    for _lock in /tmp/.X*-lock; do
+        [ -f "$_lock" ] || continue
+        _num=$(echo "$_lock" | sed 's|/tmp/.X||;s|-lock||')
+        # Verify the X server PID is actually running
+        _pid=$(cat "$_lock" 2>/dev/null | tr -d ' ')
+        if [ -n "$_pid" ] && kill -0 "$_pid" 2>/dev/null; then
+            _DETECTED=":$_num"
+        fi
+    done
+    export DISPLAY="${_DETECTED:-:0}"
+    echo "$(date) Auto-detected DISPLAY=$DISPLAY (SSH mode)" >> /tmp/kisti-session.log
+
+    # GDM stores the Xauthority cookie for the auto-login user here.
+    # SSH sessions need this to authenticate to the Xwayland server.
+    _GDM_XAUTH="/run/user/$(id -u)/gdm/Xauthority"
+    if [ -f "$_GDM_XAUTH" ]; then
+        export XAUTHORITY="$_GDM_XAUTH"
+        echo "$(date) Using GDM Xauthority: $XAUTHORITY" >> /tmp/kisti-session.log
+    else
+        # startx mode: auth file is /tmp/serverauth.* — find it from Xorg's cmdline
+        _XORG_PID=$(cat "/tmp/.X${_DETECTED#:}-lock" 2>/dev/null | tr -d ' ')
+        if [ -n "$_XORG_PID" ]; then
+            _STARTX_AUTH=$(cat /proc/$_XORG_PID/cmdline 2>/dev/null | tr '\0' '\n' | grep -A1 '\-auth' | tail -1)
+            if [ -f "$_STARTX_AUTH" ]; then
+                export XAUTHORITY="$_STARTX_AUTH"
+                echo "$(date) Using startx Xauthority: $XAUTHORITY" >> /tmp/kisti-session.log
+            fi
+        fi
+    fi
+    export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+fi
 export QT_QPA_PLATFORM=xcb
 export OLLAMA_MODELS=/data/ollama
+# Source API keys (ANTHROPIC_API_KEY, ZEUS_API_KEY, etc.)
+[ -f "$HOME/.env" ] && set -a && . "$HOME/.env" && set +a
 # Custom wake word: use trained model if it exists, else fall back to built-in
 if [ -f /data/models/hey_kisti.onnx ]; then
     export KISTI_WAKE_MODEL=/data/models/hey_kisti.onnx
@@ -42,6 +78,9 @@ pkill -9 -f 'python3 main.py' 2>/dev/null || true
 sleep 1
 
 echo "$(date) KiSTI session starting (PID $$)" > "$LOG"
+
+# Allow local connections (needed when launching from SSH into GDM's X server)
+xhost +local: 2>/dev/null || true
 
 # Black background, no screen blanking
 xsetroot -solid black 2>/dev/null || true
@@ -83,7 +122,7 @@ done
 # Warm up model — forces GPU memory allocation so first real query doesn't 500
 # Do NOT set num_ctx — Orin Nano CUDA OOM at 8192. Ollama default (2048) fits in memory.
 curl -sf -X POST http://localhost:11434/api/chat \
-    -d '{"model":"llama3.2:3b","messages":[{"role":"user","content":"hi"}],"stream":false,"options":{"num_predict":1}}' \
+    -d '{"model":"phi4-mini:latest","messages":[{"role":"user","content":"hi"}],"stream":false,"options":{"num_predict":1}}' \
     >> "$LOG" 2>&1 || echo "$(date) Ollama warmup failed (non-critical)" >> "$LOG"
 echo "$(date) Ollama warmup complete" >> "$LOG"
 
@@ -110,6 +149,17 @@ else
     echo "$(date) No USB mic found, using default PA source" >> "$LOG"
 fi
 
+# Keep display awake — xset s off -dpms runs once at startup but Qt or other
+# processes can re-enable blanking mid-session. This loop fires every 60s to
+# reset the screensaver timer so the display stays on while KiSTI is running.
+( while true; do
+    xset s reset 2>/dev/null || true
+    xset s off -dpms 2>/dev/null || true
+    sleep 60
+done ) &
+_KEEPAWAKE_PID=$!
+
 python3 main.py --fullscreen --mic-device "$MIC_DEVICE" >> "$LOG" 2>&1
 
+kill "$_KEEPAWAKE_PID" 2>/dev/null || true
 echo "$(date) KiSTI session ended" >> "$LOG"
